@@ -96,18 +96,22 @@ Several commands are accessible via the Command Palette (Ctrl+Shift+P / Cmd+Shif
    **Solution 2:** Access the authentication link in the output of the extension. When you reopen it, you will find the listing of domains to choose from.
 
    **IMPORTANT NOTE:** You can only choose one domain to tie to the authentication. Regardless of your choice, you will be able to manage all tunnels in the account. The domain you choose simply allows you to modify DNS records for that domain and you can only choose one. DNS records can be modified manually for all others.
+2. **Port and/or Hostname Entry Not Working**
 
-2. **Profile Creation Failed**
+   **Problem:** The port and/or hostname you enter when starting a persistent tunnel is not being respected.
+
+   **Solution:** If you set up your tunnel in the Cloudflare dashboard, the hostname and the url/port you set up will be honored. The URL and hostname you set in the extension will only be respected with tunnels you have created through the extension / the cloudflared CLI.
+
+3. **Profile Creation Failed**
    - Ensure `cloudflared` is installed and in your PATH
    - Verify you're logged in with `cloudflared tunnel login`
-   - Check the extension logs for detailed error messages
 
-3. **Tunnel Status Not Updating**
+4. **Tunnel Status Not Updating**
    - Click the refresh button in the Tunnels view
    - Ensure your profile is properly configured
    - Check your internet connection
 
-4. **Quick Tunnel Won't Start**
+5. **Quick Tunnel Won't Start**
    - Verify the port isn't already in use
    - Check if your local service is running
    - Ensure you have proper permissions

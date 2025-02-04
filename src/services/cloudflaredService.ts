@@ -249,11 +249,23 @@ export class CloudflaredService {
                 this._onTunnelEvent.fire({
                     type: 'error',
                     tunnelId,
-                    data: { error: errorMessage }
+                    data: errorMessage
                 });
                 throw new Error(errorMessage);
             }
             this.logger.debug(LogComponent.TUNNEL, `Got token for tunnel ${tunnelId}`);
+
+            // Fix the origin service URL: default to http://localhost:<port> if hostname is not provided
+            if (!hostname) {
+                hostname = `http://localhost:${port}`;
+            } else {
+                if (!hostname.startsWith('http://') && !hostname.startsWith('https://')) {
+                    hostname = `http://${hostname}`;
+                }
+            }
+
+            // Log the resolved origin URL for debugging
+            this.logger.debug(LogComponent.TUNNEL, `Resolved origin URL: ${hostname}`);
 
             // Build command arguments
             const args = ['tunnel', 'run'];
@@ -262,8 +274,7 @@ export class CloudflaredService {
             args.push('--token', token);
 
             // Add URL (localhost with port)
-            const url = hostname ? `http://${hostname}` : `http://localhost:${port}`;
-            args.push('--url', url);
+            args.push('--url', hostname);
 
             this.logger.debug(LogComponent.COMMAND, `Running cloudflared with args: ${args.join(' ')}`);
 
@@ -463,44 +474,45 @@ export class CloudflaredService {
                 this.logger.debug(LogComponent.TUNNEL, 'Found running tunnel process, terminating...');
                 
                 // Try SIGTERM first for graceful shutdown
-                tunnelProcess.kill('SIGTERM');
+                if (tunnelProcess.pid) {
+                    this.logger.debug(LogComponent.TUNNEL, `Sending SIGTERM to process group ${-tunnelProcess.pid}`);
+                    process.kill(-tunnelProcess.pid, 'SIGTERM');
+                } else {
+                    this.logger.error(LogComponent.TUNNEL, 'Tunnel process PID is undefined; cannot send SIGTERM');
+                }
                 
                 // Give it some time to terminate gracefully
                 await new Promise<void>((resolve) => {
                     const timeout = setTimeout(() => {
                         // If still running after timeout, force kill
-                        if (tunnelProcess.killed === false) {
-                            this.logger.debug(LogComponent.TUNNEL, 'Process still running after SIGTERM, sending SIGKILL...');
-                            tunnelProcess.kill('SIGKILL');
+                        if (!tunnelProcess.killed && tunnelProcess.pid) {
+                            this.logger.debug(LogComponent.TUNNEL, `Process still running after SIGTERM, sending SIGKILL to ${-tunnelProcess.pid}`);
+                            process.kill(-tunnelProcess.pid, 'SIGKILL');
                         }
                         resolve();
                     }, 5000); // 5 second timeout
 
                     tunnelProcess.once('exit', () => {
+                        this.logger.debug(LogComponent.TUNNEL, 'Process exited successfully');
                         clearTimeout(timeout);
                         resolve();
                     });
                 });
+
+                // Remove from running tunnels map
+                this.runningTunnels.delete(cleanTunnelId);
+                
+                // Fire event to notify listeners
+                this._onTunnelEvent.fire({
+                    type: 'status',
+                    tunnelId: cleanTunnelId,
+                    data: {
+                        status: 'stopped'
+                    }
+                });
+            } else {
+                this.logger.debug(LogComponent.TUNNEL, 'No running process found for tunnel');
             }
-            
-            // Run cleanup command
-            await this.runCloudflaredCommand(`cloudflared tunnel cleanup "${cleanTunnelId}"`);
-            
-            // Wait a bit before refreshing to allow cleanup to take effect
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            
-            // Refresh tunnel list
-            this.logger.debug(LogComponent.TUNNEL, 'Refreshing tunnel list after cleanup...');
-            await this.listTunnels();
-            
-            // Fire event to notify listeners
-            this._onTunnelEvent.fire({
-                type: 'status',
-                tunnelId: cleanTunnelId,
-                data: {
-                    status: 'stopped'
-                }
-            });
         } catch (err) {
             const error = err instanceof Error ? err : new Error('Unknown error occurred');
             this.logger.error(LogComponent.TUNNEL, `Failed to stop tunnel ${tunnelId}:`, error);

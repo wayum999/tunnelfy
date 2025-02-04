@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { Logger } from '../utils/logger';
+import { Logger, LogComponent } from '../utils/logger';
 
 export interface TokenAuditEvent {
     timestamp: string;
@@ -26,7 +26,7 @@ export class TokenAuditService {
             try {
                 this.auditEvents = JSON.parse(events);
             } catch (error) {
-                this.logger.error('Failed to parse audit events:', error);
+                this.logger.error(LogComponent.TUNNEL, 'Failed to parse audit events:', error instanceof Error ? error.message : String(error));
                 this.auditEvents = [];
             }
         }
@@ -43,7 +43,7 @@ export class TokenAuditService {
                 JSON.stringify(this.auditEvents)
             );
         } catch (error) {
-            this.logger.error('Failed to save audit events:', error);
+            this.logger.error(LogComponent.TUNNEL, 'Failed to save audit events:', error instanceof Error ? error.message : String(error));
         }
     }
 
@@ -58,10 +58,7 @@ export class TokenAuditService {
         
         // Log suspicious activity
         if (!event.success) {
-            this.logger.warn(
-                'Suspicious token activity detected:',
-                JSON.stringify(auditEvent)
-            );
+            this.logger.warn(LogComponent.TUNNEL, 'Suspicious token activity detected:', JSON.stringify(auditEvent));
         }
     }
 

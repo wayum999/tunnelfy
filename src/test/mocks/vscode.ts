@@ -34,6 +34,7 @@ export interface Memento {
     get<T>(key: string, defaultValue: T): T;
     update(key: string, value: any): Thenable<void>;
     keys(): readonly string[];
+    setKeysForSync(keys: readonly string[]): void;
 }
 
 export interface SecretStorage {

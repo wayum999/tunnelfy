@@ -32,7 +32,15 @@ export function createMockExtensionContext(): vscode.ExtensionContext {
         globalStoragePath: path.join(workspacePath, 'globalStorage'),
         logPath: path.join(workspacePath, 'logs'),
         extensionUri: vscode.Uri.file(workspacePath),
-        environmentVariableCollection: undefined,
+        environmentVariableCollection: {
+            replace: () => {},
+            append: () => {},
+            get: (_: string) => undefined,
+            forEach: () => {},
+            delete: () => {},
+            clear: () => {},
+            persistent: false
+        },
         extensionMode: vscode.ExtensionMode.Test,
         storageUri: vscode.Uri.file(path.join(workspacePath, 'storage')),
         globalStorageUri: vscode.Uri.file(path.join(workspacePath, 'globalStorage')),
@@ -63,6 +71,10 @@ class MockMemento implements vscode.Memento {
 
     keys(): readonly string[] {
         return Array.from(this.storage.keys());
+    }
+
+    setKeysForSync(keys: readonly string[]): void {
+        // stub: no-op for test environment
     }
 }
 

@@ -29,7 +29,7 @@ export function run(): Promise<void> {
     });
 
     // Add the extension test file directly
-    const testFile = path.join(__dirname, 'extension.test.js');
+    const testFile = path.join(__dirname, 'extension.test.ts');
     console.log('Adding test file:', testFile);
     mocha.addFile(testFile);
 

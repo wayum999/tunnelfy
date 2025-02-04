@@ -118,9 +118,8 @@ Several commands are accessible via the Command Palette (Ctrl+Shift+P / Cmd+Shif
 
 ## Changelog
 
-### Version 0.0.1
+See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes.
 
-- Initial Release
 
 ## Roadmap
 

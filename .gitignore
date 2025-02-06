@@ -1,38 +1,27 @@
 # VS Code Extension specific
 out/
-dist/
 *.vsix
-.vscode-test/
 .vscode-test-web/
+.vscode-test/
 
 # Dependencies
 node_modules/
 .pnpm-store/
-package-lock.json
-yarn.lock
-pnpm-lock.yaml
 
 # TypeScript
 *.tsbuildinfo
 **/*.tsbuildinfo
 
-# Build output
-build/
-lib/
-**/out/**
-**/dist/**
+# Source maps and compiled JavaScript in source directory
+**/src/**/*.js.map
+**/src/**/*.js
+!esbuild.js
 
 # Environment and secrets
 .env
 .env.local
 .env.*.local
 *.env.json
-.env.development
-.env.test
-.env.production
-*.pem
-*.key
-*.cert
 
 # IDE and editor files
 .idea/
@@ -41,10 +30,10 @@ lib/
 .DS_Store
 **/.DS_Store
 .vscode/*
-!.vscode/settings.json
 !.vscode/tasks.json
 !.vscode/launch.json
 !.vscode/extensions.json
+!.vscode/settings.json
 
 # Logs
 logs/
@@ -53,13 +42,10 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 lerna-debug.log*
-.pnpm-debug.log*
 
 # Test coverage
 coverage/
 .nyc_output/
-junit.xml
-test-results/
 
 # Optional npm cache directory
 .npm
@@ -67,22 +53,57 @@ test-results/
 # Optional eslint cache
 .eslintcache
 
-# Optional stylelint cache
-.stylelintcache
+# Optional REPL history
+.node_repl_history
 
-# Temporary files
-*.tmp
-*.temp
-.cache/
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# dotenv environment variable files
+.env
+.env.test
+.env*.local
+
+# parcel-bundler cache (https://parceljs.org/)
+.cache
+.parcel-cache
+
+# Next.js build output
+.next
+
+# Nuxt.js build / generate output
+.nuxt
+dist/
+
+# Temporary folders
 tmp/
+temp/
 
-# OS generated files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
+# Cloudflare specific
+.cloudflared/
+*.cert
+*.json.backup
+tunnel.db
+
+# Package manager locks in subdirectories
+**/package-lock.json
+!./package-lock.json 
+
+# _DEV
+_DEV/api_test/
+_DEV/ICON_MASTER.pxd
+_DEV/cloudflare-tunnel-vscode-EXAMPLE
+!./versions
+
+
+# Compiled JavaScript files
+# *.js
+# !tunnelfy/esbuild.js
+# *.js.map
+run_merge_branch_main.sh
+install_vscode.sh
 
 _DEV/

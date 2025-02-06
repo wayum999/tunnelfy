@@ -1,41 +1,26 @@
 import * as path from 'path';
 import * as Mocha from 'mocha';
-import * as fs from 'fs';
+import { glob } from 'glob';
 
-function findTestFiles(dir: string): string[] {
-    const entries = fs.readdirSync(dir, { withFileTypes: true });
-    const files: string[] = [];
-    
-    for (const entry of entries) {
-        const fullPath = path.join(dir, entry.name);
-        
-        if (entry.isDirectory()) {
-            files.push(...findTestFiles(fullPath));
-        } else if (entry.name.endsWith('.test.js')) {
-            console.log('Found test file:', fullPath);
-            files.push(fullPath);
-        }
-    }
-    
-    return files;
-}
-
-export function run(): Promise<void> {
+export async function run(): Promise<void> {
     // Create the mocha test
     const mocha = new Mocha({
-        ui: 'bdd',
+        ui: 'tdd',
         color: true,
-        timeout: 60000 // 60 seconds
+        timeout: 60000
     });
 
-    // Add the extension test file directly
-    const testFile = path.join(__dirname, 'extension.test.ts');
-    console.log('Adding test file:', testFile);
-    mocha.addFile(testFile);
+    const testsRoot = path.resolve(__dirname);
 
-    // Run the mocha test
-    return new Promise<void>((resolve, reject) => {
-        try {
+    try {
+        // Find all test files
+        const files = await glob('*.test.js', { cwd: testsRoot });
+
+        // Add files to the test suite
+        files.forEach((f: string) => mocha.addFile(path.resolve(testsRoot, f)));
+
+        // Run the mocha test
+        return new Promise<void>((resolve, reject) => {
             mocha.run(failures => {
                 if (failures > 0) {
                     reject(new Error(`${failures} tests failed.`));
@@ -43,9 +28,8 @@ export function run(): Promise<void> {
                     resolve();
                 }
             });
-        } catch (err) {
-            console.error('Error running tests:', err);
-            reject(err);
-        }
-    });
+        });
+    } catch (err) {
+        throw err;
+    }
 }

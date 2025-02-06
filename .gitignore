@@ -2,10 +2,15 @@
 out/
 dist/
 *.vsix
+.vscode-test/
+.vscode-test-web/
 
-# Dependencies - handle nested directories
+# Dependencies
 node_modules/
 .pnpm-store/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
 
 # TypeScript
 *.tsbuildinfo
@@ -22,6 +27,12 @@ lib/
 .env.local
 .env.*.local
 *.env.json
+.env.development
+.env.test
+.env.production
+*.pem
+*.key
+*.cert
 
 # IDE and editor files
 .idea/
@@ -29,24 +40,26 @@ lib/
 *.swo
 .DS_Store
 **/.DS_Store
-.vscode-test/
-.vscode-test-web/
-.vscode
-*/.vscode
-
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
 
 # Logs
+logs/
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 lerna-debug.log*
-logs/
-
-*.log
+.pnpm-debug.log*
 
 # Test coverage
 coverage/
 .nyc_output/
+junit.xml
+test-results/
 
 # Optional npm cache directory
 .npm
@@ -54,37 +67,22 @@ coverage/
 # Optional eslint cache
 .eslintcache
 
-# Optional REPL history
-.node_repl_history
+# Optional stylelint cache
+.stylelintcache
 
-# Output of 'npm pack'
-*.tgz
+# Temporary files
+*.tmp
+*.temp
+.cache/
+tmp/
 
-# Yarn Integrity file
-.yarn-integrity
-
-# Cloudflare specific
-.cloudflared/
-*.cert
-*.json.backup
-tunnel.db
-
-# Package manager locks in subdirectories
-**/package-lock.json
-!./package-lock.json 
-
-# _DEV
-_DEV/api_test/
-_DEV/ICON_MASTER.pxd
-_DEV/cloudflare-tunnel-vscode-EXAMPLE
-!./versions
-
-
-# Compiled JavaScript files
-*.js
-!tunnelfy/esbuild.js
-*.js.map
-run_merge_branch_main.sh
-install_vscode.sh
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
 
 _DEV/

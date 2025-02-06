@@ -272,14 +272,12 @@
     "vscode:prepublish": "npm run package",
     "compile": "node esbuild.js",
     "watch": "node esbuild.js --watch",
-    "package": "node esbuild.js --production",
+    "package": "node esbuild.js --minify",
     "compile-tests": "tsc -p ./src/test/tsconfig.json",
-    "watch-tests": "tsc -p ./src/test/tsconfig.json -w",
+    "watch-tests": "tsc -w -p ./src/test/tsconfig.json",
+    "test": "vscode-test",
     "pretest": "npm run compile && npm run compile-tests",
-    "lint": "eslint src --ext ts",
-    "test": "mocha --require ts-node/register './src/test/suite/extension.test.ts' --timeout 60000",
-    "test:unit": "mocha --require ts-node/register './src/test/unit/**/*.test.ts'",
-    "test:integration": "mocha --require ts-node/register './src/test/integration/**/*.test.ts'"
+    "test-watch": "npm run watch-tests"
   },
   "devDependencies": {
     "@types/chai": "^5.0.1",
@@ -293,10 +291,13 @@
     "chai": "^5.1.2",
     "esbuild": "^0.19.12",
     "eslint": "^8.56.0",
-    "glob": "^10.3.10",
-    "mocha": "^10.2.0",
+    "glob": "^10.4.5",
+    "mocha": "^10.8.2",
     "sinon": "^19.0.2",
     "ts-node": "^10.9.2",
     "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "@vscode/test-cli": "^0.0.10"
   }
 }

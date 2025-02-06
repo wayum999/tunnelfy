@@ -10,28 +10,27 @@
 			"type": "extensionHost",
 			"request": "launch",
 			"args": [
-				"--extensionDevelopmentPath=${workspaceFolder}"
+				"--extensionDevelopmentPath=${workspaceFolder}",
+				"--disable-extensions"
 			],
 			"outFiles": [
-				"${workspaceFolder}/out/**/*.js"
+				"${workspaceFolder}/dist/**/*.js"
 			],
-			"preLaunchTask": "${defaultBuildTask}"
+			"preLaunchTask": "npm: watch"
 		},
 		{
-			"name": "Run Tests",
-			"type": "node",
+			"name": "Extension Tests",
+			"type": "extensionHost",
 			"request": "launch",
-			"program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
 			"args": [
-				"-r",
-				"ts-node/register",
-				"--timeout",
-				"999999",
-				"--colors",
-				"${workspaceFolder}/src/test/**/*.test.ts"
+				"--extensionDevelopmentPath=${workspaceFolder}",
+				"--extensionTestsPath=${workspaceFolder}/out/test/suite/index"
 			],
-			"console": "integratedTerminal",
-			"internalConsoleOptions": "neverOpen"
+			"outFiles": [
+				"${workspaceFolder}/dist/**/*.js",
+				"${workspaceFolder}/out/test/**/*.js"
+			],
+			"preLaunchTask": "npm: test-compile"
 		}
 	]
 }

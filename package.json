@@ -269,35 +269,35 @@
     ]
   },
   "scripts": {
-    "vscode:prepublish": "npm run package",
+    "vscode:prepublish": "npm run compile",
     "compile": "node esbuild.js",
     "watch": "node esbuild.js --watch",
-    "package": "node esbuild.js --minify",
+    "pretest": "npm run clean-tests && npm run compile && npm run compile-tests",
+    "clean-tests": "rimraf out/test",
     "compile-tests": "tsc -p ./src/test/tsconfig.json",
-    "watch-tests": "tsc -w -p ./src/test/tsconfig.json",
-    "test": "vscode-test",
-    "pretest": "npm run compile && npm run compile-tests",
-    "test-watch": "npm run watch-tests"
+    "test": "node ./out/test/test/suite/index.js",
+    "lint": "eslint src --ext ts",
+    "package": "vsce package",
+    "publish": "vsce publish"
   },
   "devDependencies": {
     "@types/chai": "^5.0.1",
     "@types/glob": "^8.1.0",
-    "@types/mocha": "^10.0.6",
+    "@types/mocha": "^10.0.10",
     "@types/node": "18.x",
     "@types/sinon": "^17.0.3",
     "@types/vscode": "^1.85.0",
     "@typescript-eslint/parser": "^6.15.0",
-    "@vscode/test-electron": "^2.3.8",
+    "@vscode/test-cli": "^0.0.10",
+    "@vscode/test-electron": "^2.4.1",
     "chai": "^5.1.2",
     "esbuild": "^0.19.12",
     "eslint": "^8.56.0",
     "glob": "^10.4.5",
     "mocha": "^10.8.2",
+    "rimraf": "^6.0.1",
     "sinon": "^19.0.2",
     "ts-node": "^10.9.2",
     "typescript": "^5.3.3"
-  },
-  "dependencies": {
-    "@vscode/test-cli": "^0.0.10"
   }
 }

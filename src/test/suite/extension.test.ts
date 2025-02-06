@@ -137,4 +137,57 @@ suite('Extension Test Suite', () => {
         const extension = vscode.extensions.getExtension('Willbot.tunnelfy');
         assert.ok(extension?.isActive, 'Extension should be active');
     });
+
+    suite('Configuration Tests', () => {
+        let extension: vscode.Extension<any>;
+        let configSchema: any;
+
+        before(() => {
+            extension = vscode.extensions.getExtension('Willbot.tunnelfy')!;
+            configSchema = extension.packageJSON.contributes.configuration;
+        });
+
+        test('Should have valid configuration schema', async () => {
+            // Verify configuration title
+            assert.strictEqual(configSchema.title, 'Tunnelfy', 'Configuration title should be Tunnelfy');
+            
+            // Verify autoRefreshEnabled schema
+            const autoRefreshEnabled = configSchema.properties['tunnelfy.autoRefreshEnabled'];
+            assert.ok(autoRefreshEnabled, 'autoRefreshEnabled setting should exist');
+            assert.strictEqual(autoRefreshEnabled.type, 'boolean', 'autoRefreshEnabled should be boolean');
+            assert.strictEqual(autoRefreshEnabled.default, true, 'autoRefreshEnabled should default to true');
+            assert.ok(autoRefreshEnabled.description, 'autoRefreshEnabled should have a description');
+            
+            // Verify autoRefreshInterval schema
+            const autoRefreshInterval = configSchema.properties['tunnelfy.autoRefreshInterval'];
+            assert.ok(autoRefreshInterval, 'autoRefreshInterval setting should exist');
+            assert.strictEqual(autoRefreshInterval.type, 'number', 'autoRefreshInterval should be number');
+            assert.strictEqual(autoRefreshInterval.default, 30, 'autoRefreshInterval should default to 30');
+            assert.strictEqual(autoRefreshInterval.minimum, 5, 'autoRefreshInterval minimum should be 5');
+            assert.strictEqual(autoRefreshInterval.maximum, 300, 'autoRefreshInterval maximum should be 300');
+            assert.ok(autoRefreshInterval.description, 'autoRefreshInterval should have a description');
+            
+            // Verify checkCloudflaredOnStartup schema
+            const checkCloudflaredOnStartup = configSchema.properties['tunnelfy.checkCloudflaredOnStartup'];
+            assert.ok(checkCloudflaredOnStartup, 'checkCloudflaredOnStartup setting should exist');
+            assert.strictEqual(checkCloudflaredOnStartup.type, 'boolean', 'checkCloudflaredOnStartup should be boolean');
+            assert.strictEqual(checkCloudflaredOnStartup.default, true, 'checkCloudflaredOnStartup should default to true');
+            assert.ok(checkCloudflaredOnStartup.description, 'checkCloudflaredOnStartup should have a description');
+        });
+
+        test('Should have all required configuration properties', () => {
+            const requiredSettings = [
+                'tunnelfy.autoRefreshEnabled',
+                'tunnelfy.autoRefreshInterval',
+                'tunnelfy.checkCloudflaredOnStartup'
+            ];
+
+            for (const setting of requiredSettings) {
+                assert.ok(
+                    configSchema.properties[setting],
+                    `Configuration should include ${setting}`
+                );
+            }
+        });
+    });
 });

@@ -298,6 +298,7 @@ export class CloudflaredService {
 
             // Run tunnel in the background
             this.logger.debug(LogComponent.TUNNEL, 'Spawning cloudflared process...');
+            
             const tunnel = cp.spawn('cloudflared', args, {
                 detached: true,
                 stdio: ['ignore', stdout, stderr],
@@ -608,6 +609,21 @@ export class CloudflaredService {
     }
 
     /**
+     * Checks if a port is available
+     * @param port - The port to check
+     * @returns True if the port is available, false otherwise
+     */
+    private async isPortAvailable(port: number): Promise<boolean> {
+        try {
+            const { stdout } = await exec(`lsof -i:${port}`);
+            return stdout.trim() === ''; // Port is available if no process is using it
+        } catch (error) {
+            // lsof exits with code 1 if no process is using the port
+            return true;
+        }
+    }
+
+    /**
      * Creates a quick tunnel
      * @param port - The port to run the tunnel on
      * @param hostname - The hostname to run the tunnel on (optional)
@@ -617,7 +633,19 @@ export class CloudflaredService {
         try {
             this.logger.debug(LogComponent.TUNNEL, `Starting quick tunnel creation for port ${port}`);
             
-            // Verify cert file first
+            // First check if cloudflared is installed
+            const isInstalled = await this.checkInstallation();
+            if (!isInstalled) {
+                throw new Error('cloudflared is not installed. Please install it first.');
+            }
+            
+            // Check if port is available
+            const portAvailable = await this.isPortAvailable(port);
+            if (!portAvailable) {
+                throw new Error(`Port ${port} is already in use. Please choose a different port.`);
+            }
+            
+            // Verify cert file next
             await this.verifyCertFile();
             this.logger.debug(LogComponent.TUNNEL, 'Certificate verified');
 
@@ -641,8 +669,9 @@ export class CloudflaredService {
             // Return a promise that resolves when we get the tunnel URL
             return new Promise((resolve, reject) => {
                 let output = '';
+                let errorOutput = '';
                 let tunnelUrl = '';
-                let localUrl = `http://localhost:${port}`; // We know this already
+                let localUrl = `http://localhost:${port}`;
                 let timeoutId: NodeJS.Timeout;
 
                 this.logger.debug(LogComponent.TUNNEL, 'Setting up tunnel output handlers');
@@ -657,10 +686,7 @@ export class CloudflaredService {
                     if (tunnelMatch && !tunnelUrl) {
                         tunnelUrl = tunnelMatch[0];
                         this.logger.debug(LogComponent.TUNNEL, `Found tunnel URL: ${tunnelUrl}`);
-                    }
-
-                    if (tunnelUrl) {
-                        this.logger.debug(LogComponent.TUNNEL, 'Found tunnel URL, resolving promise');
+                        
                         clearTimeout(timeoutId);
                         resolve({
                             url: localUrl,
@@ -671,9 +697,10 @@ export class CloudflaredService {
 
                 tunnel.stderr?.on('data', (data: Buffer) => {
                     const line = data.toString();
+                    errorOutput += line;
                     this.logger.debug(LogComponent.TUNNEL, `Quick tunnel stderr: ${line}`);
                     
-                    // Also look for tunnel URL in stderr
+                    // Also look for tunnel URL in stderr (sometimes cloudflared outputs to stderr)
                     const tunnelMatch = line.match(/https:\/\/[^\s]+\.trycloudflare\.com/);
                     if (tunnelMatch && !tunnelUrl) {
                         tunnelUrl = tunnelMatch[0];
@@ -685,19 +712,39 @@ export class CloudflaredService {
                             tunnelUrl: tunnelUrl
                         });
                     }
+
+                    // Check for rate limit errors
+                    if (line.includes('429 Too Many Requests')) {
+                        clearTimeout(timeoutId);
+                        reject(new Error('Rate limit exceeded for quick tunnels. Please wait a few minutes and try again, or consider using a named tunnel instead.'));
+                        return;
+                    }
+
+                    // Check for common error messages
+                    if (line.includes('error')) {
+                        this.logger.error(LogComponent.TUNNEL, `Quick tunnel error in stderr: ${line}`);
+                    }
                 });
 
                 tunnel.on('error', (error) => {
                     this.logger.error(LogComponent.TUNNEL, 'Quick tunnel error:', error);
                     clearTimeout(timeoutId);
-                    reject(error);
+                    reject(new Error(`Quick tunnel failed to start: ${error.message}`));
                 });
 
                 tunnel.on('exit', (code) => {
                     this.logger.debug(LogComponent.TUNNEL, `Quick tunnel process exited with code ${code}`);
                     if (code !== 0 && !tunnelUrl) {
                         clearTimeout(timeoutId);
-                        reject(new Error(`Quick tunnel exited with code ${code}`));
+                        // Handle rate limit errors from the exit code
+                        if (errorOutput.includes('429 Too Many Requests')) {
+                            reject(new Error('Rate limit exceeded for quick tunnels. Please wait a few minutes and try again, or consider using a named tunnel instead.'));
+                            return;
+                        }
+                        const errorMsg = errorOutput ? 
+                            `Quick tunnel failed: ${errorOutput}` : 
+                            `Quick tunnel exited with code ${code}`;
+                        reject(new Error(errorMsg));
                     }
                 });
 
@@ -710,7 +757,7 @@ export class CloudflaredService {
             });
         } catch (error) {
             this.logger.error(LogComponent.TUNNEL, 'Failed to create quick tunnel:', error);
-            return null;
+            throw error; // Re-throw to let caller handle the error
         }
     }
 

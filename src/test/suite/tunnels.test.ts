@@ -26,15 +26,14 @@ suite('Tunnel Management Tests', () => {
         }
     });
 
-    test('Create quick tunnel command should be executable', async () => {
+    test('Create quick tunnel command should be executable', async function() {
+        this.timeout(35000); // Increase timeout to 35 seconds since quick tunnel creation can take time
+        
         const inputStub = sinon.stub(vscode.window, 'showInputBox');
         inputStub.resolves('8080');
 
         try {
             await vscode.commands.executeCommand('tunnelfy.createQuickTunnel');
-            
-            // Note: We can't fully verify quick tunnel creation as it requires actual cloudflared
-            // Instead, we verify the command executes without error
             assert.ok(true, 'Create quick tunnel command should execute without error');
         } finally {
             inputStub.restore();

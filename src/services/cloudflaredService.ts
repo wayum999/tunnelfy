@@ -87,8 +87,9 @@ export class CloudflaredService {
      * Executes a cloudflared CLI command
      * Handles environment setup and error logging
      * @param command - The cloudflared command to execute
+     * @param silent - If true, suppresses output window focus (default: false)
      */
-    private async runCloudflaredCommand(command: string): Promise<{ stdout: string; stderr: string }> {
+    private async runCloudflaredCommand(command: string, silent: boolean = false): Promise<{ stdout: string; stderr: string }> {
         try {
             // Add cert path to environment if needed
             const env = { ...process.env };
@@ -96,25 +97,31 @@ export class CloudflaredService {
                 env.TUNNEL_ORIGIN_CERT = this.certPath;
             }
 
-            this.logger.debug(LogComponent.COMMAND, `Running command: ${command}`);
+            if (!silent) {
+                this.logger.debug(LogComponent.COMMAND, `Running command: ${command}`);
+            }
 
             const { stdout, stderr } = await util.promisify(cp.exec)(command, { env });
 
-            if (stderr) {
+            if (stderr && !silent) {
                 this.logger.warn(LogComponent.COMMAND, 'Command stderr:', stderr.trim());
             }
 
             // For JSON responses, just log that we received data
-            if (stdout.trim().startsWith('{') || stdout.trim().startsWith('[')) {
-                this.logger.debug(LogComponent.COMMAND, 'Command returned JSON data');
-            } else {
-                this.logger.debug(LogComponent.COMMAND, 'Command output:', stdout.trim());
+            if (!silent) {
+                if (stdout.trim().startsWith('{') || stdout.trim().startsWith('[')) {
+                    this.logger.debug(LogComponent.COMMAND, 'Command returned JSON data');
+                } else {
+                    this.logger.debug(LogComponent.COMMAND, 'Command output:', stdout.trim());
+                }
             }
 
             return { stdout, stderr };
         } catch (error) {
             const err = error as cp.ExecException;
-            this.logger.error(LogComponent.COMMAND, `Command failed: ${command}`, err);
+            if (!silent) {
+                this.logger.error(LogComponent.COMMAND, `Command failed: ${command}`, err);
+            }
             throw err;
         }
     }
@@ -125,8 +132,8 @@ export class CloudflaredService {
      */
     async checkInstallation(): Promise<boolean> {
         try {
-            const { stdout } = await this.runCloudflaredCommand('cloudflared --version');
-            const isInstalled = stdout.includes('cloudflared version');
+            const { stdout } = await this.runCloudflaredCommand('cloudflared --version', true);
+            const isInstalled = stdout.toLowerCase().includes('cloudflared version');
             this.logger.debug(LogComponent.TUNNEL, `Cloudflared installation check: ${isInstalled}`);
             return isInstalled;
         } catch (error) {
@@ -167,6 +174,7 @@ export class CloudflaredService {
      */
     async createTunnel(name: string): Promise<boolean> {
         try {
+            await this.verifyCertFile();
             await this.runCloudflaredCommand(`cloudflared tunnel create ${name}`);
             return true;
         } catch (error) {
@@ -197,7 +205,7 @@ export class CloudflaredService {
     async listTunnels(): Promise<Array<{ id: string; name: string; connections?: Array<any>; url?: string }>> {
         try {
             this.logger.debug(LogComponent.TUNNEL, 'Listing tunnels...');
-            const { stdout } = await this.runCloudflaredCommand('cloudflared tunnel list --output json');
+            const { stdout } = await this.runCloudflaredCommand('cloudflared tunnel list --output json', true);
             const tunnels = JSON.parse(stdout) as Array<{ id: string; name: string; connections?: Array<any>; url?: string }>;
             this.logger.debug(LogComponent.TUNNEL, `Found ${tunnels.length} tunnels`);
             

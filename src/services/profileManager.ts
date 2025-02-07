@@ -163,10 +163,18 @@ export class ProfileManager {
         );
 
         // Wait for cert.pem to appear (check every second for up to 60 seconds)
+        const certPath = path.join(this.cloudflaredDir, 'cert.pem');
         for (let i = 0; i < 60; i++) {
-            if (await this.isLoggedIn()) {
-                this.logger.info(LogComponent.PROFILE, 'Login successful, cert.pem found');
-                return;
+            try {
+                if (fs.existsSync(certPath)) {
+                    const stats = fs.statSync(certPath);
+                    if (stats.size > 0) {
+                        this.logger.info(LogComponent.PROFILE, 'Login successful, cert.pem found');
+                        return;
+                    }
+                }
+            } catch (error) {
+                this.logger.debug(LogComponent.PROFILE, 'Waiting for cert.pem...', error);
             }
             await new Promise(resolve => setTimeout(resolve, 1000));
         }
@@ -224,17 +232,25 @@ export class ProfileManager {
         const profileCertPath = path.join(this.cloudflaredDir, `cert_${profileName}.pem`);
 
         try {
-            // If there's an active profile, back up its cert first
+            // If there's an active profile and cert.pem exists, back it up
             if (config.activeProfile && fs.existsSync(certPath)) {
-                const currentProfilePath = path.join(this.cloudflaredDir, `cert_${config.activeProfile}.pem`);
-                this.logger.debug(LogComponent.PROFILE, `Backing up current profile cert: ${certPath} -> ${currentProfilePath}`);
-                fs.copyFileSync(certPath, currentProfilePath);
+                try {
+                    const currentProfilePath = path.join(this.cloudflaredDir, `cert_${config.activeProfile}.pem`);
+                    this.logger.debug(LogComponent.PROFILE, `Backing up current profile cert: ${certPath} -> ${currentProfilePath}`);
+                    fs.copyFileSync(certPath, currentProfilePath);
+                } catch (error) {
+                    this.logger.warn(LogComponent.PROFILE, 'Failed to backup current cert.pem:', error);
+                }
             }
 
-            // Remove the current cert.pem to force a new login
+            // Remove the current cert.pem if it exists
             if (fs.existsSync(certPath)) {
-                this.logger.debug(LogComponent.PROFILE, 'Removing current cert.pem');
-                fs.unlinkSync(certPath);
+                try {
+                    this.logger.debug(LogComponent.PROFILE, 'Removing current cert.pem');
+                    fs.unlinkSync(certPath);
+                } catch (error) {
+                    this.logger.warn(LogComponent.PROFILE, 'Failed to remove current cert.pem:', error);
+                }
             }
 
             // Force a new login for the new profile
@@ -245,8 +261,13 @@ export class ProfileManager {
                 throw new Error('Login failed: cert.pem not created');
             }
 
-            this.logger.debug(LogComponent.PROFILE, `Saving new profile cert: ${certPath} -> ${profileCertPath}`);
-            fs.copyFileSync(certPath, profileCertPath);
+            try {
+                this.logger.debug(LogComponent.PROFILE, `Saving new profile cert: ${certPath} -> ${profileCertPath}`);
+                fs.copyFileSync(certPath, profileCertPath);
+            } catch (error) {
+                this.logger.error(LogComponent.PROFILE, 'Failed to copy cert.pem to profile:', error);
+                throw new Error('Failed to save profile certificate');
+            }
 
             // Update config
             config.profiles.push(profileName);
@@ -257,6 +278,16 @@ export class ProfileManager {
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             this.logger.error(LogComponent.PROFILE, `Failed to create profile ${profileName}:`, message);
+            
+            // Clean up any partially created files
+            if (fs.existsSync(profileCertPath)) {
+                try {
+                    fs.unlinkSync(profileCertPath);
+                } catch (cleanupError) {
+                    this.logger.error(LogComponent.PROFILE, 'Failed to clean up profile cert file:', cleanupError);
+                }
+            }
+            
             throw new Error(`Failed to create profile: ${message}`);
         }
     }
@@ -448,7 +479,16 @@ export class ProfileManager {
      */
     async isLoggedIn(): Promise<boolean> {
         const certPath = path.join(this.cloudflaredDir, 'cert.pem');
-        return fs.existsSync(certPath);
+        try {
+            if (!fs.existsSync(certPath)) {
+                return false;
+            }
+            const stats = fs.statSync(certPath);
+            return stats.size > 0;
+        } catch (error) {
+            this.logger.error(LogComponent.PROFILE, 'Error checking login status:', error);
+            return false;
+        }
     }
 
     /**

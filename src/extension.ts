@@ -806,7 +806,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
         // Setup auto-refresh for the providers
         tunnelProvider.setupAutoRefresh();
-        quickTunnelProvider.setupAutoRefresh();
+        // quickTunnelProvider.setupAutoRefresh();
 
         logger.info(LogComponent.EXTENSION, 'Extension activated successfully');
 

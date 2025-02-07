@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { CloudflaredService } from '../services/cloudflaredService';
 import { Logger, LogComponent } from '../utils/logger';
+import { ProfileManager } from '../services/profileManager';
 
 export class QuickTunnelTreeItem extends vscode.TreeItem {
     constructor(
@@ -71,13 +72,21 @@ export class QuickTunnelTreeDataProvider implements vscode.TreeDataProvider<Quic
         this.cloudflaredInstalled = initialCloudflaredStatus;
 
         // Start refresh cycle if enabled
-        this.setupAutoRefresh();
+        this.checkCloudflaredInstallation().then(installed => {
+            if (installed) {
+                this.setupAutoRefresh();
+            } else {
+                this.logger.info(LogComponent.TUNNEL, 'Auto-refresh disabled - cloudflared not installed');
+            }
+        });
 
         // Listen for configuration changes
         vscode.workspace.onDidChangeConfiguration(e => {
             if (e.affectsConfiguration('tunnelfy.autoRefreshEnabled') || 
                 e.affectsConfiguration('tunnelfy.autoRefreshInterval')) {
-                this.setupAutoRefresh();
+                if (this.cloudflaredInstalled) {
+                    this.setupAutoRefresh();
+                }
             }
         });
     }
@@ -85,7 +94,13 @@ export class QuickTunnelTreeDataProvider implements vscode.TreeDataProvider<Quic
     /**
      * Sets up or updates the auto-refresh cycle based on current settings
      */
-    public setupAutoRefresh(): void {
+    private setupAutoRefresh(): void {
+        // Don't set up refresh if cloudflared is not installed
+        if (!this.cloudflaredInstalled) {
+            this.logger.info(LogComponent.TUNNEL, 'Auto-refresh not enabled - cloudflared not installed');
+            return;
+        }
+
         const config = vscode.workspace.getConfiguration('tunnelfy');
         const autoRefreshEnabled = config.get('autoRefreshEnabled', true);
         const intervalSeconds = config.get('autoRefreshInterval', 30);
@@ -98,20 +113,27 @@ export class QuickTunnelTreeDataProvider implements vscode.TreeDataProvider<Quic
 
         // Set up new interval if enabled
         if (autoRefreshEnabled) {
-            this.refreshInterval = setInterval(() => {
-                this.refresh();
+            this.refreshInterval = setInterval(async () => {
+                // Double check cloudflared is still installed before refreshing
+                if (this.cloudflaredInstalled) {
+                    await this.refresh();
+                }
             }, intervalSeconds * 1000) as unknown as NodeJS.Timeout;
-            this.logger.debug(LogComponent.TUNNEL, `Auto-refresh enabled with ${intervalSeconds}s interval`);
+            this.logger.info(LogComponent.TUNNEL, `Auto-refresh enabled with ${intervalSeconds}s interval`);
         } else {
-            this.logger.debug(LogComponent.TUNNEL, 'Auto-refresh disabled');
+            this.logger.info(LogComponent.TUNNEL, 'Auto-refresh disabled');
         }
     }
 
     /**
      * Check if cloudflared is installed and cache the result
+     * @returns Promise<boolean> indicating if cloudflared is installed
      */
-    private async checkCloudflaredInstallation(): Promise<void> {
-        this.cloudflaredInstalled = await this.cloudflaredService.checkInstallation();
+    private async checkCloudflaredInstallation(): Promise<boolean> {
+        const profileManager = new ProfileManager();
+        const isInstalled = await profileManager.isCloudflaredInstalled();
+        this.cloudflaredInstalled = isInstalled;
+        return isInstalled;
     }
 
     async refresh(): Promise<void> {

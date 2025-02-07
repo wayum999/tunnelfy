@@ -107,8 +107,17 @@ export class TunnelTreeDataProvider implements vscode.TreeDataProvider<TunnelTre
 
         // Listen to tunnel events from CloudflaredService; refresh view on status changes
         this.cloudflaredService.onTunnelEvent(event => {
-            if (event.type === 'status') {
+            if (event.type === 'status' && this.cloudflaredInstalled) {
                 this.refresh();
+            }
+        });
+
+        // Check cloudflared installation status before setting up auto-refresh
+        this.checkCloudflaredInstallation().then(installed => {
+            if (installed) {
+                this.setupAutoRefresh();
+            } else {
+                this.logger.info('TunnelTreeDataProvider', 'Auto-refresh disabled - cloudflared not installed');
             }
         });
     }
@@ -117,6 +126,12 @@ export class TunnelTreeDataProvider implements vscode.TreeDataProvider<TunnelTre
      * Sets up or updates the auto-refresh cycle based on current settings
      */
     public setupAutoRefresh(): void {
+        // Don't set up refresh if cloudflared is not installed
+        if (!this.cloudflaredInstalled) {
+            this.logger.info('TunnelTreeDataProvider', 'Auto-refresh not enabled - cloudflared not installed');
+            return;
+        }
+
         const config = vscode.workspace.getConfiguration('tunnelfy');
         const autoRefreshEnabled = config.get('autoRefreshEnabled', true);
         const intervalSeconds = config.get('autoRefreshInterval', 30);
@@ -132,8 +147,11 @@ export class TunnelTreeDataProvider implements vscode.TreeDataProvider<TunnelTre
             // Do an initial refresh before setting up the interval
             this.refresh().then(() => {
                 this.refreshInterval = setInterval(async () => {
-                    this.logger.info('TunnelTreeDataProvider', `Auto-refreshing tunnels (${intervalSeconds}s interval)`);
-                    await this.refresh();
+                    // Double check cloudflared is still installed before refreshing
+                    if (this.cloudflaredInstalled) {
+                        this.logger.info('TunnelTreeDataProvider', `Auto-refreshing tunnels (${intervalSeconds}s interval)`);
+                        await this.refresh();
+                    }
                 }, intervalSeconds * 1000) as unknown as NodeJS.Timeout;
                 this.logger.info('TunnelTreeDataProvider', `Auto-refresh enabled with ${intervalSeconds}s interval`);
             }).catch(error => {
@@ -146,9 +164,11 @@ export class TunnelTreeDataProvider implements vscode.TreeDataProvider<TunnelTre
 
     /**
      * Check if cloudflared is installed and cache the result
+     * @returns Promise<boolean> indicating if cloudflared is installed
      */
-    private async checkCloudflaredInstallation(): Promise<void> {
+    private async checkCloudflaredInstallation(): Promise<boolean> {
         this.cloudflaredInstalled = await this.profileManager.isCloudflaredInstalled();
+        return this.cloudflaredInstalled;
     }
 
     /**
@@ -181,7 +201,13 @@ export class TunnelTreeDataProvider implements vscode.TreeDataProvider<TunnelTre
             }
 
             // Get the list of tunnels
-            const tunnels = await this.cloudflaredService.listTunnels();
+            const tunnels = await this.cloudflaredService.listTunnels().catch(error => {
+                // If this is a cert error, just return empty array
+                if (error instanceof Error && error.message.includes('Cannot find a valid certificate')) {
+                    return [];
+                }
+                throw error;
+            });
             
             // Map tunnel data into TunnelTreeItems
             this.currentItems = tunnels.map((tunnel) => {
@@ -203,8 +229,13 @@ export class TunnelTreeDataProvider implements vscode.TreeDataProvider<TunnelTre
             this._onDidChangeTreeData.fire();
             this.logger.info('TunnelTreeDataProvider', `Refresh complete. Found ${tunnels.length} tunnels.`);
         } catch (error) {
-            this.logger.error('TunnelTreeDataProvider', `Failed to refresh tunnels: ${String(error)}`);
-            throw error;
+            // Don't throw error for missing cert, just log it
+            if (error instanceof Error && error.message.includes('Cannot find a valid certificate')) {
+                this.logger.info('TunnelTreeDataProvider', 'No valid certificate found. Please run cloudflared login first.');
+            } else {
+                this.logger.error('TunnelTreeDataProvider', `Failed to refresh tunnels: ${String(error)}`);
+                throw error;
+            }
         } finally {
             this._refreshing = false;
         }

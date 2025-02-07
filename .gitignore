@@ -100,10 +100,15 @@ _DEV/cloudflare-tunnel-vscode-EXAMPLE
 
 
 # Compiled JavaScript files
-# *.js
-# !tunnelfy/esbuild.js
-# *.js.map
+*.js
+!tunnelfy/esbuild.js
+*.js.map
 run_merge_branch_main.sh
 install_vscode.sh
 
-_DEV/
+
+_DEV/LOGO_MASTER.pxd
+_DEV/LOGO_WEBSITE.pxd
+_DEV/PRODUCT_HUNT_BANNER.pxd
+_DEV/DEVELOPMENT_PLAN.md
+_DEV/DEVELOPMENT_REVIEW.md

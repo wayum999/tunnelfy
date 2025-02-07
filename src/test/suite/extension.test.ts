@@ -1,45 +1,39 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
+import { waitForExtensionActivation, assertCommandAvailable, clearWorkspace } from './testUtils';
 
 suite('Tunnelfy Extension Test Suite', () => {
     suiteSetup(async () => {
-        // Wait for extension to activate
-        await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+        await clearWorkspace();
         vscode.window.showInformationMessage('Starting tests...');
     });
 
     test('Extension should be present', async () => {
-        const extension = vscode.extensions.getExtension('Willbot.tunnelfy');
+        const extension = await waitForExtensionActivation();
         assert.ok(extension, 'Extension should be available');
     });
 
     test('Extension should activate', async () => {
-        const extension = vscode.extensions.getExtension('Willbot.tunnelfy');
+        const extension = await waitForExtensionActivation();
         assert.ok(extension, 'Extension should be available');
-        
-        if (!extension?.isActive) {
-            await extension?.activate();
-        }
         assert.strictEqual(extension?.isActive, true, 'Extension should be activated');
     });
 
-    test('Extension should have required settings', async () => {
-        const config = vscode.workspace.getConfiguration('tunnelfy');
-        
-        // Test that required configuration settings exist
-        const settings = [
-            'cloudflareToken',
-            'defaultTunnelName',
-            'defaultTunnelConfig'
-        ];
+    test('All commands should be registered', async () => {
+        // Profile management commands
+        await assertCommandAvailable('tunnelfy.createProfile');
+        await assertCommandAvailable('tunnelfy.switchProfile');
+        await assertCommandAvailable('tunnelfy.deleteProfile');
+        await assertCommandAvailable('tunnelfy.renameProfile');
 
-        for (const setting of settings) {
-            const value = config.inspect(setting);
-            assert.ok(value !== undefined, `Setting '${setting}' should exist`);
-        }
+        // Tunnel management commands
+        await assertCommandAvailable('tunnelfy.createTunnel');
+        await assertCommandAvailable('tunnelfy.createQuickTunnel');
+        await assertCommandAvailable('tunnelfy.refreshTunnels');
+        await assertCommandAvailable('tunnelfy.stopQuickTunnel');
     });
 
     suiteTeardown(() => {
-        vscode.window.showInformationMessage('All tests complete!');
+        vscode.window.showInformationMessage('Extension tests complete!');
     });
 });

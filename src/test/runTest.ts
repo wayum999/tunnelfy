@@ -14,9 +14,8 @@ async function main() {
             extensionDevelopmentPath,
             extensionTestsPath,
             launchArgs: [
-                '--disable-extensions', // Disable other extensions
-                '--disable-gpu',       // Disable GPU hardware acceleration
-                '--disable-workspace-trust' // Disable workspace trust dialog
+                '--disable-workspace-trust', // Disable workspace trust dialog
+                '--force-disable-user-env'   // Use clean environment
             ]
         });
     } catch (err) {

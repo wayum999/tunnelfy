@@ -33,6 +33,48 @@
         }
       ]
     },
+    "configuration": {
+      "title": "Tunnelfy",
+      "properties": {
+        "tunnelfy.autoRefreshEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable automatic refresh of tunnel status"
+        },
+        "tunnelfy.autoRefreshInterval": {
+          "type": "number",
+          "default": 30,
+          "minimum": 5,
+          "maximum": 300,
+          "description": "Interval in seconds between automatic refreshes (min: 5s, max: 300s)"
+        },
+        "tunnelfy.checkCloudflaredOnStartup": {
+          "type": "boolean",
+          "default": true,
+          "description": "Check if cloudflared is installed when the extension starts"
+        },
+        "tunnelfy.cloudflareToken": {
+          "type": "string",
+          "default": "",
+          "description": "Cloudflare API token for authentication"
+        },
+        "tunnelfy.defaultTunnelName": {
+          "type": "string",
+          "default": "",
+          "description": "Default name for new tunnels"
+        },
+        "tunnelfy.profiles": {
+          "type": "array",
+          "default": [],
+          "description": "List of Cloudflare profiles"
+        },
+        "tunnelfy.activeProfile": {
+          "type": "string",
+          "default": null,
+          "description": "Currently active Cloudflare profile"
+        }
+      }
+    },
     "viewsWelcome": [
       {
         "view": "tunnelfy-profiles",
@@ -68,28 +110,6 @@
           "when": "true"
         }
       ]
-    },
-    "configuration": {
-      "title": "Tunnelfy",
-      "properties": {
-        "tunnelfy.autoRefreshEnabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable automatic refresh of tunnel status"
-        },
-        "tunnelfy.autoRefreshInterval": {
-          "type": "number",
-          "default": 30,
-          "minimum": 5,
-          "maximum": 300,
-          "description": "Interval in seconds between automatic refreshes (min: 5s, max: 300s)"
-        },
-        "tunnelfy.checkCloudflaredOnStartup": {
-          "type": "boolean",
-          "default": true,
-          "description": "Check if cloudflared is installed when the extension starts"
-        }
-      }
     },
     "menus": {
       "view/title": [
@@ -275,7 +295,7 @@
     "pretest": "npm run clean-tests && npm run compile && npm run compile-tests",
     "clean-tests": "rimraf out/test",
     "compile-tests": "tsc -p ./src/test/tsconfig.json",
-    "test": "node ./out/test/test/suite/index.js",
+    "test": "vscode-test",
     "lint": "eslint src --ext ts",
     "package": "vsce package",
     "publish": "vsce publish"
@@ -285,6 +305,7 @@
     "@types/glob": "^8.1.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "18.x",
+    "@types/proxyquire": "^1.3.31",
     "@types/sinon": "^17.0.3",
     "@types/vscode": "^1.85.0",
     "@typescript-eslint/parser": "^6.15.0",
@@ -295,6 +316,7 @@
     "eslint": "^8.56.0",
     "glob": "^10.4.5",
     "mocha": "^10.8.2",
+    "proxyquire": "^2.1.3",
     "rimraf": "^6.0.1",
     "sinon": "^19.0.2",
     "ts-node": "^10.9.2",

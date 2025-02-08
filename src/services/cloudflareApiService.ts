@@ -262,7 +262,7 @@ export class CloudflareApiService {
     async deleteTunnel(tunnelId: string): Promise<void> {
         try {
             const accountId = await this.getAccountId();
-            await this.makeRequest(`/accounts/${accountId}/tunnels/${tunnelId}`, 'DELETE');
+            await this.makeRequest(`/accounts/${accountId}/cfd_tunnel/${tunnelId}`, 'DELETE');
             this.logger.info(LogComponent.API, `Deleted tunnel: ${tunnelId}`);
         } catch (error) {
             this.logger.error(LogComponent.API, `Failed to delete tunnel ${tunnelId}:`, error);
@@ -276,7 +276,7 @@ export class CloudflareApiService {
     async getTunnelToken(tunnelId: string): Promise<string> {
         try {
             const accountId = await this.getAccountId();
-            const { token } = await this.makeRequest(`/accounts/${accountId}/tunnels/${tunnelId}/token`);
+            const token = await this.makeRequest(`/accounts/${accountId}/cfd_tunnel/${tunnelId}/token`);
             return token;
         } catch (error) {
             this.logger.error(LogComponent.API, `Failed to get token for tunnel ${tunnelId}:`, error);
@@ -332,6 +332,155 @@ export class CloudflareApiService {
             return data.result;
         } catch (error) {
             this.logger.error(LogComponent.API, 'Failed to list accounts:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Lists all zones (domains) for the account
+     */
+    async listZones(): Promise<Array<{ id: string; name: string }>> {
+        try {
+            const zones = await this.makeRequest('/zones');
+            return zones.map((zone: any) => ({
+                id: zone.id,
+                name: zone.name
+            }));
+        } catch (error) {
+            this.logger.error(LogComponent.API, 'Failed to list zones:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Lists all DNS records for a zone
+     */
+    async listDnsRecords(zoneId: string): Promise<Array<{ id: string; name: string; type: string; content: string }>> {
+        try {
+            const records = await this.makeRequest(`/zones/${zoneId}/dns_records`);
+            return records.map((record: any) => ({
+                id: record.id,
+                name: record.name,
+                type: record.type,
+                content: record.content
+            }));
+        } catch (error) {
+            this.logger.error(LogComponent.API, 'Failed to list DNS records:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Creates a CNAME record for a tunnel
+     */
+    async createCnameRecord(zoneId: string, name: string, tunnelId: string): Promise<{ id: string; name: string }> {
+        try {
+            const record = await this.makeRequest(
+                `/zones/${zoneId}/dns_records`,
+                'POST',
+                {
+                    type: 'CNAME',
+                    name: name,
+                    content: `${tunnelId}.cfargotunnel.com`,
+                    proxied: true,
+                    ttl: 1
+                }
+            );
+            return {
+                id: record.id,
+                name: record.name
+            };
+        } catch (error) {
+            this.logger.error(LogComponent.API, 'Failed to create CNAME record:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Updates a CNAME record to point to a tunnel
+     */
+    async updateCnameRecord(zoneId: string, recordId: string, tunnelId: string): Promise<{ id: string; name: string }> {
+        try {
+            const record = await this.makeRequest(
+                `/zones/${zoneId}/dns_records/${recordId}`,
+                'PATCH',
+                {
+                    type: 'CNAME',
+                    content: `${tunnelId}.cfargotunnel.com`,
+                    proxied: true,
+                    ttl: 1
+                }
+            );
+            return {
+                id: record.id,
+                name: record.name
+            };
+        } catch (error) {
+            this.logger.error(LogComponent.API, 'Failed to update CNAME record:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Deletes a DNS record
+     */
+    async deleteDnsRecord(zoneId: string, recordId: string): Promise<void> {
+        try {
+            await this.makeRequest(`/zones/${zoneId}/dns_records/${recordId}`, 'DELETE');
+        } catch (error) {
+            this.logger.error(LogComponent.API, 'Failed to delete DNS record:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Checks for CNAME conflicts with a tunnel
+     * @returns Object containing any conflicts found
+     */
+    async checkCnameConflicts(zoneId: string, recordName: string, tunnelId: string): Promise<{
+        isPointingElsewhere: boolean;
+        existingRecord?: { id: string; content: string };
+        tunnelInUse?: { recordId: string; recordName: string };
+    }> {
+        try {
+            // Get all DNS records for the zone
+            const records = await this.listDnsRecords(zoneId);
+            
+            // Check if the selected CNAME is pointing elsewhere
+            const selectedRecord = records.find(r => r.name === recordName && r.type === 'CNAME');
+            if (selectedRecord) {
+                const tunnelDomain = `${tunnelId}.cfargotunnel.com`;
+                if (selectedRecord.content !== tunnelDomain) {
+                    return {
+                        isPointingElsewhere: true,
+                        existingRecord: {
+                            id: selectedRecord.id,
+                            content: selectedRecord.content
+                        }
+                    };
+                }
+            }
+
+            // Check if another CNAME is already using this tunnel
+            const tunnelCname = records.find(r => 
+                r.type === 'CNAME' && 
+                r.content === `${tunnelId}.cfargotunnel.com` &&
+                r.name !== recordName
+            );
+
+            if (tunnelCname) {
+                return {
+                    isPointingElsewhere: false,
+                    tunnelInUse: {
+                        recordId: tunnelCname.id,
+                        recordName: tunnelCname.name
+                    }
+                };
+            }
+
+            return { isPointingElsewhere: false };
+        } catch (error) {
+            this.logger.error(LogComponent.API, 'Failed to check CNAME conflicts:', error);
             throw error;
         }
     }

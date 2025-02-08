@@ -48,11 +48,6 @@
           "maximum": 300,
           "description": "Interval in seconds between automatic refreshes (min: 5s, max: 300s)"
         },
-        "tunnelfy.checkCloudflaredOnStartup": {
-          "type": "boolean",
-          "default": true,
-          "description": "Check if cloudflared is installed when the extension starts"
-        },
         "tunnelfy.cloudflareToken": {
           "type": "string",
           "default": "",
@@ -126,7 +121,7 @@
       ],
       "view/item/context": [
         {
-          "command": "tunnelfy.editProfile",
+          "command": "tunnelfy.changeApiKey",
           "when": "view == tunnelfy-profiles && (viewItem == profile-active || viewItem == profile-inactive)",
           "group": "inline@1"
         },
@@ -147,7 +142,7 @@
         },
         {
           "command": "tunnelfy.stopTunnel",
-          "when": "viewItem == tunnel-running",
+          "when": "view == tunnelfy-tunnels && viewItem == tunnel-running",
           "group": "inline@1"
         },
         {
@@ -184,6 +179,13 @@
         "category": "Tunnelfy",
         "icon": "$(add)",
         "description": "Create a new Cloudflare profile with an API key"
+      },
+      {
+        "command": "tunnelfy.changeApiKey",
+        "title": "Change API Key",
+        "category": "Tunnelfy",
+        "icon": "$(key)",
+        "description": "Change the API key for an existing profile"
       },
       {
         "command": "tunnelfy.editProfile",
@@ -235,11 +237,39 @@
         "description": "Stop a running quick tunnel"
       },
       {
+        "command": "tunnelfy.playTunnel",
+        "title": "Start Tunnel",
+        "category": "Tunnelfy",
+        "icon": "$(play)",
+        "description": "Start a tunnel"
+      },
+      {
+        "command": "tunnelfy.stopTunnel",
+        "title": "Stop Tunnel",
+        "category": "Tunnelfy",
+        "icon": "$(stop)",
+        "description": "Stop a running tunnel"
+      },
+      {
         "command": "tunnelfy.tunnelInfo",
         "title": "View Tunnel Info",
         "category": "Tunnelfy",
         "icon": "$(info)",
         "description": "View detailed information about a tunnel"
+      },
+      {
+        "command": "tunnelfy.deleteTunnel",
+        "title": "Delete Tunnel",
+        "category": "Tunnelfy",
+        "icon": "$(trash)",
+        "description": "Delete a tunnel"
+      },
+      {
+        "command": "tunnelfy.copyToken",
+        "title": "Copy Tunnel Token",
+        "category": "Tunnelfy",
+        "icon": "$(key)",
+        "description": "Copy the tunnel token to clipboard"
       }
     ]
   },

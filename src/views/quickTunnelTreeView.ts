@@ -52,163 +52,107 @@ export class QuickTunnelTreeItem extends vscode.TreeItem {
     }
 }
 
+interface QuickTunnel {
+    port: number;
+    url: string;
+    tunnelUrl: string;
+}
+
 export class QuickTunnelTreeDataProvider implements vscode.TreeDataProvider<QuickTunnelTreeItem> {
     private _onDidChangeTreeData: vscode.EventEmitter<QuickTunnelTreeItem | undefined | null | void> = new vscode.EventEmitter<QuickTunnelTreeItem | undefined | null | void>();
     readonly onDidChangeTreeData: vscode.Event<QuickTunnelTreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
-    private readonly logger: Logger;
-    private currentItems: QuickTunnelTreeItem[] = [];
-    private activeQuickTunnels: Map<number, { url: string; tunnelUrl: string }> = new Map();
-    private cloudflaredInstalled: boolean | null = null;
+    private quickTunnels: Map<number, QuickTunnel> = new Map();
+    private readonly logger = Logger.getInstance();
     private refreshInterval: NodeJS.Timeout | null = null;
 
     constructor(
-        private cloudflaredService: CloudflaredService,
-        initialCloudflaredStatus: boolean = true
+        private readonly cloudflaredService: CloudflaredService
     ) {
-        this.logger = Logger.getInstance();
         this.logger.debug(LogComponent.TUNNEL, 'QuickTunnelTreeDataProvider initialized');
-        
-        // Set initial cloudflared status
-        this.cloudflaredInstalled = initialCloudflaredStatus;
-
-        // Start refresh cycle if enabled
-        this.checkCloudflaredInstallation().then(installed => {
-            if (installed) {
-                this.setupAutoRefresh();
-            } else {
-                this.logger.info(LogComponent.TUNNEL, 'Auto-refresh disabled - cloudflared not installed');
-            }
-        });
+        this.setupAutoRefresh();
 
         // Listen for configuration changes
         vscode.workspace.onDidChangeConfiguration(e => {
             if (e.affectsConfiguration('tunnelfy.autoRefreshEnabled') || 
                 e.affectsConfiguration('tunnelfy.autoRefreshInterval')) {
-                if (this.cloudflaredInstalled) {
-                    this.setupAutoRefresh();
-                }
+                this.setupAutoRefresh();
             }
         });
     }
 
-    /**
-     * Sets up or updates the auto-refresh cycle based on current settings
-     */
     private setupAutoRefresh(): void {
-        // Don't set up refresh if cloudflared is not installed
-        if (!this.cloudflaredInstalled) {
-            this.logger.info(LogComponent.TUNNEL, 'Auto-refresh not enabled - cloudflared not installed');
-            return;
-        }
-
-        const config = vscode.workspace.getConfiguration('tunnelfy');
-        const autoRefreshEnabled = config.get('autoRefreshEnabled', true);
-        const intervalSeconds = config.get('autoRefreshInterval', 30);
-
         // Clear existing interval if any
         if (this.refreshInterval) {
             clearInterval(this.refreshInterval);
             this.refreshInterval = null;
         }
 
-        // Set up new interval if enabled
-        if (autoRefreshEnabled) {
-            this.refreshInterval = setInterval(async () => {
-                // Double check cloudflared is still installed before refreshing
-                if (this.cloudflaredInstalled) {
-                    await this.refresh();
-                }
-            }, intervalSeconds * 1000) as unknown as NodeJS.Timeout;
-            this.logger.info(LogComponent.TUNNEL, `Auto-refresh enabled with ${intervalSeconds}s interval`);
-        } else {
-            this.logger.info(LogComponent.TUNNEL, 'Auto-refresh disabled');
+        // Check if auto-refresh is enabled
+        const config = vscode.workspace.getConfiguration('tunnelfy');
+        const autoRefreshEnabled = config.get<boolean>('autoRefreshEnabled', true);
+        if (!autoRefreshEnabled) {
+            this.logger.debug(LogComponent.TUNNEL, 'Auto-refresh disabled by configuration');
+            return;
         }
-    }
 
-    /**
-     * Check if cloudflared is installed and cache the result
-     * @returns Promise<boolean> indicating if cloudflared is installed
-     */
-    private async checkCloudflaredInstallation(): Promise<boolean> {
-        const profileManager = new ProfileManager();
-        const isInstalled = await profileManager.isCloudflaredInstalled();
-        this.cloudflaredInstalled = isInstalled;
-        return isInstalled;
-    }
-
-    async refresh(): Promise<void> {
-        try {
-            // Only check installation status if we haven't checked before and checks are enabled
-            const checkOnStartup = vscode.workspace.getConfiguration('tunnelfy').get('checkCloudflaredOnStartup', true);
-            if (this.cloudflaredInstalled === null && checkOnStartup) {
-                await this.checkCloudflaredInstallation();
-            }
-
-            // Clear view if cloudflared is not installed
-            if (this.cloudflaredInstalled === false) {
-                this.currentItems = [];
-                this._onDidChangeTreeData.fire();
-                return;
-            }
-
-            // Convert active quick tunnels to tree items
-            this.currentItems = Array.from(this.activeQuickTunnels.entries()).map(([port, tunnel]) => 
-                new QuickTunnelTreeItem(
-                    port,
-                    'active',
-                    tunnel.url,
-                    tunnel.tunnelUrl
-                )
-            );
-            this._onDidChangeTreeData.fire();
-        } catch (error) {
-            this.logger.error(LogComponent.TUNNEL, 'Failed to refresh quick tunnels', error as Error);
-            vscode.window.showErrorMessage('Failed to refresh quick tunnels');
-        }
-    }
-
-    startRefreshCycle(): void {
-        // Set up auto-refresh every 30 seconds
-        setInterval(() => {
+        // Get refresh interval
+        const intervalSeconds = Math.max(5, Math.min(300, config.get<number>('autoRefreshInterval', 30)));
+        
+        // Set up new interval
+        this.refreshInterval = setInterval(() => {
             this.refresh();
-        }, 30000);
+        }, intervalSeconds * 1000);
 
-        // Start initial refresh
-        this.refresh().catch(error => {
-            this.logger.error(LogComponent.TUNNEL, 'Failed to load initial quick tunnels:', error);
-        });
-    }
-
-    async addQuickTunnel(port: number): Promise<void> {
-        const result = await this.cloudflaredService.createQuickTunnel(port);
-        if (result) {
-            this.activeQuickTunnels.set(port, result);
-            await this.refresh();
-        }
-    }
-
-    async removeQuickTunnel(port: number): Promise<void> {
-        await this.cloudflaredService.stopQuickTunnel(port);
-        this.activeQuickTunnels.delete(port);
-        await this.refresh();
+        this.logger.debug(LogComponent.TUNNEL, `Auto-refresh set up with interval: ${intervalSeconds}s`);
     }
 
     getTreeItem(element: QuickTunnelTreeItem): vscode.TreeItem {
         return element;
     }
 
-    getChildren(element?: QuickTunnelTreeItem): Thenable<QuickTunnelTreeItem[]> {
-        if (element) {
-            return Promise.resolve([]);
+    async getChildren(): Promise<QuickTunnelTreeItem[]> {
+        return Array.from(this.quickTunnels.values()).map(tunnel => 
+            new QuickTunnelTreeItem(
+                tunnel.port,
+                tunnel.url,
+                tunnel.tunnelUrl
+            )
+        );
+    }
+
+    refresh(): void {
+        this._onDidChangeTreeData.fire();
+    }
+
+    async addQuickTunnel(port: number): Promise<void> {
+        try {
+            const result = await this.cloudflaredService.createQuickTunnel(port);
+            if (result) {
+                this.quickTunnels.set(port, {
+                    port,
+                    url: result.url,
+                    tunnelUrl: result.tunnelUrl
+                });
+                this.refresh();
+            }
+        } catch (error) {
+            this.logger.error(LogComponent.TUNNEL, 'Failed to add quick tunnel:', error);
+            throw error;
         }
-        return Promise.resolve(this.currentItems);
     }
 
-    getParent(_element: QuickTunnelTreeItem): vscode.ProviderResult<QuickTunnelTreeItem> {
-        return null;
+    async removeQuickTunnel(port: number): Promise<void> {
+        this.quickTunnels.delete(port);
+        this.refresh();
     }
 
-    async getQuickTunnels(): Promise<QuickTunnelTreeItem[]> {
-        return this.currentItems;
+    getQuickTunnels(): QuickTunnel[] {
+        return Array.from(this.quickTunnels.values());
+    }
+
+    dispose(): void {
+        if (this.refreshInterval) {
+            clearInterval(this.refreshInterval);
+        }
     }
 }

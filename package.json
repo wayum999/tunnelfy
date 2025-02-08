@@ -62,16 +62,6 @@
           "type": "string",
           "default": "",
           "description": "Default name for new tunnels"
-        },
-        "tunnelfy.profiles": {
-          "type": "array",
-          "default": [],
-          "description": "List of Cloudflare profiles"
-        },
-        "tunnelfy.activeProfile": {
-          "type": "string",
-          "default": null,
-          "description": "Currently active Cloudflare profile"
         }
       }
     },
@@ -141,14 +131,9 @@
           "group": "inline@1"
         },
         {
-          "command": "tunnelfy.renameProfile",
-          "when": "view == tunnelfy-profiles && (viewItem == profile-active || viewItem == profile-inactive)",
-          "group": "inline@2"
-        },
-        {
           "command": "tunnelfy.deleteProfile",
           "when": "view == tunnelfy-profiles && (viewItem == profile-active || viewItem == profile-inactive)",
-          "group": "inline@3"
+          "group": "inline@2"
         },
         {
           "command": "tunnelfy.playTunnel",
@@ -193,7 +178,7 @@
         "title": "Create Profile",
         "category": "Tunnelfy",
         "icon": "$(add)",
-        "description": "Create a new Cloudflare profile"
+        "description": "Create a new Cloudflare profile with an API key"
       },
       {
         "command": "tunnelfy.switchProfile",
@@ -201,6 +186,13 @@
         "category": "Tunnelfy",
         "icon": "$(arrow-right)",
         "description": "Switch between Cloudflare profiles"
+      },
+      {
+        "command": "tunnelfy.deleteProfile",
+        "title": "Delete Profile",
+        "category": "Tunnelfy",
+        "icon": "$(trash)",
+        "description": "Delete a Cloudflare profile"
       },
       {
         "command": "tunnelfy.createTunnel",
@@ -231,60 +223,11 @@
         "description": "Stop a running quick tunnel"
       },
       {
-        "command": "tunnelfy.deleteProfile",
-        "title": "Delete Profile",
-        "category": "Tunnelfy",
-        "icon": "$(trash)",
-        "description": "Delete a Cloudflare profile"
-      },
-      {
-        "command": "tunnelfy.renameProfile",
-        "title": "Rename Profile",
-        "category": "Tunnelfy",
-        "icon": "$(edit)",
-        "description": "Rename a Cloudflare profile"
-      },
-      {
-        "command": "tunnelfy.playTunnel",
-        "title": "Start Tunnel",
-        "category": "Tunnelfy",
-        "icon": "$(play)",
-        "description": "Start a tunnel"
-      },
-      {
-        "command": "tunnelfy.stopTunnel",
-        "title": "Stop Tunnel",
-        "category": "Tunnelfy",
-        "icon": "$(stop)",
-        "description": "Stop a running tunnel"
-      },
-      {
-        "command": "tunnelfy.copyToken",
-        "title": "Copy Tunnel Token",
-        "category": "Tunnelfy",
-        "icon": "$(copy)",
-        "description": "Copy tunnel token to clipboard"
-      },
-      {
         "command": "tunnelfy.tunnelInfo",
         "title": "View Tunnel Info",
         "category": "Tunnelfy",
         "icon": "$(info)",
-        "description": "View detailed tunnel information"
-      },
-      {
-        "command": "tunnelfy.deleteTunnel",
-        "title": "Delete Tunnel",
-        "category": "Tunnelfy",
-        "icon": "$(trash)",
-        "description": "Delete a tunnel"
-      },
-      {
-        "command": "tunnelfy.copyQuickTunnelUrl",
-        "title": "Copy Quick Tunnel URL",
-        "category": "Tunnelfy",
-        "icon": "$(copy)",
-        "description": "Copy quick tunnel URL to clipboard"
+        "description": "View detailed information about a tunnel"
       }
     ]
   },

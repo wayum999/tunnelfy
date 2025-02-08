@@ -1,23 +1,14 @@
 /**
- * ProfileManager - Manages Multiple Cloudflare Authentication Profiles
+ * ProfileManager - Manages Cloudflare API profiles
  * 
- * This service enables users to maintain multiple Cloudflare authentication profiles,
- * making it easy to switch between different Cloudflare accounts or configurations.
- * 
- * Key Features:
- * - Creates and manages multiple Cloudflare authentication profiles
- * - Handles profile switching and certificate management
- * - Maintains persistent profile configuration
- * - Provides profile verification and cleanup
- * 
- * Implementation Details:
- * - Profiles are stored in ~/.cloudflared/profiles.json
- * - Each profile has its own certificate file (cert_[profile_name].pem)
- * - Active profile's certificate is always named cert.pem
+ * This service handles the storage and management of Cloudflare API profiles.
+ * Each profile contains:
+ * - API key for authentication
+ * - Account ID for API requests
+ * - Profile name for identification
  */
 
 import * as vscode from 'vscode';
-import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as cp from 'child_process';
@@ -26,437 +17,201 @@ import { Logger, LogComponent } from '../utils/logger';
 
 const exec = promisify(cp.exec);
 
+interface Profile {
+    name: string;
+    apiKey: string;
+    accountId?: string;
+}
+
 export class ProfileManager {
     private readonly cloudflaredDir: string;
-    private readonly configFile: string;
-    private readonly logger: Logger;
+    private readonly logger = Logger.getInstance();
+    private readonly STORAGE_KEY = 'cloudflare.profiles';
+    private readonly ACTIVE_PROFILE_KEY = 'cloudflare.activeProfile';
+    private profiles: Map<string, Profile> = new Map();
+    private activeProfile: string | null = null;
 
     /**
      * Initializes the ProfileManager
-     * Sets up necessary directories and configuration files
      */
-    constructor() {
+    constructor(private context: vscode.ExtensionContext) {
         this.cloudflaredDir = path.join(os.homedir(), '.cloudflared');
-        this.configFile = path.join(this.cloudflaredDir, 'profiles.json');
-        this.logger = Logger.getInstance();
-        this.ensureConfigExists();
+        this.loadProfiles();
+        this.logger.debug(LogComponent.PROFILE, 'ProfileManager initialized');
     }
 
     /**
-     * Ensures the profile configuration file exists
-     * Creates default configuration if none exists
+     * Loads profiles from persistent storage
      */
-    private ensureConfigExists(): void {
-        this.logger.debug(LogComponent.PROFILE, `Ensuring config exists at: ${this.configFile}`);
-        if (!fs.existsSync(this.cloudflaredDir)) {
-            this.logger.debug(LogComponent.PROFILE, 'Creating cloudflared directory');
-            fs.mkdirSync(this.cloudflaredDir, { recursive: true });
-        }
-        if (!fs.existsSync(this.configFile)) {
-            this.logger.debug(LogComponent.PROFILE, 'Creating initial profiles config file');
-            fs.writeFileSync(this.configFile, JSON.stringify({
-                profiles: [],
-                activeProfile: null
-            }, null, 2));
-        }
-    }
-
-    /**
-     * Reads and parses the profile configuration file
-     * @returns Object containing profiles array and active profile name
-     */
-    private getConfig(): { profiles: string[], activeProfile: string | null } {
+    private loadProfiles(): void {
         try {
-            this.logger.debug(LogComponent.PROFILE, 'Reading profiles config file');
-            if (!fs.existsSync(this.configFile)) {
-                this.logger.debug(LogComponent.PROFILE, 'Config file not found, creating default');
-                this.ensureConfigExists();
-                return { profiles: [], activeProfile: null };
+            // Load profiles from globalState
+            const storedProfiles = this.context.globalState.get<{ [key: string]: Profile }>(this.STORAGE_KEY);
+            if (storedProfiles) {
+                this.profiles = new Map(Object.entries(storedProfiles));
+                this.logger.debug(LogComponent.PROFILE, `Loaded ${this.profiles.size} profiles from storage`);
             }
-            const content = fs.readFileSync(this.configFile, 'utf8');
-            const config = JSON.parse(content);
-            this.logger.debug(LogComponent.PROFILE, `Found profiles: ${JSON.stringify(config.profiles)}`);
-            this.logger.debug(LogComponent.PROFILE, `Active profile: ${config.activeProfile}`);
-            return config;
-        } catch (error: unknown) {
-            if (error instanceof Error) {
-                this.logger.error(LogComponent.PROFILE, 'Error reading config file', error.message);
-            } else {
-                this.logger.error(LogComponent.PROFILE, 'Error reading config file', String(error));
+
+            // Load active profile from globalState
+            this.activeProfile = this.context.globalState.get<string | null>(this.ACTIVE_PROFILE_KEY, null);
+            if (this.activeProfile) {
+                this.logger.debug(LogComponent.PROFILE, `Loaded active profile: ${this.activeProfile}`);
             }
-            return { profiles: [], activeProfile: null };
+        } catch (error) {
+            this.logger.error(LogComponent.PROFILE, 'Failed to load profiles:', error);
+            // Initialize empty state on error
+            this.profiles = new Map();
+            this.activeProfile = null;
         }
     }
 
     /**
-     * Saves the profile configuration to disk
-     * @param config - Configuration object to save
-     * @throws Error if saving fails
+     * Saves profiles to persistent storage
      */
-    private saveConfig(config: { profiles: string[], activeProfile: string | null }): void {
+    private async saveProfiles(): Promise<void> {
         try {
-            this.logger.debug(LogComponent.PROFILE, `Saving config: ${JSON.stringify(config)}`);
-            fs.writeFileSync(this.configFile, JSON.stringify(config, null, 2));
-        } catch (error: unknown) {
-            if (error instanceof Error) {
-                this.logger.error(LogComponent.PROFILE, 'Error saving config file', error.message);
-                throw new Error(`Failed to save profile configuration: ${error.message}`);
-            }
-            throw new Error('Failed to save profile configuration');
+            // Convert Map to object for storage
+            const profilesObj = Object.fromEntries(this.profiles.entries());
+            
+            // Save profiles and active profile
+            await Promise.all([
+                this.context.globalState.update(this.STORAGE_KEY, profilesObj),
+                this.context.globalState.update(this.ACTIVE_PROFILE_KEY, this.activeProfile)
+            ]);
+            
+            this.logger.debug(
+                LogComponent.PROFILE, 
+                `Saved ${this.profiles.size} profiles${this.activeProfile ? `, active: ${this.activeProfile}` : ''}`
+            );
+        } catch (error) {
+            this.logger.error(LogComponent.PROFILE, 'Failed to save profiles:', error);
+            throw error;
         }
     }
 
     /**
-     * Lists all valid profiles
-     * Verifies each profile has a valid certificate file
-     * Cleans up profiles with missing certificates
-     * @returns Array of verified profile names
+     * Creates a new profile
      */
-    async listProfiles(): Promise<string[]> {
-        this.logger.debug(LogComponent.PROFILE, 'Listing profiles');
-        const config = this.getConfig();
-        // Verify each profile has a corresponding cert file
-        const verifiedProfiles = config.profiles.filter(profile => {
-            const certPath = path.join(this.cloudflaredDir, `cert_${profile}.pem`);
-            const exists = fs.existsSync(certPath);
-            this.logger.debug(LogComponent.PROFILE, `Profile ${profile} cert file exists: ${exists}`);
-            return exists;
-        });
-        
-        if (verifiedProfiles.length !== config.profiles.length) {
-            this.logger.warn(LogComponent.PROFILE, 'Some profiles were missing cert files, updating config');
-            this.saveConfig({
-                ...config,
-                profiles: verifiedProfiles,
-                activeProfile: verifiedProfiles.includes(config.activeProfile || '') ? config.activeProfile : null
-            });
+    async createProfile(name: string, apiKey: string, accountId: string): Promise<void> {
+        if (!name || !name.trim()) {
+            throw new Error('Profile name cannot be empty');
         }
+
+        if (!apiKey || !apiKey.trim()) {
+            throw new Error('API key cannot be empty');
+        }
+
+        if (!accountId || !accountId.trim()) {
+            throw new Error('Account ID cannot be empty');
+        }
+
+        // Validate profile name format
+        if (!/^[a-zA-Z0-9-_]+$/.test(name)) {
+            throw new Error('Profile name can only contain letters, numbers, hyphens, and underscores');
+        }
+
+        // Validate account ID format
+        if (!/^[a-f0-9]{32}$/i.test(accountId)) {
+            throw new Error('Account ID must be a 32-character hexadecimal string');
+        }
+
+        if (this.profiles.has(name)) {
+            throw new Error(`Profile '${name}' already exists`);
+        }
+
+        // Create and save the profile
+        const profile: Profile = { name, apiKey, accountId };
+        this.profiles.set(name, profile);
+        await this.saveProfiles();
         
-        return verifiedProfiles;
+        // Make this profile active if it's the first one or there's no active profile
+        if (!this.activeProfile || this.profiles.size === 1) {
+            this.activeProfile = name;
+            await this.saveProfiles();
+            this.logger.info(LogComponent.PROFILE, `Set ${name} as active profile`);
+        }
+
+        this.logger.info(LogComponent.PROFILE, `Profile ${name} created successfully`);
     }
 
     /**
-     * Gets the currently active profile name
-     * @returns Active profile name or null if none active
+     * Deletes a profile
+     */
+    async deleteProfile(name: string): Promise<void> {
+        if (!this.profiles.has(name)) {
+            throw new Error(`Profile '${name}' does not exist`);
+        }
+
+        this.profiles.delete(name);
+        
+        // If this was the active profile, clear it
+        if (this.activeProfile === name) {
+            this.activeProfile = null;
+        }
+
+        await this.saveProfiles();
+        this.logger.info(LogComponent.PROFILE, `Profile ${name} deleted successfully`);
+    }
+
+    /**
+     * Lists all profiles
+     */
+    listProfiles(): string[] {
+        return Array.from(this.profiles.keys());
+    }
+
+    /**
+     * Gets the active profile
      */
     async getActiveProfile(): Promise<string | null> {
-        const config = this.getConfig();
-        return config.activeProfile;
+        return this.activeProfile;
     }
 
     /**
-     * Initiates the Cloudflare login process
-     * Opens a terminal for the user to complete authentication
-     * Waits for the certificate file to be created
-     * @throws Error if login times out or fails
+     * Sets the active profile
      */
-    async loginToCloudflare(): Promise<void> {
-        this.logger.info(LogComponent.PROFILE, 'Starting Cloudflare login process');
-        const terminal = vscode.window.createTerminal('Cloudflare Login');
-        terminal.show();
-        terminal.sendText('cloudflared tunnel login');
-        
-        // Show a message to the user with instructions
-        await vscode.window.showInformationMessage(
-            'Please complete the login process in your browser. Click OK once you have logged in.',
-            'OK'
-        );
-
-        // Wait for cert.pem to appear (check every second for up to 60 seconds)
-        const certPath = path.join(this.cloudflaredDir, 'cert.pem');
-        for (let i = 0; i < 60; i++) {
-            try {
-                if (fs.existsSync(certPath)) {
-                    const stats = fs.statSync(certPath);
-                    if (stats.size > 0) {
-                        this.logger.info(LogComponent.PROFILE, 'Login successful, cert.pem found');
-                        return;
-                    }
-                }
-            } catch (error) {
-                this.logger.debug(LogComponent.PROFILE, 'Waiting for cert.pem...', error);
-            }
-            await new Promise(resolve => setTimeout(resolve, 1000));
+    async setActiveProfile(name: string): Promise<void> {
+        if (!this.profiles.has(name)) {
+            throw new Error(`Profile '${name}' does not exist`);
         }
 
-        this.logger.error(LogComponent.PROFILE, 'Login timed out, no cert.pem found');
-        throw new Error('Login timed out. Please try again.');
+        this.activeProfile = name;
+        await this.saveProfiles();
+        this.logger.info(LogComponent.PROFILE, `Active profile set to ${name}`);
     }
 
     /**
-     * Creates a new Cloudflare profile
-     * 1. Verifies cloudflared is installed
-     * 2. Backs up existing certificate if needed
-     * 3. Initiates new login for the profile
-     * 4. Saves the new certificate and updates configuration
-     * 
-     * @param profileName - Name of the profile to create
-     * @throws Error if profile creation fails
+     * Gets the API key for a profile
      */
-    async createProfile(profileName: string): Promise<void> {
-        this.logger.info(LogComponent.PROFILE, `Creating profile: ${profileName}`);
-        
-        // Check if cloudflared is installed first
-        if (!await this.isCloudflaredInstalled()) {
-            const message = 'Cloudflared CLI is not installed. Please install it using one of these methods:\n\n' +
-                          'macOS:\n' +
-                          '  brew install cloudflare/cloudflare/cloudflared\n\n' +
-                          'Windows:\n' +
-                          '  Using Chocolatey:\n' +
-                          '    choco install cloudflared\n' +
-                          '  Using Winget:\n' +
-                          '    winget install Cloudflare.cloudflared\n\n' +
-                          'Linux:\n' +
-                          '  Debian/Ubuntu:\n' +
-                          '    curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared\n' +
-                          '    chmod +x cloudflared\n' +
-                          '    sudo mv cloudflared /usr/local/bin\n\n' +
-                          '  RHEL/Fedora:\n' +
-                          '    dnf install cloudflared\n\n' +
-                          '  Arch Linux:\n' +
-                          '    yay -S cloudflared-bin\n\n' +
-                          'After installing, authenticate with:\n' +
-                          '  cloudflared tunnel login';
-            this.logger.error(LogComponent.PROFILE, 'Failed to create profile: cloudflared not installed');
-            throw new Error(message);
-        }
-
-        const config = this.getConfig();
-        
-        if (config.profiles.includes(profileName)) {
-            this.logger.error(LogComponent.PROFILE, `Profile ${profileName} already exists`);
-            throw new Error(`Profile '${profileName}' already exists`);
-        }
-
-        const certPath = path.join(this.cloudflaredDir, 'cert.pem');
-        const profileCertPath = path.join(this.cloudflaredDir, `cert_${profileName}.pem`);
-
-        try {
-            // If there's an active profile and cert.pem exists, back it up
-            if (config.activeProfile && fs.existsSync(certPath)) {
-                try {
-                    const currentProfilePath = path.join(this.cloudflaredDir, `cert_${config.activeProfile}.pem`);
-                    this.logger.debug(LogComponent.PROFILE, `Backing up current profile cert: ${certPath} -> ${currentProfilePath}`);
-                    fs.copyFileSync(certPath, currentProfilePath);
-                } catch (error) {
-                    this.logger.warn(LogComponent.PROFILE, 'Failed to backup current cert.pem:', error);
-                }
-            }
-
-            // Remove the current cert.pem if it exists
-            if (fs.existsSync(certPath)) {
-                try {
-                    this.logger.debug(LogComponent.PROFILE, 'Removing current cert.pem');
-                    fs.unlinkSync(certPath);
-                } catch (error) {
-                    this.logger.warn(LogComponent.PROFILE, 'Failed to remove current cert.pem:', error);
-                }
-            }
-
-            // Force a new login for the new profile
-            await this.loginToCloudflare();
-
-            // After successful login, copy the new cert.pem to the profile's cert file
-            if (!fs.existsSync(certPath)) {
-                throw new Error('Login failed: cert.pem not created');
-            }
-
-            try {
-                this.logger.debug(LogComponent.PROFILE, `Saving new profile cert: ${certPath} -> ${profileCertPath}`);
-                fs.copyFileSync(certPath, profileCertPath);
-            } catch (error) {
-                this.logger.error(LogComponent.PROFILE, 'Failed to copy cert.pem to profile:', error);
-                throw new Error('Failed to save profile certificate');
-            }
-
-            // Update config
-            config.profiles.push(profileName);
-            config.activeProfile = profileName; // Set as active profile
-            this.saveConfig(config);
-
-            this.logger.info(LogComponent.PROFILE, `Successfully created and activated profile: ${profileName}`);
-        } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            this.logger.error(LogComponent.PROFILE, `Failed to create profile ${profileName}:`, message);
-            
-            // Clean up any partially created files
-            if (fs.existsSync(profileCertPath)) {
-                try {
-                    fs.unlinkSync(profileCertPath);
-                } catch (cleanupError) {
-                    this.logger.error(LogComponent.PROFILE, 'Failed to clean up profile cert file:', cleanupError);
-                }
-            }
-            
-            throw new Error(`Failed to create profile: ${message}`);
-        }
+    async getProfileApiKey(name: string): Promise<string | null> {
+        const profile = this.profiles.get(name);
+        return profile?.apiKey || null;
     }
 
     /**
-     * Switches to a different Cloudflare profile
-     * 1. Verifies the target profile exists
-     * 2. Backs up the current profile's certificate if needed
-     * 3. Copies the target profile's certificate to cert.pem
-     * 4. Updates the active profile in the configuration
-     * 
-     * @param profileName - Name of the profile to switch to
-     * @throws Error if profile switching fails
+     * Gets the account ID for a profile
      */
-    async switchProfile(profileName: string): Promise<void> {
-        this.logger.info(LogComponent.PROFILE, `Switching to profile: ${profileName}`);
-        const config = this.getConfig();
-        
-        if (!config.profiles.includes(profileName)) {
-            this.logger.error(LogComponent.PROFILE, `Profile ${profileName} does not exist`);
-            throw new Error(`Profile '${profileName}' does not exist`);
-        }
-
-        const certPath = path.join(this.cloudflaredDir, 'cert.pem');
-        const newProfilePath = path.join(this.cloudflaredDir, `cert_${profileName}.pem`);
-
-        try {
-            // First verify the target profile's cert exists
-            if (!fs.existsSync(newProfilePath)) {
-                this.logger.error(LogComponent.PROFILE, `Certificate file not found: ${newProfilePath}`);
-                throw new Error(`Certificate file for profile '${profileName}' not found`);
-            }
-
-            // Backup current profile's cert if it exists
-            if (config.activeProfile) {
-                const currentProfilePath = path.join(this.cloudflaredDir, `cert_${config.activeProfile}.pem`);
-                if (fs.existsSync(certPath)) {
-                    this.logger.debug(LogComponent.PROFILE, `Backing up current profile cert: ${certPath} -> ${currentProfilePath}`);
-                    const certContent = fs.readFileSync(certPath);
-                    fs.writeFileSync(currentProfilePath, certContent, { mode: 0o600 });
-                    fs.unlinkSync(certPath);
-                }
-            }
-
-            // Copy the new profile's cert to cert.pem
-            this.logger.debug(LogComponent.PROFILE, `Activating new profile cert: ${newProfilePath} -> ${certPath}`);
-            const newCertContent = fs.readFileSync(newProfilePath);
-            fs.writeFileSync(certPath, newCertContent, { mode: 0o600 });
-
-            // Verify the cert.pem exists and is readable
-            try {
-                fs.accessSync(certPath, fs.constants.R_OK);
-                const stats = fs.statSync(certPath);
-                if (stats.size === 0) {
-                    throw new Error('cert.pem is empty');
-                }
-            } catch (error) {
-                throw new Error(`Failed to verify cert.pem: ${error instanceof Error ? error.message : String(error)}`);
-            }
-
-            // Only after successful file operations, update the config
-            config.activeProfile = profileName;
-            this.saveConfig(config);
-            this.logger.info(LogComponent.PROFILE, `Successfully switched to profile ${profileName}`);
-        } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            this.logger.error(LogComponent.PROFILE, `Error switching to profile ${profileName}:`, message);
-            throw new Error(`Failed to switch profile: ${message}`);
-        }
+    async getProfileAccountId(name: string): Promise<string | null> {
+        const profile = this.profiles.get(name);
+        return profile?.accountId || null;
     }
 
     /**
-     * Deletes a Cloudflare profile
-     * 1. Verifies the profile exists
-     * 2. If the profile is active, switches to another profile if available
-     * 3. Deletes the profile's certificate file
-     * 4. Updates the configuration
-     * 
-     * @param profileName - Name of the profile to delete
-     * @throws Error if profile deletion fails
+     * Sets the account ID for a profile
      */
-    async deleteProfile(profileName: string): Promise<void> {
-        this.logger.info(LogComponent.PROFILE, `Deleting profile: ${profileName}`);
-        const config = this.getConfig();
-        if (!config.profiles.includes(profileName)) {
-            this.logger.error(LogComponent.PROFILE, `Profile ${profileName} does not exist`);
-            throw new Error(`Profile '${profileName}' does not exist`);
+    async setProfileAccountId(name: string, accountId: string): Promise<void> {
+        const profile = this.profiles.get(name);
+        if (!profile) {
+            throw new Error(`Profile '${name}' does not exist`);
         }
 
-        // If this is the active profile and there are other profiles, switch to another one first
-        if (config.activeProfile === profileName && config.profiles.length > 1) {
-            const nextProfile = config.profiles.find(p => p !== profileName);
-            if (nextProfile) {
-                this.logger.info(LogComponent.PROFILE, `Switching to ${nextProfile} before deleting active profile`);
-                await this.switchProfile(nextProfile);
-            }
-        } else if (config.activeProfile === profileName) {
-            // This is the only profile, just clear the active profile
-            config.activeProfile = null;
-            this.saveConfig(config);
-        }
-
-        const profilePath = path.join(this.cloudflaredDir, `cert_${profileName}.pem`);
-        if (fs.existsSync(profilePath)) {
-            this.logger.debug(LogComponent.PROFILE, `Deleting profile cert file: ${profilePath}`);
-            fs.unlinkSync(profilePath);
-        }
-
-        config.profiles = config.profiles.filter(p => p !== profileName);
-        this.saveConfig(config);
-        this.logger.info(LogComponent.PROFILE, `Profile ${profileName} deleted successfully`);
-    }
-
-    /**
-     * Renames a Cloudflare profile
-     * 1. Verifies the profile exists
-     * 2. Verifies the new name does not already exist
-     * 3. Renames the profile's certificate file
-     * 4. Updates the configuration
-     * 
-     * @param oldName - Current name of the profile
-     * @param newName - New name for the profile
-     * @throws Error if profile renaming fails
-     */
-    async renameProfile(oldName: string, newName: string): Promise<void> {
-        this.logger.info(LogComponent.PROFILE, `Renaming profile from "${oldName}" to "${newName}"`);
-        const config = this.getConfig();
-        
-        if (!config.profiles.includes(oldName)) {
-            this.logger.error(LogComponent.PROFILE, `Profile ${oldName} does not exist`);
-            throw new Error(`Profile '${oldName}' does not exist`);
-        }
-
-        if (config.profiles.includes(newName)) {
-            this.logger.error(LogComponent.PROFILE, `Profile ${newName} already exists`);
-            throw new Error(`Profile '${newName}' already exists`);
-        }
-
-        const oldCertPath = path.join(this.cloudflaredDir, `cert_${oldName}.pem`);
-        const newCertPath = path.join(this.cloudflaredDir, `cert_${newName}.pem`);
-
-        try {
-            // Verify the old cert exists
-            if (!fs.existsSync(oldCertPath)) {
-                this.logger.error(LogComponent.PROFILE, `Certificate file not found: ${oldCertPath}`);
-                throw new Error(`Certificate file for profile '${oldName}' not found`);
-            }
-
-            // Rename the cert file
-            fs.renameSync(oldCertPath, newCertPath);
-
-            // Update config
-            config.profiles = config.profiles.map(p => p === oldName ? newName : p);
-            if (config.activeProfile === oldName) {
-                config.activeProfile = newName;
-            }
-            this.saveConfig(config);
-
-            this.logger.info(LogComponent.PROFILE, `Successfully renamed profile from "${oldName}" to "${newName}"`);
-        } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            this.logger.error(LogComponent.PROFILE, `Failed to rename profile from "${oldName}" to "${newName}":`, message);
-            throw new Error(`Failed to rename profile: ${message}`);
-        }
+        profile.accountId = accountId;
+        await this.saveProfiles();
+        this.logger.debug(LogComponent.PROFILE, `Account ID set for profile ${name}`);
     }
 
     /**
      * Checks if cloudflared is installed
-     * @returns True if cloudflared is installed, false otherwise
      */
     async isCloudflaredInstalled(): Promise<boolean> {
         try {
@@ -470,63 +225,6 @@ export class ProfileManager {
                 this.logger.error(LogComponent.PROFILE, 'Cloudflared is not installed', String(error));
             }
             return false;
-        }
-    }
-
-    /**
-     * Checks if the user is logged in to Cloudflare
-     * @returns True if logged in, false otherwise
-     */
-    async isLoggedIn(): Promise<boolean> {
-        const certPath = path.join(this.cloudflaredDir, 'cert.pem');
-        try {
-            if (!fs.existsSync(certPath)) {
-                return false;
-            }
-            const stats = fs.statSync(certPath);
-            return stats.size > 0;
-        } catch (error) {
-            this.logger.error(LogComponent.PROFILE, 'Error checking login status:', error);
-            return false;
-        }
-    }
-
-    /**
-     * Creates a default profile from the existing cert.pem
-     * @throws Error if default profile creation fails
-     */
-    async createDefaultProfile(): Promise<void> {
-        this.logger.info(LogComponent.PROFILE, 'Creating default profile from existing cert.pem');
-        const config = this.getConfig();
-        const profileName = 'Default Profile';
-        
-        if (config.profiles.includes(profileName)) {
-            this.logger.error(LogComponent.PROFILE, `Profile ${profileName} already exists`);
-            throw new Error(`Profile '${profileName}' already exists`);
-        }
-
-        const certPath = path.join(this.cloudflaredDir, 'cert.pem');
-        const profileCertPath = path.join(this.cloudflaredDir, `cert_${profileName}.pem`);
-
-        try {
-            // Copy the existing cert.pem to the profile's cert file
-            if (!fs.existsSync(certPath)) {
-                throw new Error('No existing cert.pem found');
-            }
-
-            this.logger.debug(LogComponent.PROFILE, `Copying existing cert to profile: ${certPath} -> ${profileCertPath}`);
-            fs.copyFileSync(certPath, profileCertPath);
-
-            // Update config
-            config.profiles.push(profileName);
-            config.activeProfile = profileName; // Set as active profile
-            this.saveConfig(config);
-
-            this.logger.info(LogComponent.PROFILE, `Successfully created and activated default profile`);
-        } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            this.logger.error(LogComponent.PROFILE, `Failed to create default profile: ${message}`);
-            throw new Error(`Failed to create default profile: ${message}`);
         }
     }
 }

@@ -23,6 +23,8 @@ import * as os from 'os';
 import * as fs from 'fs';
 import { Logger, LogComponent } from '../utils/logger';
 import { TokenService } from './tokenService';
+import { CloudflareApiService } from './cloudflareApiService';
+import { ProfileManager } from './profileManager';
 
 const exec = util.promisify(cp.exec);
 
@@ -30,6 +32,7 @@ export class CloudflaredService {
     private readonly cloudflaredDir: string;
     private readonly logger: Logger;
     private readonly tokenService: TokenService;
+    public readonly apiService: CloudflareApiService;
     private readonly runningTunnels: Map<string, cp.ChildProcess> = new Map();
     
     // Event emitter for tunnel status changes
@@ -43,13 +46,18 @@ export class CloudflaredService {
     /**
      * Initializes the CloudflaredService instance
      * @param context - The VS Code extension context
+     * @param profileManager - The profile manager instance
      */
-    constructor(private context: vscode.ExtensionContext) {
+    constructor(
+        private context: vscode.ExtensionContext,
+        private profileManager: ProfileManager
+    ) {
         this.cloudflaredDir = path.join(os.homedir(), '.cloudflared');
         this.logger = Logger.getInstance();
         this.tokenService = new TokenService(context);
-        this.logger.info(LogComponent.TUNNEL, 'CloudflaredService initialized');
-        this.logger.debug(LogComponent.TUNNEL, `Using cloudflared directory: ${this.cloudflaredDir}`);
+        this.apiService = new CloudflareApiService(context, profileManager);
+        this.logger.info(LogComponent.TUNNEL, 'CloudflaredService initialized', { preserveFocus: true });
+        this.logger.debug(LogComponent.TUNNEL, `Using cloudflared directory: ${this.cloudflaredDir}`, { preserveFocus: true });
     }
 
     /**
@@ -68,7 +76,7 @@ export class CloudflaredService {
     private async verifyCertFile(): Promise<void> {
         const certPath = this.certPath;
         if (!fs.existsSync(certPath)) {
-            this.logger.error(LogComponent.TUNNEL, `Certificate file not found: ${certPath}`);
+            this.logger.error(LogComponent.TUNNEL, `Certificate file not found: ${certPath}`, undefined, { preserveFocus: true });
             throw new Error('No certificate file found. Please login or switch to a valid profile.');
         }
         try {
@@ -78,7 +86,7 @@ export class CloudflaredService {
                 throw new Error('Certificate file is empty');
             }
         } catch (error) {
-            this.logger.error(LogComponent.TUNNEL, `Certificate file not accessible: ${error}`);
+            this.logger.error(LogComponent.TUNNEL, `Certificate file not accessible`, error, { preserveFocus: true });
             throw new Error('Certificate file exists but is not accessible. Please check file permissions.');
         }
     }
@@ -98,21 +106,21 @@ export class CloudflaredService {
             }
 
             if (!silent) {
-                this.logger.debug(LogComponent.COMMAND, `Running command: ${command}`);
+                this.logger.debug(LogComponent.COMMAND, `Running command: ${command}`, { preserveFocus: true });
             }
 
             const { stdout, stderr } = await util.promisify(cp.exec)(command, { env });
 
             if (stderr && !silent) {
-                this.logger.warn(LogComponent.COMMAND, 'Command stderr:', stderr.trim());
+                this.logger.warn(LogComponent.COMMAND, 'Command stderr:', { preserveFocus: true });
             }
 
             // For JSON responses, just log that we received data
             if (!silent) {
                 if (stdout.trim().startsWith('{') || stdout.trim().startsWith('[')) {
-                    this.logger.debug(LogComponent.COMMAND, 'Command returned JSON data');
+                    this.logger.debug(LogComponent.COMMAND, 'Command returned JSON data', { preserveFocus: true });
                 } else {
-                    this.logger.debug(LogComponent.COMMAND, 'Command output:', stdout.trim());
+                    this.logger.debug(LogComponent.COMMAND, 'Command output:', { preserveFocus: true });
                 }
             }
 
@@ -120,7 +128,7 @@ export class CloudflaredService {
         } catch (error) {
             const err = error as cp.ExecException;
             if (!silent) {
-                this.logger.error(LogComponent.COMMAND, `Command failed: ${command}`, err);
+                this.logger.error(LogComponent.COMMAND, `Command failed: ${command}`, err, { preserveFocus: true });
             }
             throw err;
         }
@@ -134,10 +142,10 @@ export class CloudflaredService {
         try {
             const { stdout } = await this.runCloudflaredCommand('cloudflared --version', true);
             const isInstalled = stdout.toLowerCase().includes('cloudflared version');
-            this.logger.debug(LogComponent.TUNNEL, `Cloudflared installation check: ${isInstalled}`);
+            this.logger.debug(LogComponent.TUNNEL, `Cloudflared installation check: ${isInstalled}`, { preserveFocus: true });
             return isInstalled;
         } catch (error) {
-            this.logger.error(LogComponent.TUNNEL, 'Failed to check cloudflared installation:', error);
+            this.logger.error(LogComponent.TUNNEL, 'Failed to check cloudflared installation', error, { preserveFocus: true });
             return false;
         }
     }
@@ -204,19 +212,18 @@ export class CloudflaredService {
      */
     async listTunnels(): Promise<Array<{ id: string; name: string; connections?: Array<any>; url?: string }>> {
         try {
-            this.logger.debug(LogComponent.TUNNEL, 'Listing tunnels...');
-            const { stdout } = await this.runCloudflaredCommand('cloudflared tunnel list --output json', true);
-            const tunnels = JSON.parse(stdout) as Array<{ id: string; name: string; connections?: Array<any>; url?: string }>;
-            this.logger.debug(LogComponent.TUNNEL, `Found ${tunnels.length} tunnels`);
+            this.logger.debug(LogComponent.TUNNEL, 'Listing tunnels...', { preserveFocus: true });
+            const tunnels = await this.apiService.listTunnels();
+            this.logger.debug(LogComponent.TUNNEL, `Found ${tunnels.length} tunnels`, { preserveFocus: true });
             
             // Only log individual tunnels at debug level
             tunnels.forEach(tunnel => {
-                this.logger.debug(LogComponent.TUNNEL, `Found tunnel: ${tunnel.name} (${tunnel.id})`);
+                this.logger.debug(LogComponent.TUNNEL, `Found tunnel: ${tunnel.name} (${tunnel.id})`, { preserveFocus: true });
             });
             
             return tunnels;
         } catch (error) {
-            this.logger.error(LogComponent.TUNNEL, 'Failed to list tunnels:', error);
+            this.logger.error(LogComponent.TUNNEL, 'Failed to list tunnels', error, { preserveFocus: true });
             return [];
         }
     }
@@ -426,40 +433,43 @@ export class CloudflaredService {
      */
     async getTunnelToken(tunnelId: string): Promise<string | null> {
         try {
-            this.logger.debug(LogComponent.TUNNEL, `Getting token for tunnel ${tunnelId}`);
+            this.logger.debug(LogComponent.TUNNEL, `Getting token for tunnel ${tunnelId}`, { preserveFocus: true });
             
             try {
                 // First try to get from secure storage
                 const token = await this.tokenService.getTunnelToken(tunnelId);
                 if (token) {
-                    this.logger.debug(LogComponent.TUNNEL, 'Found token in storage');
+                    this.logger.debug(LogComponent.TUNNEL, 'Found token in storage', { preserveFocus: true });
                     return token;
                 }
             } catch (error) {
-                this.logger.debug(LogComponent.TUNNEL, 'Failed to get token from storage:', error);
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                this.logger.debug(LogComponent.TUNNEL, `Failed to get token from storage: ${errorMessage}`, { preserveFocus: true });
                 // Continue to try getting from cloudflared
             }
 
-            this.logger.debug(LogComponent.TUNNEL, 'Getting token from cloudflared');
+            this.logger.debug(LogComponent.TUNNEL, 'Getting token from cloudflared', { preserveFocus: true });
             // Get from cloudflared and store it
             const { stdout } = await this.runCloudflaredCommand(`cloudflared tunnel token ${tunnelId}`);
             const token = stdout.trim();
             
             if (token) {
-                this.logger.debug(LogComponent.TUNNEL, 'Got token from cloudflared, storing it');
+                this.logger.debug(LogComponent.TUNNEL, 'Got token from cloudflared, storing it', { preserveFocus: true });
                 try {
                     await this.tokenService.storeTunnelToken(tunnelId, token);
                 } catch (storeError) {
-                    this.logger.error(LogComponent.TUNNEL, 'Failed to store token:', storeError);
+                    const errorMessage = storeError instanceof Error ? storeError.message : String(storeError);
+                    this.logger.error(LogComponent.TUNNEL, `Failed to store token: ${errorMessage}`, undefined, { preserveFocus: true });
                     // Continue even if we can't store it
                 }
                 return token;
             } else {
-                this.logger.error(LogComponent.TUNNEL, 'Got empty token from cloudflared');
+                this.logger.error(LogComponent.TUNNEL, 'Got empty token from cloudflared', undefined, { preserveFocus: true });
                 return null;
             }
         } catch (error) {
-            this.logger.error(LogComponent.TUNNEL, 'Failed to get tunnel token:', error);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            this.logger.error(LogComponent.TUNNEL, `Failed to get tunnel token: ${errorMessage}`, undefined, { preserveFocus: true });
             return null;
         }
     }
@@ -469,7 +479,7 @@ export class CloudflaredService {
      * @param tunnelId - The ID of the tunnel to stop
      */
     async stopTunnel(tunnelId: string): Promise<void> {
-        this.logger.info(LogComponent.TUNNEL, `Stopping tunnel ${tunnelId}`);
+        this.logger.info(LogComponent.TUNNEL, `Stopping tunnel ${tunnelId}`, { preserveFocus: true });
         try {
             // Clean and validate tunnel ID
             const cleanTunnelId = String(tunnelId).trim();
@@ -480,56 +490,42 @@ export class CloudflaredService {
             // First try to terminate the process if we have it
             const tunnelProcess = this.runningTunnels.get(cleanTunnelId);
             if (tunnelProcess) {
-                this.logger.debug(LogComponent.TUNNEL, 'Found running tunnel process, terminating...');
+                this.logger.debug(LogComponent.TUNNEL, 'Found running tunnel process, terminating...', { preserveFocus: true });
                 
                 // Try SIGTERM first for graceful shutdown
                 if (tunnelProcess.pid) {
-                    this.logger.debug(LogComponent.TUNNEL, `Sending SIGTERM to process group ${-tunnelProcess.pid}`);
+                    this.logger.debug(LogComponent.TUNNEL, `Sending SIGTERM to process group ${-tunnelProcess.pid}`, { preserveFocus: true });
                     process.kill(-tunnelProcess.pid, 'SIGTERM');
                 } else {
-                    this.logger.error(LogComponent.TUNNEL, 'Tunnel process PID is undefined; cannot send SIGTERM');
+                    this.logger.error(LogComponent.TUNNEL, 'Tunnel process PID is undefined; cannot send SIGTERM', undefined, { preserveFocus: true });
                 }
                 
                 // Give it some time to terminate gracefully
                 await new Promise<void>((resolve) => {
                     const timeout = setTimeout(() => {
                         // If still running after timeout, force kill
-                        if (!tunnelProcess.killed && tunnelProcess.pid) {
-                            this.logger.debug(LogComponent.TUNNEL, `Process still running after SIGTERM, sending SIGKILL to ${-tunnelProcess.pid}`);
-                            process.kill(-tunnelProcess.pid, 'SIGKILL');
+                        if (!tunnelProcess.killed) {
+                            this.logger.warn(LogComponent.TUNNEL, 'Tunnel process did not terminate gracefully, force killing...', { preserveFocus: true });
+                            if (tunnelProcess.pid) {
+                                process.kill(-tunnelProcess.pid, 'SIGKILL');
+                            }
                         }
                         resolve();
-                    }, 5000); // 5 second timeout
+                    }, 5000);
 
                     tunnelProcess.once('exit', () => {
-                        this.logger.debug(LogComponent.TUNNEL, 'Process exited successfully');
                         clearTimeout(timeout);
                         resolve();
                     });
                 });
 
-                // Remove from running tunnels map
                 this.runningTunnels.delete(cleanTunnelId);
-                
-                // Fire event to notify listeners
-                this._onTunnelEvent.fire({
-                    type: 'status',
-                    tunnelId: cleanTunnelId,
-                    data: {
-                        status: 'stopped'
-                    }
-                });
+                this.logger.info(LogComponent.TUNNEL, `Tunnel ${cleanTunnelId} stopped`, { preserveFocus: true });
             } else {
-                this.logger.debug(LogComponent.TUNNEL, 'No running process found for tunnel');
+                this.logger.warn(LogComponent.TUNNEL, `No running process found for tunnel ${cleanTunnelId}`, { preserveFocus: true });
             }
-        } catch (err) {
-            const error = err instanceof Error ? err : new Error('Unknown error occurred');
-            this.logger.error(LogComponent.TUNNEL, `Failed to stop tunnel ${tunnelId}:`, error);
-            this._onTunnelEvent.fire({
-                type: 'error',
-                tunnelId,
-                data: { error: error.message }
-            });
+        } catch (error) {
+            this.logger.error(LogComponent.TUNNEL, 'Failed to stop tunnel', error, { preserveFocus: true });
             throw error;
         }
     }

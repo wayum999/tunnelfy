@@ -23,10 +23,12 @@ import * as path from 'path';
  * This helps track which part of the system generated each log message
  */
 export enum LogComponent {
-    EXTENSION = 'EXTENSION',  // Core extension operations
-    TUNNEL = 'TUNNEL',       // Tunnel-related operations
-    COMMAND = 'COMMAND',     // Command execution
-    PROFILE = 'PROFILE'      // Profile management
+    EXTENSION = 'extension',
+    COMMAND = 'command',
+    TUNNEL = 'tunnel',
+    PROFILE = 'profile',
+    TOKEN = 'token',
+    API = 'api'
 }
 
 /**
@@ -188,36 +190,78 @@ export class Logger {
     }
 
     /**
-     * Logs a debug message - Detailed information for debugging
+     * Logs a debug message
+     * @param component - The component generating the log
+     * @param message - The message to log
+     * @param options - Optional settings including preserveFocus
      */
-    public debug(component: LogComponent | string, message: string, ...args: any[]): void {
-        this.writeLog(LogLevel.DEBUG, 'DEBUG', component, message, ...args);
-    }
-
-    /**
-     * Logs an info message - General operational information
-     */
-    public info(component: LogComponent | string, message?: string, ...args: any[]): void {
-        // Fallback to handle single-argument calls
-        if (typeof message === 'undefined') {
-            message = component as string;
-            component = LogComponent.EXTENSION;
+    public debug(component: LogComponent, message: string, options: { preserveFocus?: boolean } = {}): void {
+        if (this.currentLogLevel <= LogLevel.DEBUG) {
+            const logMessage = this.formatMessage('DEBUG', component, message);
+            this.outputChannel.appendLine(logMessage);
+            if (!options.preserveFocus) {
+                this.outputChannel.show(true);
+            }
+            this.writeToFile(logMessage);
         }
-        this.writeLog(LogLevel.INFO, 'INFO', component, message, ...args);
     }
 
     /**
-     * Logs a warning message - Issues that need attention but don't stop operation
+     * Logs an info message
+     * @param component - The component generating the log
+     * @param message - The message to log
+     * @param options - Optional settings including preserveFocus
      */
-    public warn(component: LogComponent | string, message: string, ...args: any[]): void {
-        this.writeLog(LogLevel.WARN, 'WARN', component, message, ...args);
+    public info(component: LogComponent, message: string, options: { preserveFocus?: boolean } = {}): void {
+        if (this.currentLogLevel <= LogLevel.INFO) {
+            const logMessage = this.formatMessage('INFO', component, message);
+            this.outputChannel.appendLine(logMessage);
+            if (!options.preserveFocus) {
+                this.outputChannel.show(true);
+            }
+            this.writeToFile(logMessage);
+        }
     }
 
     /**
-     * Logs an error message - Critical issues that prevent normal operation
+     * Logs a warning message
+     * @param component - The component generating the log
+     * @param message - The message to log
+     * @param options - Optional settings including preserveFocus
      */
-    public error(component: LogComponent | string, message: string, ...args: any[]): void {
-        this.writeLog(LogLevel.ERROR, 'ERROR', component, message, ...args);
+    public warn(component: LogComponent, message: string, options: { preserveFocus?: boolean } = {}): void {
+        if (this.currentLogLevel <= LogLevel.WARN) {
+            const logMessage = this.formatMessage('WARN', component, message);
+            this.outputChannel.appendLine(logMessage);
+            if (!options.preserveFocus) {
+                this.outputChannel.show(true);
+            }
+            this.writeToFile(logMessage);
+        }
+    }
+
+    /**
+     * Logs an error message
+     * @param component - The component generating the log
+     * @param message - The message to log
+     * @param error - The error to log
+     * @param options - Optional settings including preserveFocus
+     */
+    public error(component: LogComponent, message: string, error?: any, options: { preserveFocus?: boolean } = {}): void {
+        if (this.currentLogLevel <= LogLevel.ERROR) {
+            const logMessage = this.formatMessage('ERROR', component, message);
+            this.outputChannel.appendLine(logMessage);
+            if (error) {
+                this.outputChannel.appendLine(error.toString());
+            }
+            if (!options.preserveFocus) {
+                this.outputChannel.show(true);
+            }
+            this.writeToFile(logMessage);
+            if (error) {
+                this.writeToFile(error.toString());
+            }
+        }
     }
 
     /**
@@ -226,5 +270,11 @@ export class Logger {
      */
     public show(): void {
         this.outputChannel.show();
+    }
+
+    private writeToFile(message: string): void {
+        if (this.fileStream) {
+            this.fileStream.write(message + '\n');
+        }
     }
 }

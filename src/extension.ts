@@ -34,19 +34,19 @@ import { Logger, LogComponent } from './utils/logger';
 export async function activate(context: vscode.ExtensionContext) {
     // Initialize logging first to capture all subsequent operations
     const logger = Logger.initialize(context);
-    logger.info(LogComponent.EXTENSION, 'Activating Tunnelfy extension');
+    logger.info(LogComponent.EXTENSION, 'Activating Tunnelfy extension', { preserveFocus: true });
 
     try {
         // Initialize core services
-        const cloudflaredService = new CloudflaredService(context);
+        const profileManager = new ProfileManager(context);
+        const cloudflaredService = new CloudflaredService(context, profileManager);
         const tokenService = new TokenService(context);
-        const profileManager = new ProfileManager();
 
         // Check for cloudflared installation once at startup if enabled
         const checkOnStartup = vscode.workspace.getConfiguration('tunnelfy').get('checkCloudflaredOnStartup', true);
         let isCloudflaredInstalled = true;
         if (checkOnStartup) {
-            logger.info(LogComponent.EXTENSION, 'Checking for existing cloudflared installation');
+            logger.info(LogComponent.EXTENSION, 'Checking for existing cloudflared installation', { preserveFocus: true });
             isCloudflaredInstalled = await profileManager.isCloudflaredInstalled();
             if (!isCloudflaredInstalled) {
                 await showCloudflaredInstallPrompt();
@@ -87,23 +87,75 @@ export async function activate(context: vscode.ExtensionContext) {
             // Profile Management Commands
             vscode.commands.registerCommand('tunnelfy.createProfile', async () => {
                 logger.info(LogComponent.COMMAND, 'Creating new profile');
-                await withCloudflaredCheck(async () => {
-                    try {
-                        const name = await vscode.window.showInputBox({
-                            prompt: 'Enter profile name',
-                            placeHolder: 'e.g. development, production'
-                        });
-                        if (name) {
-                            await profileManager.createProfile(name);
-                            profilesProvider.refresh();
-                            tunnelProvider.refresh();
-                            vscode.window.showInformationMessage(`Profile "${name}" created and activated successfully`);
+                try {
+                    const name = await vscode.window.showInputBox({
+                        prompt: 'Enter profile name',
+                        placeHolder: 'e.g. development, production',
+                        ignoreFocusOut: true,
+                        validateInput: (value) => {
+                            if (!value) {
+                                return 'Profile name is required';
+                            }
+                            if (!/^[a-zA-Z0-9-_]+$/.test(value)) {
+                                return 'Profile name can only contain letters, numbers, hyphens, and underscores';
+                            }
+                            return null;
                         }
-                    } catch (error) {
-                        logger.error(LogComponent.COMMAND, 'Failed to create profile', error as Error);
-                        vscode.window.showErrorMessage('Failed to create profile');
+                    });
+                    
+                    if (!name) {
+                        return; // User cancelled
                     }
-                });
+
+                    const apiKey = await vscode.window.showInputBox({
+                        prompt: 'Enter your Cloudflare API key',
+                        password: true,
+                        placeHolder: 'Your Cloudflare API key',
+                        ignoreFocusOut: true,
+                        validateInput: (value) => {
+                            if (!value) {
+                                return 'API key is required';
+                            }
+                            return null;
+                        }
+                    });
+
+                    if (!apiKey) {
+                        return; // User cancelled
+                    }
+
+                    // Fetch available accounts using the API key
+                    const accounts = await cloudflaredService.apiService.listAccounts(apiKey);
+                    if (accounts.length === 0) {
+                        throw new Error('No accounts found for this API key. Please check your permissions.');
+                    }
+
+                    // Show account selection for all cases
+                    const accountItems = accounts.map(account => ({
+                        label: account.name,
+                        description: account.id,
+                        detail: `Type: ${account.type}, Created: ${new Date(account.created_on).toLocaleDateString()}`
+                    }));
+
+                    const selectedAccount = await vscode.window.showQuickPick(accountItems, {
+                        placeHolder: 'Select a Cloudflare account',
+                        ignoreFocusOut: true
+                    });
+
+                    if (!selectedAccount) {
+                        return; // User cancelled
+                    }
+
+                    await profileManager.createProfile(name, apiKey, selectedAccount.description);
+                    profilesProvider.refresh();
+                    tunnelProvider.refresh();
+                    vscode.window.showInformationMessage(
+                        `Profile "${name}" created successfully with account "${selectedAccount.label}"`
+                    );
+                } catch (error) {
+                    logger.error(LogComponent.COMMAND, 'Failed to create profile', error as Error);
+                    vscode.window.showErrorMessage(`Failed to create profile: ${error instanceof Error ? error.message : String(error)}`);
+                }
             }),
 
             vscode.commands.registerCommand('tunnelfy.switchProfile', async () => {
@@ -166,42 +218,6 @@ export async function activate(context: vscode.ExtensionContext) {
                     } catch (error) {
                         logger.error(LogComponent.COMMAND, 'Failed to delete profile', error as Error);
                         vscode.window.showErrorMessage('Failed to delete profile');
-                    }
-                });
-            }),
-
-            vscode.commands.registerCommand('tunnelfy.renameProfile', async (item?: any) => {
-                logger.info(LogComponent.COMMAND, 'Renaming profile');
-                await withCloudflaredCheck(async () => {
-                    try {
-                        // If no item provided (command palette), let user pick a profile
-                        let oldName = item?.label;
-                        if (!oldName) {
-                            const profiles = await profileManager.listProfiles();
-                            const selected = await vscode.window.showQuickPick(profiles, {
-                                placeHolder: 'Select profile to rename'
-                            });
-                            if (!selected) {
-                                return; // User cancelled
-                            }
-                            oldName = selected;
-                        }
-
-                        const newName = await vscode.window.showInputBox({
-                            prompt: 'Enter new profile name',
-                            placeHolder: 'e.g. development, production',
-                            value: oldName
-                        });
-
-                        if (newName && newName !== oldName) {
-                            await profileManager.renameProfile(oldName, newName);
-                            profilesProvider.refresh();
-                            tunnelProvider.refresh();
-                            vscode.window.showInformationMessage(`Profile "${oldName}" renamed to "${newName}"`);
-                        }
-                    } catch (error) {
-                        logger.error(LogComponent.COMMAND, 'Failed to rename profile', error as Error);
-                        vscode.window.showErrorMessage('Failed to rename profile');
                     }
                 });
             }),
@@ -843,7 +859,9 @@ async function showCloudflaredInstallPrompt(): Promise<void> {
     } else if (result === installMac) {
         vscode.env.clipboard.writeText('brew install cloudflared');
         const selection = await vscode.window.showInformationMessage(
-            'Install command copied to clipboard. Run in Terminal and Default Profile will be created.'
+            'Install command copied to clipboard. Run in Terminal and Default Profile will be created.',
+            { preserveFocus: true },
+            'Open Terminal'
         );
         if (selection === 'Open Terminal') {
             await vscode.commands.executeCommand('workbench.action.terminal.new');
@@ -874,6 +892,7 @@ async function showCloudflaredInstallPrompt(): Promise<void> {
                 vscode.env.clipboard.writeText(winResult.description);
                 vscode.window.showInformationMessage(
                     'Install command copied to clipboard. Run it in PowerShell,  and Default Profile will be created.',
+                    { preserveFocus: true },
                     'Open PowerShell'
                 ).then(selection => {
                     if (selection === 'Open PowerShell') {
@@ -917,6 +936,7 @@ async function showCloudflaredInstallPrompt(): Promise<void> {
             vscode.env.clipboard.writeText(command);
             vscode.window.showInformationMessage(
                 'Install command copied to clipboard. Run it in Terminal and Default Profile will be created.',
+                { preserveFocus: true },
                 'Open Terminal'
             ).then(selection => {
                 if (selection === 'Open Terminal') {

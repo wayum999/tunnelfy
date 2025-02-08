@@ -6,8 +6,10 @@ Managing Cloudflare tunnels directly from a VS Code extension has never been eas
 
 ### Profile Management
 
-- Manage multiple Cloudflare profiles
-- Maintain the same local secure storage of profile credentials
+- Manage multiple Cloudflare profiles with API keys
+- Securely store API keys using VS Code's built-in secret storage
+- Switch between profiles easily
+- Each profile maintains its own configuration and tunnels
 
 ### Tunnel Monitoring and Control
 
@@ -21,7 +23,7 @@ Managing Cloudflare tunnels directly from a VS Code extension has never been eas
 ## Prerequisites
 
 1. VS Code (v1.85.0 or higher)
-2. [Cloudflared CLI tool installed and authenticated](#installing-cloudflare-tunnel-cloudflared-on-linux-windows-and-macos)
+2. A Cloudflare account with API key access
 
 ## Getting Started
 
@@ -36,8 +38,10 @@ Managing Cloudflare tunnels directly from a VS Code extension has never been eas
 
 1. Click the cloud icon in the activity bar
 2. Click the + button in the Profiles section
-3. Follow the prompts to set up your profile
-Note: By default, a profile named "Default Profile" is created. You can edit its name by clicking on the pencil icon when hovering over it.
+3. Enter a name for your profile
+4. Enter your Cloudflare API key (you can create one at https://dash.cloudflare.com/profile/api-tokens)
+   - Required permissions: Cloudflare Tunnel:Edit
+   - The API key will be stored securely and never displayed again
 
 ### 3. Managing Tunnels
 
@@ -63,8 +67,7 @@ Note: By default, a profile named "Default Profile" is created. You can edit its
 Several commands are accessible via the Command Palette (Ctrl+Shift+P / Cmd+Shift+P):
 
 ### Profile Management
-- `Tunnelfy: Create Profile` - Create a new Cloudflare profile
-- `Tunnelfy: Rename Profile` - Rename a profile
+- `Tunnelfy: Create Profile` - Create a new Cloudflare profile with an API key
 - `Tunnelfy: Switch Profile` - Switch between Cloudflare profiles
 - `Tunnelfy: Delete Profile` - Delete a Cloudflare profile
 
@@ -82,62 +85,39 @@ Several commands are accessible via the Command Palette (Ctrl+Shift+P / Cmd+Shif
 - `Tunnelfy: Copy Quick Tunnel URL` - Copy the URL of a quick tunnel
 - `Tunnelfy: Stop Quick Tunnel` - Stop a quick tunnel
 
-
 ## Troubleshooting
 
 ### Common Issues
 
-1. **Authentication Selection Missing After Cloudflare Login**
+1. **Invalid API Key**
+   - Make sure your API key has the correct permissions (Cloudflare Tunnel:Edit)
+   - Verify the API key is still active in your Cloudflare dashboard
+   - Try creating a new API key if issues persist
 
-   **Problem:** When setting up a profile, the authentication selection may be missing after logging in to Cloudflare.
-
-   **Solution 1:** Stay logged into Cloudflare and reattempt to create the profile. When the browser opens, you should be given a choice of which domain to associate the authentication. 
-
-   **Solution 2:** Access the authentication link in the output of the extension. When you reopen it, you will find the listing of domains to choose from.
-
-   **IMPORTANT NOTE:** You can only choose one domain to tie to the authentication. Regardless of your choice, you will be able to manage all tunnels in the account. The domain you choose simply allows you to modify DNS records for that domain and you can only choose one. DNS records can be modified manually for all others.
-2. **Port and/or Hostname Entry Not Working**
-
-   **Problem:** The port and/or hostname you enter when starting a persistent tunnel is not being respected.
-
-   **Solution:** If you set up your tunnel in the Cloudflare dashboard, the hostname and the url/port you set up will be honored. The URL and hostname you set in the extension will only be respected with tunnels you have created through the extension / the cloudflared CLI.
-
-3. **Profile Creation Failed**
-   - Ensure `cloudflared` is installed and in your PATH
-   - Verify you're logged in with `cloudflared tunnel login`
-
-4. **Tunnel Status Not Updating**
-   - Click the refresh button in the Tunnels view
-   - Ensure your profile is properly configured
+2. **Profile Switching Issues**
+   - Ensure the API key for the profile is still valid
    - Check your internet connection
+   - Try deleting and recreating the profile if issues persist
 
-5. **Quick Tunnel Won't Start**
-   - Verify the port isn't already in use
-   - Check if your local service is running
-   - Ensure you have proper permissions
+3. **Tunnel Creation Fails**
+   - Verify your API key has sufficient permissions
+   - Check if you've reached your account's tunnel limit
+   - Ensure you have a stable internet connection
 
-## Changelog
+## Security
 
-See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes.
-
-
-## Roadmap
-
-- Integration with the Cloudflare API as an alternative method of tunnel management using an API key.
+- API keys are stored securely using VS Code's built-in secret storage
+- Keys are never displayed after initial entry
+- Each profile maintains its own isolated API key
+- No sensitive data is stored in plain text
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-1. Fork the repository
-2. Create your feature branch
-3. Commit your changes
-4. Push to the branch
-5. Open a Pull Request
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
 
 ## License
 
-[MIT License](LICENSE)
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Support
 

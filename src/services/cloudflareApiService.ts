@@ -171,11 +171,11 @@ export class CloudflareApiService {
             const accountId = await this.getAccountId();
             const tunnels = await this.makeRequest(`/accounts/${accountId}/tunnels`);
             
-            // Filter out deleted tunnels and sort by creation date (newest first)
+            // Filter out deleted tunnels and sort by name
             const activeTunnels = tunnels
                 .filter((tunnel: CloudflareTunnel) => !tunnel.deleted_at)
                 .sort((a: CloudflareTunnel, b: CloudflareTunnel) => 
-                    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                    a.name.toLowerCase().localeCompare(b.name.toLowerCase())
                 );
 
             this.logger.debug(LogComponent.API, `Found ${activeTunnels.length} active tunnels`);
@@ -244,8 +244,12 @@ export class CloudflareApiService {
         try {
             const accountId = await this.getAccountId();
             const tunnel = await this.makeRequest(`/accounts/${accountId}/tunnels`, 'POST', { name });
-            this.logger.info(LogComponent.API, `Created tunnel: ${name}`);
-            return tunnel;
+            this.logger.info(LogComponent.API, `Created tunnel: ${name} (${tunnel.id})`);
+            return {
+                ...tunnel,
+                connections: [],
+                status: 'inactive'
+            };
         } catch (error) {
             this.logger.error(LogComponent.API, `Failed to create tunnel ${name}:`, error);
             throw error;

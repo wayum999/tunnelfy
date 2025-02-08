@@ -25,6 +25,7 @@ import { Logger, LogComponent } from '../utils/logger';
 import { TokenService } from './tokenService';
 import { CloudflareApiService } from './cloudflareApiService';
 import { ProfileManager } from './profileManager';
+import { CloudflareTunnel } from './types';
 
 const exec = util.promisify(cp.exec);
 
@@ -176,55 +177,65 @@ export class CloudflaredService {
     }
 
     /**
-     * Creates a new tunnel with the given name
-     * @param name - The name of the tunnel to create
-     * @returns True if the tunnel was created successfully, false otherwise
+     * Creates a new tunnel
      */
-    async createTunnel(name: string): Promise<boolean> {
+    async createTunnel(name: string): Promise<CloudflareTunnel> {
         try {
-            await this.verifyCertFile();
-            await this.runCloudflaredCommand(`cloudflared tunnel create ${name}`);
-            return true;
+            const tunnel = await this.apiService.createTunnel(name);
+            this.logger.info(LogComponent.TUNNEL, `Created tunnel: ${name} (${tunnel.id})`);
+            return tunnel;
         } catch (error) {
-            this.logger.error(LogComponent.TUNNEL, 'Failed to create tunnel:', error);
-            return false;
+            this.logger.error(LogComponent.TUNNEL, `Failed to create tunnel ${name}:`, error);
+            throw error;
         }
     }
 
     /**
-     * Deletes a tunnel with the given ID
-     * @param tunnelId - The ID of the tunnel to delete
-     * @returns True if the tunnel was deleted successfully, false otherwise
+     * Gets the token for a tunnel
      */
-    async deleteTunnel(tunnelId: string): Promise<boolean> {
+    async getTunnelToken(tunnelId: string): Promise<string> {
         try {
-            await this.runCloudflaredCommand(`cloudflared tunnel delete ${tunnelId}`);
-            return true;
+            return await this.apiService.getTunnelToken(tunnelId);
         } catch (error) {
-            this.logger.error(LogComponent.TUNNEL, 'Failed to delete tunnel:', error);
-            return false;
+            this.logger.error(LogComponent.TUNNEL, `Failed to get token for tunnel ${tunnelId}:`, error);
+            throw error;
+        }
+    }
+
+    /**
+     * Gets detailed information about a specific tunnel
+     */
+    async getTunnelInfo(tunnelId: string): Promise<any> {
+        try {
+            return await this.apiService.getTunnelInfo(tunnelId);
+        } catch (error) {
+            this.logger.error(LogComponent.TUNNEL, `Failed to get tunnel info for ${tunnelId}:`, error);
+            throw error;
+        }
+    }
+
+    /**
+     * Deletes a tunnel
+     */
+    async deleteTunnel(tunnelId: string): Promise<void> {
+        try {
+            await this.apiService.deleteTunnel(tunnelId);
+            this.logger.info(LogComponent.TUNNEL, `Deleted tunnel: ${tunnelId}`);
+        } catch (error) {
+            this.logger.error(LogComponent.TUNNEL, `Failed to delete tunnel ${tunnelId}:`, error);
+            throw error;
         }
     }
 
     /**
      * Lists all tunnels
-     * @returns An array of tunnel objects
      */
     async listTunnels(): Promise<Array<{ id: string; name: string; connections?: Array<any>; url?: string }>> {
         try {
-            this.logger.debug(LogComponent.TUNNEL, 'Listing tunnels...', { preserveFocus: true });
-            const tunnels = await this.apiService.listTunnels();
-            this.logger.debug(LogComponent.TUNNEL, `Found ${tunnels.length} tunnels`, { preserveFocus: true });
-            
-            // Only log individual tunnels at debug level
-            tunnels.forEach(tunnel => {
-                this.logger.debug(LogComponent.TUNNEL, `Found tunnel: ${tunnel.name} (${tunnel.id})`, { preserveFocus: true });
-            });
-            
-            return tunnels;
+            return await this.apiService.listTunnels();
         } catch (error) {
-            this.logger.error(LogComponent.TUNNEL, 'Failed to list tunnels', error, { preserveFocus: true });
-            return [];
+            this.logger.error(LogComponent.TUNNEL, 'Failed to list tunnels:', error);
+            throw error;
         }
     }
 
@@ -427,54 +438,6 @@ export class CloudflaredService {
     }
 
     /**
-     * Gets the token for a tunnel
-     * @param tunnelId - The ID of the tunnel to get the token for
-     * @returns The token for the tunnel, or null if not found
-     */
-    async getTunnelToken(tunnelId: string): Promise<string | null> {
-        try {
-            this.logger.debug(LogComponent.TUNNEL, `Getting token for tunnel ${tunnelId}`, { preserveFocus: true });
-            
-            try {
-                // First try to get from secure storage
-                const token = await this.tokenService.getTunnelToken(tunnelId);
-                if (token) {
-                    this.logger.debug(LogComponent.TUNNEL, 'Found token in storage', { preserveFocus: true });
-                    return token;
-                }
-            } catch (error) {
-                const errorMessage = error instanceof Error ? error.message : String(error);
-                this.logger.debug(LogComponent.TUNNEL, `Failed to get token from storage: ${errorMessage}`, { preserveFocus: true });
-                // Continue to try getting from cloudflared
-            }
-
-            this.logger.debug(LogComponent.TUNNEL, 'Getting token from cloudflared', { preserveFocus: true });
-            // Get from cloudflared and store it
-            const { stdout } = await this.runCloudflaredCommand(`cloudflared tunnel token ${tunnelId}`);
-            const token = stdout.trim();
-            
-            if (token) {
-                this.logger.debug(LogComponent.TUNNEL, 'Got token from cloudflared, storing it', { preserveFocus: true });
-                try {
-                    await this.tokenService.storeTunnelToken(tunnelId, token);
-                } catch (storeError) {
-                    const errorMessage = storeError instanceof Error ? storeError.message : String(storeError);
-                    this.logger.error(LogComponent.TUNNEL, `Failed to store token: ${errorMessage}`, undefined, { preserveFocus: true });
-                    // Continue even if we can't store it
-                }
-                return token;
-            } else {
-                this.logger.error(LogComponent.TUNNEL, 'Got empty token from cloudflared', undefined, { preserveFocus: true });
-                return null;
-            }
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            this.logger.error(LogComponent.TUNNEL, `Failed to get tunnel token: ${errorMessage}`, undefined, { preserveFocus: true });
-            return null;
-        }
-    }
-
-    /**
      * Stops a tunnel
      * @param tunnelId - The ID of the tunnel to stop
      */
@@ -527,22 +490,6 @@ export class CloudflaredService {
         } catch (error) {
             this.logger.error(LogComponent.TUNNEL, 'Failed to stop tunnel', error, { preserveFocus: true });
             throw error;
-        }
-    }
-
-    /**
-     * Gets information about a tunnel
-     * @param tunnelId - The ID of the tunnel to get information about
-     * @returns The tunnel information, or null if not found
-     */
-    async getTunnelInfo(tunnelId: string): Promise<any> {
-        try {
-            const { stdout } = await this.runCloudflaredCommand('cloudflared tunnel list --output json');
-            const tunnels = JSON.parse(stdout);
-            return tunnels.find((t: any) => t.id === tunnelId);
-        } catch (error) {
-            this.logger.error(LogComponent.TUNNEL, 'Failed to get tunnel info:', error);
-            return null;
         }
     }
 

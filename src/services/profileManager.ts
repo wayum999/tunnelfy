@@ -227,4 +227,35 @@ export class ProfileManager {
             return false;
         }
     }
+
+    /**
+     * Switches to a different profile
+     */
+    async switchProfile(name: string): Promise<void> {
+        if (!this.profiles.has(name)) {
+            throw new Error(`Profile '${name}' does not exist`);
+        }
+
+        this.activeProfile = name;
+        await this.saveProfiles();
+        this.logger.info(LogComponent.PROFILE, `Switched to profile ${name}`);
+    }
+
+    /**
+     * Updates the API key for a profile
+     */
+    async updateProfileApiKey(name: string, apiKey: string): Promise<void> {
+        const profile = this.profiles.get(name);
+        if (!profile) {
+            throw new Error(`Profile '${name}' does not exist`);
+        }
+
+        if (!apiKey || !apiKey.trim()) {
+            throw new Error('API key cannot be empty');
+        }
+
+        profile.apiKey = apiKey;
+        await this.saveProfiles();
+        this.logger.info(LogComponent.PROFILE, `Updated API key for profile ${name}`);
+    }
 }

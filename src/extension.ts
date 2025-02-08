@@ -222,6 +222,94 @@ export async function activate(context: vscode.ExtensionContext) {
                 });
             }),
 
+            vscode.commands.registerCommand('tunnelfy.editProfile', async (profile?: { label: string }) => {
+                logger.info(LogComponent.COMMAND, 'Editing profile');
+                try {
+                    let profileName: string;
+
+                    // If no profile provided (command palette), show quick pick
+                    if (!profile) {
+                        const profiles = await profileManager.listProfiles();
+                        const activeProfile = await profileManager.getActiveProfile();
+                        const items = profiles.map(p => ({
+                            label: p,
+                            description: p === activeProfile ? '(current)' : ''
+                        }));
+
+                        const selected = await vscode.window.showQuickPick(items, {
+                            placeHolder: 'Select profile to edit'
+                        });
+
+                        if (!selected) {
+                            return; // User cancelled
+                        }
+
+                        profileName = selected.label;
+                    } else {
+                        profileName = profile.label;
+                    }
+
+                    // Get new API key
+                    const apiKey = await vscode.window.showInputBox({
+                        prompt: `Enter new API key for profile "${profileName}"`,
+                        password: true,
+                        placeHolder: 'Your Cloudflare API key',
+                        ignoreFocusOut: true,
+                        validateInput: (value) => {
+                            if (!value) {
+                                return 'API key is required';
+                            }
+                            return null;
+                        }
+                    });
+
+                    if (!apiKey) {
+                        return; // User cancelled
+                    }
+
+                    // Verify the API key works by listing accounts
+                    try {
+                        const accounts = await cloudflaredService.apiService.listAccounts(apiKey);
+                        if (accounts.length === 0) {
+                            throw new Error('No accounts found for this API key. Please check your permissions.');
+                        }
+
+                        // Show account selection
+                        const accountItems = accounts.map(account => ({
+                            label: account.name,
+                            description: account.id,
+                            detail: `Type: ${account.type}, Created: ${new Date(account.created_on).toLocaleDateString()}`
+                        }));
+
+                        const selectedAccount = await vscode.window.showQuickPick(accountItems, {
+                            placeHolder: 'Select a Cloudflare account',
+                            ignoreFocusOut: true
+                        });
+
+                        if (!selectedAccount) {
+                            return; // User cancelled
+                        }
+
+                        // Update the profile with new API key and account ID
+                        await profileManager.updateProfileApiKey(profileName, apiKey);
+                        await profileManager.setProfileAccountId(profileName, selectedAccount.description);
+                        
+                        // Refresh views
+                        profilesProvider.refresh();
+                        tunnelProvider.refresh();
+                        
+                        vscode.window.showInformationMessage(
+                            `Updated profile "${profileName}" with new API key and account "${selectedAccount.label}"`
+                        );
+                    } catch (error) {
+                        throw new Error(`Failed to verify API key: ${error instanceof Error ? error.message : String(error)}`);
+                    }
+                } catch (error) {
+                    logger.error(LogComponent.COMMAND, 'Failed to edit profile', error as Error);
+                    vscode.window.showErrorMessage(`Failed to edit profile: ${error instanceof Error ? error.message : String(error)}`);
+                }
+            }),
+
             vscode.commands.registerCommand('tunnelfy.tunnelInfo', async (tunnel?: { tunnelId: string; name: string }) => {
                 logger.info(LogComponent.COMMAND, 'Getting tunnel info');
                 try {
@@ -479,14 +567,79 @@ export async function activate(context: vscode.ExtensionContext) {
                 logger.info(LogComponent.COMMAND, 'Creating new tunnel');
                 await withCloudflaredCheck(async () => {
                     try {
+                        // Check for active profile first
+                        const activeProfile = await profileManager.getActiveProfile();
+                        if (!activeProfile) {
+                            throw new Error('No active profile found. Please create and activate a profile first.');
+                        }
+
+                        // Verify we have an API key
+                        const apiKey = await profileManager.getProfileApiKey(activeProfile);
+                        if (!apiKey) {
+                            throw new Error('No API key found for active profile. Please recreate the profile.');
+                        }
+
+                        // Verify we have an account ID
+                        const accountId = await profileManager.getProfileAccountId(activeProfile);
+                        if (!accountId) {
+                            throw new Error('No account ID found for active profile. Please recreate the profile.');
+                        }
+
                         const name = await vscode.window.showInputBox({
                             prompt: 'Enter tunnel name',
-                            placeHolder: 'e.g. my-app-tunnel'
+                            placeHolder: 'e.g. my-app-tunnel',
+                            ignoreFocusOut: true,
+                            validateInput: (value) => {
+                                if (!value) {
+                                    return 'Tunnel name is required';
+                                }
+                                if (!/^[a-zA-Z0-9-_]+$/.test(value)) {
+                                    return 'Tunnel name can only contain letters, numbers, hyphens, and underscores';
+                                }
+                                if (value.length > 64) {
+                                    return 'Tunnel name cannot be longer than 64 characters';
+                                }
+                                return null;
+                            }
                         });
-                        if (name) {
-                            await cloudflaredService.createTunnel(name);
-                            tunnelProvider.refresh();
-                            vscode.window.showInformationMessage(`Tunnel "${name}" created successfully`);
+                        
+                        if (!name) {
+                            return; // User cancelled
+                        }
+
+                        // Show confirmation dialog
+                        const confirm = await vscode.window.showInformationMessage(
+                            `Create tunnel "${name}" using profile "${activeProfile}"?`,
+                            { modal: true },
+                            'Create'
+                        );
+
+                        if (confirm !== 'Create') {
+                            return; // User cancelled
+                        }
+
+                        // Create the tunnel
+                        const tunnel = await cloudflaredService.createTunnel(name);
+                        
+                        // Refresh the view
+                        tunnelProvider.refresh();
+                        
+                        // Show success message with tunnel ID
+                        vscode.window.showInformationMessage(
+                            `Tunnel "${name}" created successfully (ID: ${tunnel.id})`
+                        );
+
+                        // Ask if user wants to view tunnel info
+                        const viewInfo = await vscode.window.showInformationMessage(
+                            'Would you like to view the tunnel configuration information?',
+                            'Yes', 'No'
+                        );
+
+                        if (viewInfo === 'Yes') {
+                            await vscode.commands.executeCommand('tunnelfy.tunnelInfo', { 
+                                tunnelId: tunnel.id, 
+                                name: tunnel.name 
+                            });
                         }
                     } catch (error) {
                         logger.error(LogComponent.COMMAND, 'Failed to create tunnel', error as Error);

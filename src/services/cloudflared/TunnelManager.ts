@@ -338,35 +338,81 @@ export class TunnelManager {
     }
 
     /**
-     * Finds all cloudflared processes
+     * Finds all cloudflared processes more efficiently
      * @returns Array of PIDs and their command lines
      * @private
      */
     private async findCloudflaredProcesses(): Promise<Array<{ pid: number; cmdline: string }>> {
         try {
-            // Use ps aux to find all cloudflared processes and get their command lines
-            const { stdout } = await util.promisify(cp.exec)('ps aux | grep cloudflared | grep -v grep');
-            const processes = stdout.split('\n')
-                .filter(line => line.trim())
-                .map(line => {
-                    const parts = line.trim().split(/\s+/);
-                    const pid = parseInt(parts[1]);
-                    const cmdline = parts.slice(10).join(' '); // Command is everything after the 10th column
-                    return { pid, cmdline };
-                })
-                .filter(p => p.pid && p.cmdline); // Filter out any invalid entries
+            let processes: Array<{ pid: number; cmdline: string }> = [];
+            
+            if (process.platform === 'darwin' || process.platform === 'linux') {
+                // Use more efficient command for Unix-like systems
+                // pgrep is faster than ps aux | grep and more reliable
+                const { stdout: pids } = await util.promisify(cp.exec)('pgrep -x cloudflared');
+                
+                if (pids.trim()) {
+                    const pidList = pids.split('\n').filter(Boolean);
+                    
+                    // Get command lines for found PIDs using ps
+                    // This is more efficient than getting all processes and filtering
+                    if (pidList.length > 0) {
+                        const { stdout: cmdlines } = await util.promisify(cp.exec)(
+                            `ps -p ${pidList.join(',')} -o pid=,command=`
+                        );
+                        
+                        processes = cmdlines.split('\n')
+                            .filter(line => line.trim())
+                            .map(line => {
+                                const [pidStr, ...cmdParts] = line.trim().split(/\s+/);
+                                return {
+                                    pid: parseInt(pidStr),
+                                    cmdline: cmdParts.join(' ')
+                                };
+                            });
+                    }
+                }
+            } else if (process.platform === 'win32') {
+                // Windows-specific optimization using tasklist
+                const { stdout } = await util.promisify(cp.exec)(
+                    'tasklist /FI "IMAGENAME eq cloudflared.exe" /FO CSV /NH'
+                );
+                
+                const lines = stdout.split('\n').filter(Boolean);
+                for (const line of lines) {
+                    const [imageName, pidStr] = line.replace(/"/g, '').split(',');
+                    if (imageName.toLowerCase() === 'cloudflared.exe') {
+                        const pid = parseInt(pidStr);
+                        // Get command line using wmic
+                        try {
+                            const { stdout: cmdline } = await util.promisify(cp.exec)(
+                                `wmic process where ProcessId=${pid} get CommandLine /format:list`
+                            );
+                            const cmd = cmdline.split('\n')
+                                .find(l => l.startsWith('CommandLine='))
+                                ?.replace('CommandLine=', '')
+                                ?.trim();
+                            
+                            if (cmd) {
+                                processes.push({ pid, cmdline: cmd });
+                            }
+                        } catch (error) {
+                            this.logger.debug(LogComponent.TUNNEL, `Failed to get command line for PID ${pid}`);
+                        }
+                    }
+                }
+            }
 
             this.logger.debug(LogComponent.TUNNEL, `Found ${processes.length} cloudflared processes`);
             return processes;
         } catch (error) {
-            // If command fails, no processes found
             this.logger.debug(LogComponent.TUNNEL, 'No cloudflared processes found');
             return [];
         }
     }
 
     /**
-     * Finds a specific tunnel process
+     * Finds a specific tunnel process with improved accuracy
      * @param identifier Either a tunnel ID or port number
      * @returns Process info if found
      * @private
@@ -376,14 +422,28 @@ export class TunnelManager {
         
         // If identifier is a number, look for port
         if (typeof identifier === 'number') {
-            return processes.filter(p => p.cmdline.includes(`localhost:${identifier}`));
+            return processes.filter(p => {
+                const cmdline = p.cmdline.toLowerCase();
+                return cmdline.includes(`--url`) && 
+                       cmdline.includes(`localhost:${identifier}`) &&
+                       !cmdline.includes(`--token`); // Quick tunnels don't use token auth
+            });
         }
         
-        // If identifier is a string (tunnel ID), look for token or tunnel ID
-        return processes.filter(p => 
-            p.cmdline.includes(`--token`) && // Only look in processes using token auth
-            p.cmdline.includes(identifier) // Must include the exact tunnel ID
-        );
+        // If identifier is a string (tunnel ID), look for token-based auth
+        // Validate tunnel ID format (UUID v4 format)
+        const uuidV4Regex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+        if (!uuidV4Regex.test(identifier)) {
+            this.logger.warn(LogComponent.TUNNEL, `Invalid tunnel ID format: ${identifier}`);
+            return [];
+        }
+
+        return processes.filter(p => {
+            const cmdline = p.cmdline.toLowerCase();
+            return cmdline.includes(`--token`) && // Must be using token auth
+                   cmdline.includes(`run`) && // Must be a 'run' command
+                   cmdline.includes(identifier.toLowerCase()); // Must include the exact tunnel ID
+        });
     }
 
     /**

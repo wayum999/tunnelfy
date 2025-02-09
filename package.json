@@ -169,6 +169,11 @@
           "command": "tunnelfy.stopQuickTunnel",
           "when": "view == tunnelfy-quick-tunnels && viewItem == quickTunnel",
           "group": "inline@1"
+        },
+        {
+          "command": "tunnelfy.copyQuickTunnelUrl",
+          "when": "view == tunnelfy-quick-tunnels && viewItem == quickTunnel",
+          "group": "inline@2"
         }
       ]
     },
@@ -193,13 +198,6 @@
         "category": "Tunnelfy",
         "icon": "$(edit)",
         "description": "Edit an existing Cloudflare profile"
-      },
-      {
-        "command": "tunnelfy.switchProfile",
-        "title": "Switch Profile",
-        "category": "Tunnelfy",
-        "icon": "$(arrow-right)",
-        "description": "Switch between Cloudflare profiles"
       },
       {
         "command": "tunnelfy.deleteProfile",
@@ -263,6 +261,13 @@
         "category": "Tunnelfy",
         "icon": "$(stop)",
         "description": "Stop a running quick tunnel"
+      },
+      {
+        "command": "tunnelfy.copyQuickTunnelUrl",
+        "title": "Copy Quick Tunnel URL",
+        "category": "Tunnelfy",
+        "icon": "$(copy)",
+        "description": "Copy the quick tunnel URL to clipboard"
       },
       {
         "command": "tunnelfy.startTunnel",

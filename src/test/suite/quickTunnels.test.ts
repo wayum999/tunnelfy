@@ -1,7 +1,7 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { TunnelManager, TunnelEvent } from '../../services/cloudflared';
+import { TunnelManager, TunnelEvent, TunnelEventType } from '../../services/cloudflared';
 import { CloudflareApiService } from '../../services/cloudflareApiService';
 import { ProfileManager } from '../../services/profileManager';
 import { Logger, LogComponent } from '../../utils/logger';
@@ -100,8 +100,8 @@ suite('Quick Tunnels Test Suite', () => {
         
         // Verify event was emitted
         assert.ok(eventEmitted);
-        assert.strictEqual(eventEmitted.type, 'stop');
-        assert.ok(eventEmitted.tunnelId.startsWith(`quick-${port}-`));
+        assert.strictEqual((eventEmitted as TunnelEvent).type, 'stop');
+        assert.ok((eventEmitted as TunnelEvent).tunnelId.startsWith(`quick-${port}-`));
     });
 
     test('should handle multiple quick tunnels', async () => {
@@ -147,7 +147,7 @@ suite('Quick Tunnels Test Suite', () => {
 
         // Verify stop event was emitted
         assert.ok(eventEmitted);
-        assert.strictEqual(eventEmitted.type, 'stop');
-        assert.ok(eventEmitted.tunnelId.startsWith(`quick-${port}-`));
+        assert.strictEqual((eventEmitted as TunnelEvent).type, 'stop');
+        assert.ok((eventEmitted as TunnelEvent).tunnelId.startsWith(`quick-${port}-`));
     });
 }); 

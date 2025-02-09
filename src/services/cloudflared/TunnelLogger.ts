@@ -2,6 +2,21 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Logger, LogComponent } from '../../utils/logger';
 
+/**
+ * TunnelLogger - Manages logging for Cloudflare tunnels
+ * 
+ * This service is responsible for:
+ * 1. Creating and managing tunnel-specific log files
+ * 2. Implementing log rotation to prevent excessive disk usage
+ * 3. Cleaning up old log files automatically
+ * 4. Providing structured logging for tunnel events
+ * 
+ * Features:
+ * - Automatic log rotation when files exceed size limit
+ * - Configurable retention period for log files
+ * - Separate log file for each tunnel
+ * - Structured event logging with timestamps
+ */
 export class TunnelLogger {
     private readonly logDir: string;
     private readonly maxLogSize = 10 * 1024 * 1024; // 10MB
@@ -15,17 +30,32 @@ export class TunnelLogger {
         this.ensureLogDirectory();
     }
 
+    /**
+     * Creates the log directory if it doesn't exist
+     * @private
+     */
     private ensureLogDirectory(): void {
         if (!fs.existsSync(this.logDir)) {
             fs.mkdirSync(this.logDir, { recursive: true });
         }
     }
 
+    /**
+     * Creates a write stream for tunnel-specific logging
+     * @param tunnelId The ID of the tunnel
+     * @returns A write stream for the tunnel's log file
+     */
     createLogStream(tunnelId: string): fs.WriteStream {
         const logFile = path.join(this.logDir, `${tunnelId}.log`);
         return fs.createWriteStream(logFile, { flags: 'a' });
     }
 
+    /**
+     * Logs a tunnel event with optional details
+     * @param tunnelId The ID of the tunnel
+     * @param event The event description
+     * @param details Optional event details
+     */
     async logTunnelEvent(tunnelId: string, event: string, details?: any): Promise<void> {
         const timestamp = new Date().toISOString();
         const logMessage = `[${timestamp}] Tunnel ${tunnelId}: ${event}${details ? ` - ${JSON.stringify(details)}` : ''}`;
@@ -34,6 +64,11 @@ export class TunnelLogger {
         await this.checkAndRotateLogs(tunnelId);
     }
 
+    /**
+     * Checks if log rotation is needed and performs rotation if necessary
+     * @param tunnelId The ID of the tunnel
+     * @private
+     */
     private async checkAndRotateLogs(tunnelId: string): Promise<void> {
         const logFile = path.join(this.logDir, `${tunnelId}.log`);
         
@@ -47,6 +82,12 @@ export class TunnelLogger {
         }
     }
 
+    /**
+     * Performs log rotation for a tunnel's log files
+     * Keeps a maximum number of backup files defined by maxLogFiles
+     * @param tunnelId The ID of the tunnel
+     * @private
+     */
     private async rotateLogs(tunnelId: string): Promise<void> {
         const baseLogFile = path.join(this.logDir, `${tunnelId}.log`);
         
@@ -76,6 +117,10 @@ export class TunnelLogger {
         }
     }
 
+    /**
+     * Cleans up log files older than 7 days
+     * This helps prevent disk space issues from abandoned or inactive tunnels
+     */
     async cleanupOldLogs(): Promise<void> {
         try {
             const files = await fs.promises.readdir(this.logDir);

@@ -3,18 +3,41 @@
  * 
  * This service handles all direct API calls to Cloudflare's API endpoints.
  * It manages authentication and provides methods for tunnel operations.
+ * 
+ * Key responsibilities:
+ * 1. Managing API authentication
+ * 2. Handling API requests and responses
+ * 3. Error handling and logging
+ * 4. Account and zone management
+ * 5. DNS record operations
+ * 
+ * Security features:
+ * - Token-based authentication
+ * - Secure token storage
+ * - Error handling for expired tokens
+ * - Account validation
  */
 
 import * as vscode from 'vscode';
 import { Logger, LogComponent } from '../utils/logger';
 import { ProfileManager } from './profileManager';
 
-interface CloudflareTunnel {
+/**
+ * Interface representing a Cloudflare tunnel's data structure
+ * Matches the API response format from Cloudflare
+ */
+export interface CloudflareTunnel {
+    /** Unique identifier for the tunnel */
     id: string;
+    /** User-defined name for the tunnel */
     name: string;
+    /** Timestamp when the tunnel was created */
     created_at: string;
+    /** Timestamp when the tunnel was deleted (if applicable) */
     deleted_at?: string;
+    /** Account identifier tag */
     account_tag: string;
+    /** Array of active connections for this tunnel */
     connections?: Array<{
         id: string;
         connected_at: string;
@@ -28,26 +51,47 @@ interface CloudflareTunnel {
         client_id: string;
         client_version: string;
     }>;
+    /** Timestamp of last active connection */
     conns_active_at: string | null;
+    /** Timestamp of last inactive connection */
     conns_inactive_at: string | null;
+    /** Type of tunnel */
     tun_type: string;
+    /** Additional metadata */
     metadata: Record<string, any>;
+    /** Current tunnel status */
     status: string;
+    /** Whether the tunnel uses remote configuration */
     remote_config: boolean;
 }
 
+/**
+ * Interface representing a Cloudflare account
+ * Contains account details and settings
+ */
 interface CloudflareAccount {
+    /** Unique identifier for the account */
     id: string;
+    /** Account name */
     name: string;
+    /** Account type */
     type: string;
+    /** Account settings */
     settings: {
+        /** Whether two-factor authentication is required */
         enforce_twofactor: boolean;
+        /** Whether API access is enabled */
         api_access_enabled: boolean | null;
+        /** Expiry time for access approval */
         access_approval_expiry: string | null;
+        /** Whether to use account custom nameservers by default */
         use_account_custom_ns_by_default: boolean;
+        /** Default nameservers */
         default_nameservers: string;
+        /** Email for abuse reports */
         abuse_contact_email: string | null;
     };
+    /** Account creation timestamp */
     created_on: string;
 }
 
@@ -66,6 +110,8 @@ export class CloudflareApiService {
 
     /**
      * Sets the API key for making requests
+     * Used for temporary API key validation during profile creation
+     * @param apiKey The API key to set
      */
     async setApiKey(apiKey: string): Promise<void> {
         this.apiKey = apiKey;
@@ -73,6 +119,9 @@ export class CloudflareApiService {
 
     /**
      * Gets the API key from the active profile
+     * @returns The current API key
+     * @throws Error if no active profile or API key is found
+     * @private
      */
     private async getApiKey(): Promise<string> {
         // Don't use cached API key, always get from current profile
@@ -91,6 +140,10 @@ export class CloudflareApiService {
 
     /**
      * Gets the account ID for the current profile
+     * If not found in profile, fetches from API and stores it
+     * @returns The account ID
+     * @throws Error if account ID cannot be retrieved
+     * @private
      */
     private async getAccountId(): Promise<string> {
         // Don't use cached account ID, always get from current profile
@@ -127,6 +180,13 @@ export class CloudflareApiService {
 
     /**
      * Makes an authenticated request to the Cloudflare API
+     * Handles authentication, error handling, and response parsing
+     * @param endpoint API endpoint to call
+     * @param method HTTP method to use
+     * @param body Optional request body
+     * @returns Parsed API response
+     * @throws Error if request fails or response is invalid
+     * @private
      */
     private async makeRequest(
         endpoint: string,
@@ -189,6 +249,9 @@ export class CloudflareApiService {
 
     /**
      * Lists all tunnels for the account
+     * Filters out deleted tunnels and sorts by name
+     * @returns Array of active tunnels
+     * @throws Error if listing fails
      */
     async listTunnels(): Promise<CloudflareTunnel[]> {
         try {
@@ -220,6 +283,9 @@ export class CloudflareApiService {
 
     /**
      * Normalizes tunnel status based on various fields
+     * @param tunnel The tunnel to check status for
+     * @returns Normalized status string
+     * @private
      */
     private normalizeTunnelStatus(tunnel: CloudflareTunnel): string {
         // If tunnel has an explicit status, use it
@@ -248,6 +314,9 @@ export class CloudflareApiService {
 
     /**
      * Gets detailed information about a specific tunnel
+     * @param tunnelId ID of the tunnel to get info for
+     * @returns Tunnel information
+     * @throws Error if tunnel info cannot be retrieved
      */
     async getTunnelInfo(tunnelId: string): Promise<CloudflareTunnel> {
         try {
@@ -263,6 +332,9 @@ export class CloudflareApiService {
 
     /**
      * Creates a new tunnel
+     * @param name Name for the new tunnel
+     * @returns Created tunnel information
+     * @throws Error if tunnel creation fails
      */
     async createTunnel(name: string): Promise<CloudflareTunnel> {
         try {
@@ -282,6 +354,8 @@ export class CloudflareApiService {
 
     /**
      * Deletes a tunnel
+     * @param tunnelId ID of the tunnel to delete
+     * @throws Error if deletion fails
      */
     async deleteTunnel(tunnelId: string): Promise<void> {
         try {
@@ -296,6 +370,9 @@ export class CloudflareApiService {
 
     /**
      * Gets the token for a tunnel
+     * @param tunnelId ID of the tunnel
+     * @returns Tunnel token
+     * @throws Error if token cannot be retrieved
      */
     async getTunnelToken(tunnelId: string): Promise<string> {
         try {
@@ -311,6 +388,9 @@ export class CloudflareApiService {
 
     /**
      * Gets the configurations for a tunnel
+     * @param tunnelId ID of the tunnel
+     * @returns Tunnel configurations
+     * @throws Error if configurations cannot be retrieved
      */
     async getTunnelConfigs(tunnelId: string): Promise<any> {
         try {
@@ -325,6 +405,8 @@ export class CloudflareApiService {
 
     /**
      * Lists all accounts accessible with the current API key
+     * @returns Array of account information
+     * @throws Error if account listing fails
      */
     async listAccounts(): Promise<CloudflareAccount[]> {
         try {
@@ -337,6 +419,8 @@ export class CloudflareApiService {
 
     /**
      * Lists all zones (domains) for the account
+     * @returns Array of zone information
+     * @throws Error if zone listing fails
      */
     async listZones(): Promise<Array<{ id: string; name: string }>> {
         try {
@@ -353,6 +437,9 @@ export class CloudflareApiService {
 
     /**
      * Lists all DNS records for a zone
+     * @param zoneId ID of the zone to list records for
+     * @returns Array of DNS record information
+     * @throws Error if record listing fails
      */
     async listDnsRecords(zoneId: string): Promise<Array<{ id: string; name: string; type: string; content: string }>> {
         try {
@@ -371,6 +458,11 @@ export class CloudflareApiService {
 
     /**
      * Creates a CNAME record for a tunnel
+     * @param zoneId ID of the zone to create record in
+     * @param name Name for the CNAME record
+     * @param tunnelId ID of the tunnel to point to
+     * @returns Created record information
+     * @throws Error if record creation fails
      */
     async createCnameRecord(zoneId: string, name: string, tunnelId: string): Promise<{ id: string; name: string }> {
         try {
@@ -397,6 +489,11 @@ export class CloudflareApiService {
 
     /**
      * Updates a CNAME record to point to a tunnel
+     * @param zoneId ID of the zone containing the record
+     * @param recordId ID of the record to update
+     * @param tunnelId ID of the tunnel to point to
+     * @returns Updated record information
+     * @throws Error if record update fails
      */
     async updateCnameRecord(zoneId: string, recordId: string, tunnelId: string): Promise<{ id: string; name: string }> {
         try {
@@ -422,6 +519,9 @@ export class CloudflareApiService {
 
     /**
      * Deletes a DNS record
+     * @param zoneId ID of the zone containing the record
+     * @param recordId ID of the record to delete
+     * @throws Error if record deletion fails
      */
     async deleteDnsRecord(zoneId: string, recordId: string): Promise<void> {
         try {
@@ -434,7 +534,11 @@ export class CloudflareApiService {
 
     /**
      * Checks for CNAME conflicts with a tunnel
+     * @param zoneId ID of the zone to check
+     * @param recordName Name of the record to check
+     * @param tunnelId ID of the tunnel
      * @returns Object containing any conflicts found
+     * @throws Error if conflict check fails
      */
     async checkCnameConflicts(zoneId: string, recordName: string, tunnelId: string): Promise<{
         isPointingElsewhere: boolean;

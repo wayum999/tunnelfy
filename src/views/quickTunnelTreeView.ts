@@ -2,16 +2,23 @@ import * as vscode from 'vscode';
 import { TunnelManager, TunnelEvent } from '../services/cloudflared';
 import { Logger, LogComponent } from '../utils/logger';
 
+/**
+ * Represents a quick tunnel item in the tree view
+ * Displays tunnel information and provides context menu actions
+ */
 export class QuickTunnelTreeItem extends vscode.TreeItem {
     constructor(
         public readonly port: number,
         public readonly status: string,
         public readonly url?: string,
-        public readonly tunnelUrl?: string
+        public readonly tunnelUrl?: string,
+        public readonly name?: string
     ) {
-        super(`Port ${port}`);
+        super(name || `Port ${port}`);
+
+        // Create a detailed tooltip with markdown formatting
         this.tooltip = new vscode.MarkdownString();
-        this.tooltip.appendMarkdown(`**Port ${port}**\n\n`);
+        this.tooltip.appendMarkdown(`**${name || `Port ${port}`}**\n\n`);
         if (url) {
             this.tooltip.appendMarkdown(`**Local URL**: [${url}](${url})\n\n`);
         }
@@ -20,18 +27,18 @@ export class QuickTunnelTreeItem extends vscode.TreeItem {
         }
         this.tooltip.appendMarkdown(`**Status**: ${status}`);
         
-        // Extract hostname from tunnelUrl
+        // Extract hostname from tunnelUrl for the description
         let hostname = '';
         if (tunnelUrl) {
             try {
                 hostname = new URL(tunnelUrl).hostname;
             } catch (e) {
-                // If URL parsing fails, just use the tunnelUrl
                 hostname = tunnelUrl;
             }
         }
         
-        this.description = hostname;
+        // Show port in description along with hostname
+        this.description = `${hostname} (Port ${port})`;
         
         // Set icon based on status
         if (status === 'active' || status === 'running') {
@@ -40,7 +47,15 @@ export class QuickTunnelTreeItem extends vscode.TreeItem {
             this.iconPath = new vscode.ThemeIcon('circle-outline', new vscode.ThemeColor('descriptionForeground'));
         }
 
+        // Set context value for command enablement
         this.contextValue = 'quickTunnel';
+
+        // Add command for copying tunnel URL on click
+        this.command = {
+            command: 'tunnelfy.copyQuickTunnelUrl',
+            title: 'Copy Tunnel URL',
+            arguments: [this]
+        };
     }
 }
 
@@ -48,8 +63,13 @@ interface QuickTunnel {
     port: number;
     url: string;
     tunnelUrl: string;
+    name?: string;
 }
 
+/**
+ * Provides the tree view for quick tunnels
+ * Manages the display and state of temporary tunnels
+ */
 export class QuickTunnelTreeDataProvider implements vscode.TreeDataProvider<QuickTunnelTreeItem> {
     private _onDidChangeTreeData: vscode.EventEmitter<QuickTunnelTreeItem | undefined | null | void> = new vscode.EventEmitter<QuickTunnelTreeItem | undefined | null | void>();
     readonly onDidChangeTreeData: vscode.Event<QuickTunnelTreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
@@ -117,7 +137,8 @@ export class QuickTunnelTreeDataProvider implements vscode.TreeDataProvider<Quic
                     port,
                     'running',
                     tunnel.url,
-                    tunnel.tunnelUrl
+                    tunnel.tunnelUrl,
+                    tunnel.name
                 ));
             }
             return items;
@@ -131,14 +152,20 @@ export class QuickTunnelTreeDataProvider implements vscode.TreeDataProvider<Quic
         this._onDidChangeTreeData.fire();
     }
 
-    async addQuickTunnel(port: number): Promise<void> {
+    /**
+     * Creates a new quick tunnel
+     * @param port Port number to tunnel
+     * @param name Optional name for the tunnel
+     */
+    async addQuickTunnel(port: number, name?: string): Promise<void> {
         try {
             const result = await this.tunnelManager.createQuickTunnel(port);
             if (result) {
                 this.quickTunnels.set(port, {
                     port,
                     url: `http://localhost:${port}`,
-                    tunnelUrl: result.tunnelUrl
+                    tunnelUrl: result.tunnelUrl,
+                    name
                 });
                 this.refresh();
             }
@@ -148,6 +175,10 @@ export class QuickTunnelTreeDataProvider implements vscode.TreeDataProvider<Quic
         }
     }
 
+    /**
+     * Stops and removes a quick tunnel
+     * @param port Port number of the tunnel to remove
+     */
     async removeQuickTunnel(port: number): Promise<void> {
         try {
             await this.tunnelManager.stopQuickTunnel(port);
@@ -159,6 +190,10 @@ export class QuickTunnelTreeDataProvider implements vscode.TreeDataProvider<Quic
         }
     }
 
+    /**
+     * Gets all active quick tunnels
+     * @returns Array of quick tunnel information
+     */
     getQuickTunnels(): QuickTunnel[] {
         return Array.from(this.quickTunnels.values());
     }

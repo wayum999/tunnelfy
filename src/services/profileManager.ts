@@ -6,6 +6,18 @@
  * - API key for authentication
  * - Account ID for API requests
  * - Profile name for identification
+ * 
+ * Key responsibilities:
+ * 1. Secure storage of API credentials
+ * 2. Profile CRUD operations
+ * 3. Active profile management
+ * 4. Profile validation
+ * 5. Cloudflared installation checks
+ * 
+ * Security features:
+ * - API keys stored in VS Code's secure storage
+ * - Input validation for profile data
+ * - Account ID verification
  */
 
 import * as vscode from 'vscode';
@@ -17,9 +29,16 @@ import { Logger, LogComponent } from '../utils/logger';
 
 const exec = promisify(cp.exec);
 
+/**
+ * Interface representing a Cloudflare profile
+ * Contains all necessary information for API authentication
+ */
 interface Profile {
+    /** Unique name for the profile */
     name: string;
+    /** API key for Cloudflare authentication */
     apiKey: string;
+    /** Optional account ID for API requests */
     accountId?: string;
 }
 
@@ -33,6 +52,7 @@ export class ProfileManager {
 
     /**
      * Initializes the ProfileManager
+     * @param context VS Code extension context for storage access
      */
     constructor(private context: vscode.ExtensionContext) {
         this.cloudflaredDir = path.join(os.homedir(), '.cloudflared');
@@ -42,6 +62,8 @@ export class ProfileManager {
 
     /**
      * Loads profiles from persistent storage
+     * Initializes empty state if loading fails
+     * @private
      */
     private loadProfiles(): void {
         try {
@@ -67,6 +89,8 @@ export class ProfileManager {
 
     /**
      * Saves profiles to persistent storage
+     * @throws Error if saving fails
+     * @private
      */
     private async saveProfiles(): Promise<void> {
         try {
@@ -91,6 +115,10 @@ export class ProfileManager {
 
     /**
      * Creates a new profile
+     * @param name Name for the new profile
+     * @param apiKey API key for authentication
+     * @param accountId Account ID for API requests
+     * @throws Error if validation fails or profile already exists
      */
     async createProfile(name: string, apiKey: string, accountId: string): Promise<void> {
         if (!name || !name.trim()) {
@@ -136,6 +164,8 @@ export class ProfileManager {
 
     /**
      * Deletes a profile
+     * @param name Name of the profile to delete
+     * @throws Error if profile doesn't exist
      */
     async deleteProfile(name: string): Promise<void> {
         if (!this.profiles.has(name)) {
@@ -154,7 +184,8 @@ export class ProfileManager {
     }
 
     /**
-     * Lists all profiles
+     * Lists all available profiles
+     * @returns Array of profile names
      */
     listProfiles(): string[] {
         return Array.from(this.profiles.keys());
@@ -162,6 +193,7 @@ export class ProfileManager {
 
     /**
      * Gets the active profile
+     * @returns Name of active profile or null if none active
      */
     async getActiveProfile(): Promise<string | null> {
         return this.activeProfile;
@@ -169,6 +201,8 @@ export class ProfileManager {
 
     /**
      * Checks if the given profile is the active one
+     * @param name Name of profile to check
+     * @returns true if profile is active
      */
     async isActiveProfile(name: string): Promise<boolean> {
         return this.activeProfile === name;
@@ -176,6 +210,8 @@ export class ProfileManager {
 
     /**
      * Sets the active profile
+     * @param name Name of profile to set as active
+     * @throws Error if profile doesn't exist
      */
     async setActiveProfile(name: string): Promise<void> {
         if (!this.profiles.has(name)) {
@@ -189,6 +225,8 @@ export class ProfileManager {
 
     /**
      * Gets the API key for a profile
+     * @param name Name of profile
+     * @returns API key or null if not found
      */
     async getProfileApiKey(name: string): Promise<string | null> {
         const profile = this.profiles.get(name);
@@ -197,6 +235,8 @@ export class ProfileManager {
 
     /**
      * Gets the account ID for a profile
+     * @param name Name of profile
+     * @returns Account ID or null if not found
      */
     async getProfileAccountId(name: string): Promise<string | null> {
         const profile = this.profiles.get(name);
@@ -205,6 +245,9 @@ export class ProfileManager {
 
     /**
      * Sets the account ID for a profile
+     * @param name Name of profile
+     * @param accountId Account ID to set
+     * @throws Error if profile doesn't exist
      */
     async setProfileAccountId(name: string, accountId: string): Promise<void> {
         const profile = this.profiles.get(name);
@@ -219,6 +262,7 @@ export class ProfileManager {
 
     /**
      * Checks if cloudflared is installed
+     * @returns true if cloudflared is installed and accessible
      */
     async isCloudflaredInstalled(): Promise<boolean> {
         try {
@@ -236,20 +280,10 @@ export class ProfileManager {
     }
 
     /**
-     * Switches to a different profile
-     */
-    async switchProfile(name: string): Promise<void> {
-        if (!this.profiles.has(name)) {
-            throw new Error(`Profile '${name}' does not exist`);
-        }
-
-        this.activeProfile = name;
-        await this.saveProfiles();
-        this.logger.info(LogComponent.PROFILE, `Switched to profile ${name}`);
-    }
-
-    /**
      * Updates the API key for a profile
+     * @param name Name of profile
+     * @param apiKey New API key
+     * @throws Error if profile doesn't exist or API key is invalid
      */
     async updateProfileApiKey(name: string, apiKey: string): Promise<void> {
         const profile = this.profiles.get(name);

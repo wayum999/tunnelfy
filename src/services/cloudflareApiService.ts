@@ -55,6 +55,7 @@ export class CloudflareApiService {
     private readonly logger: Logger;
     private readonly baseUrl = 'https://api.cloudflare.com/client/v4';
     private accountId: string | null = null;
+    private apiKey: string | null = null;
 
     constructor(
         private readonly context: vscode.ExtensionContext,
@@ -64,17 +65,25 @@ export class CloudflareApiService {
     }
 
     /**
-     * Gets the API key for the current profile
+     * Sets the API key for making requests
+     */
+    async setApiKey(apiKey: string): Promise<void> {
+        this.apiKey = apiKey;
+    }
+
+    /**
+     * Gets the API key from the active profile
      */
     private async getApiKey(): Promise<string> {
+        // Don't use cached API key, always get from current profile
         const activeProfile = await this.profileManager.getActiveProfile();
         if (!activeProfile) {
-            throw new Error('No active profile found. Please create and activate a profile first.');
+            throw new Error('No active profile found');
         }
 
         const apiKey = await this.profileManager.getProfileApiKey(activeProfile);
         if (!apiKey) {
-            throw new Error(`No API key found for profile '${activeProfile}'. Please recreate the profile.`);
+            throw new Error('No API key found in active profile');
         }
 
         return apiKey;
@@ -84,10 +93,7 @@ export class CloudflareApiService {
      * Gets the account ID for the current profile
      */
     private async getAccountId(): Promise<string> {
-        if (this.accountId) {
-            return this.accountId;
-        }
-
+        // Don't use cached account ID, always get from current profile
         const activeProfile = await this.profileManager.getActiveProfile();
         if (!activeProfile) {
             throw new Error('No active profile found');
@@ -96,7 +102,6 @@ export class CloudflareApiService {
         // First try to get from profile
         const profileAccountId = await this.profileManager.getProfileAccountId(activeProfile);
         if (profileAccountId) {
-            this.accountId = profileAccountId;
             return profileAccountId;
         }
 
@@ -108,12 +113,12 @@ export class CloudflareApiService {
             }
 
             // Use the first account
-            this.accountId = accounts[0].id;
+            const accountId = accounts[0].id;
             
             // Store the account ID in the profile
-            await this.profileManager.setProfileAccountId(activeProfile, this.accountId);
+            await this.profileManager.setProfileAccountId(activeProfile, accountId);
             
-            return this.accountId;
+            return accountId;
         } catch (error) {
             this.logger.error(LogComponent.API, 'Failed to get account ID:', error);
             throw new Error('Failed to get Cloudflare account ID. Please check your API key permissions.');
@@ -128,7 +133,8 @@ export class CloudflareApiService {
         method: string = 'GET',
         body?: any
     ): Promise<any> {
-        const apiKey = await this.getApiKey();
+        // Use temporary API key if set, otherwise get from active profile
+        const apiKey = this.apiKey || await this.getApiKey();
         
         const headers = {
             'Authorization': `Bearer ${apiKey}`,
@@ -317,37 +323,11 @@ export class CloudflareApiService {
     }
 
     /**
-     * Lists all accounts accessible with the provided API key
-     * @param apiKey - The API key to use for the request
+     * Lists all accounts accessible with the current API key
      */
-    async listAccounts(apiKey: string): Promise<CloudflareAccount[]> {
+    async listAccounts(): Promise<CloudflareAccount[]> {
         try {
-            const headers = {
-                'Authorization': `Bearer ${apiKey}`,
-                'Content-Type': 'application/json'
-            };
-
-            const response = await fetch(`${this.baseUrl}/accounts`, {
-                method: 'GET',
-                headers
-            });
-
-            const data = await response.json() as {
-                success: boolean;
-                errors?: Array<{ message: string }>;
-                result: CloudflareAccount[];
-            };
-
-            if (!response.ok) {
-                throw new Error(data.errors?.[0]?.message || `API request failed: ${response.statusText}`);
-            }
-
-            if (!data.success) {
-                throw new Error(data.errors?.[0]?.message || 'API request was not successful');
-            }
-
-            this.logger.debug(LogComponent.API, `Found ${data.result.length} accounts`);
-            return data.result;
+            return await this.makeRequest('/accounts');
         } catch (error) {
             this.logger.error(LogComponent.API, 'Failed to list accounts:', error);
             throw error;

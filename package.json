@@ -104,19 +104,29 @@
           "group": "navigation@1"
         },
         {
-          "command": "tunnelfy.refreshTunnels",
-          "when": "view == tunnelfy-tunnels",
-          "group": "navigation"
+          "command": "tunnelfy.refreshProfiles",
+          "when": "view == tunnelfy-profiles",
+          "group": "navigation@2"
         },
         {
-          "command": "tunnelfy.createQuickTunnel",
-          "when": "view == tunnelfy-quick-tunnels",
-          "group": "navigation"
+          "command": "tunnelfy.refreshTunnels",
+          "when": "view == tunnelfy-tunnels",
+          "group": "navigation@1"
         },
         {
           "command": "tunnelfy.createTunnel",
           "when": "view == tunnelfy-tunnels",
-          "group": "navigation"
+          "group": "navigation@2"
+        },
+        {
+          "command": "tunnelfy.createQuickTunnel",
+          "when": "view == tunnelfy-quick-tunnels",
+          "group": "navigation@1"
+        },
+        {
+          "command": "tunnelfy.refreshQuickTunnels",
+          "when": "view == tunnelfy-quick-tunnels",
+          "group": "navigation@2"
         }
       ],
       "view/item/context": [
@@ -126,7 +136,7 @@
           "group": "inline@1"
         },
         {
-          "command": "tunnelfy.switchProfile",
+          "command": "tunnelfy.setActiveProfile",
           "when": "view == tunnelfy-profiles && viewItem == profile-inactive",
           "group": "inline@2"
         },
@@ -136,7 +146,7 @@
           "group": "inline@3"
         },
         {
-          "command": "tunnelfy.playTunnel",
+          "command": "tunnelfy.startTunnel",
           "when": "view == tunnelfy-tunnels && viewItem == tunnel-stopped",
           "group": "inline@1"
         },
@@ -151,24 +161,14 @@
           "group": "inline@2"
         },
         {
-          "command": "tunnelfy.tunnelInfo",
-          "when": "view == tunnelfy-tunnels",
-          "group": "inline@3"
-        },
-        {
           "command": "tunnelfy.deleteTunnel",
           "when": "view == tunnelfy-tunnels && viewItem == tunnel-stopped",
-          "group": "inline@5"
+          "group": "inline@3"
         },
         {
           "command": "tunnelfy.stopQuickTunnel",
           "when": "view == tunnelfy-quick-tunnels && viewItem == quickTunnel",
-          "group": "inline"
-        },
-        {
-          "command": "tunnelfy.copyQuickTunnelUrl",
-          "when": "view == tunnelfy-quick-tunnels && viewItem == quickTunnel",
-          "group": "inline"
+          "group": "inline@1"
         }
       ]
     },
@@ -209,6 +209,20 @@
         "description": "Delete a Cloudflare profile"
       },
       {
+        "command": "tunnelfy.setActiveProfile",
+        "title": "Set Active Profile",
+        "category": "Tunnelfy",
+        "icon": "$(check)",
+        "description": "Set a profile as active"
+      },
+      {
+        "command": "tunnelfy.copyToken",
+        "title": "Copy Token",
+        "category": "Tunnelfy",
+        "icon": "$(copy)",
+        "description": "Copy tunnel token to clipboard"
+      },
+      {
         "command": "tunnelfy.createTunnel",
         "title": "Create Tunnel",
         "category": "Tunnelfy",
@@ -230,6 +244,20 @@
         "description": "Refresh the list of tunnels"
       },
       {
+        "command": "tunnelfy.refreshProfiles",
+        "title": "Refresh Profiles",
+        "category": "Tunnelfy",
+        "icon": "$(refresh)",
+        "description": "Refresh the list of profiles"
+      },
+      {
+        "command": "tunnelfy.refreshQuickTunnels",
+        "title": "Refresh Quick Tunnels",
+        "category": "Tunnelfy",
+        "icon": "$(refresh)",
+        "description": "Refresh the list of quick tunnels"
+      },
+      {
         "command": "tunnelfy.stopQuickTunnel",
         "title": "Stop Quick Tunnel",
         "category": "Tunnelfy",
@@ -237,7 +265,7 @@
         "description": "Stop a running quick tunnel"
       },
       {
-        "command": "tunnelfy.playTunnel",
+        "command": "tunnelfy.startTunnel",
         "title": "Start Tunnel",
         "category": "Tunnelfy",
         "icon": "$(play)",
@@ -251,25 +279,11 @@
         "description": "Stop a running tunnel"
       },
       {
-        "command": "tunnelfy.tunnelInfo",
-        "title": "View Tunnel Info",
-        "category": "Tunnelfy",
-        "icon": "$(info)",
-        "description": "View detailed information about a tunnel"
-      },
-      {
         "command": "tunnelfy.deleteTunnel",
         "title": "Delete Tunnel",
         "category": "Tunnelfy",
         "icon": "$(trash)",
         "description": "Delete a tunnel"
-      },
-      {
-        "command": "tunnelfy.copyToken",
-        "title": "Copy Tunnel Token",
-        "category": "Tunnelfy",
-        "icon": "$(key)",
-        "description": "Copy the tunnel token to clipboard"
       }
     ]
   },

@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { CloudflaredService } from '../services/cloudflaredService';
+import { TunnelManager, TunnelEvent } from '../services/cloudflared';
 import { ProfileManager } from '../services/profileManager';
 import { Logger, LogComponent } from '../utils/logger';
 
@@ -35,7 +35,7 @@ export class TunnelTreeItem extends vscode.TreeItem {
  * TunnelTreeDataProvider - Provides tunnel data for the VS Code tree view
  * 
  * This class implements VS Code's TreeDataProvider interface and is responsible for:
- * 1. Fetching tunnel data from the CloudflaredService
+ * 1. Fetching tunnel data from the TunnelManager
  * 2. Transforming tunnel data into TunnelTreeItems
  * 3. Managing a periodic refresh cycle to keep the view up to date
  * 4. Handling updates triggered by tunnel events (e.g., status changes)
@@ -48,7 +48,7 @@ export class TunnelTreeDataProvider implements vscode.TreeDataProvider<TunnelTre
     private treeView: vscode.TreeView<TunnelTreeItem>;
 
     constructor(
-        private readonly cloudflaredService: CloudflaredService,
+        private readonly tunnelManager: TunnelManager,
         private readonly profileManager: ProfileManager
     ) {
         this.logger = Logger.getInstance();
@@ -61,7 +61,6 @@ export class TunnelTreeDataProvider implements vscode.TreeDataProvider<TunnelTre
             canSelectMany: false
         });
 
-        // Set up auto-refresh
         this.setupAutoRefresh();
 
         // Listen for configuration changes
@@ -72,9 +71,10 @@ export class TunnelTreeDataProvider implements vscode.TreeDataProvider<TunnelTre
             }
         });
 
-        // Listen to tunnel events from CloudflaredService
-        this.cloudflaredService.onTunnelEvent(event => {
-            if (event.type === 'status') {
+        // Subscribe to tunnel events
+        this.tunnelManager.onTunnelEvent((event: TunnelEvent) => {
+            this.logger.debug(LogComponent.EXTENSION, `Tunnel event received: ${event.type} - ${event.tunnelId}`);
+            if (event.type === 'start' || event.type === 'stop' || event.type === 'status') {
                 this.refresh();
             }
         });
@@ -117,20 +117,18 @@ export class TunnelTreeDataProvider implements vscode.TreeDataProvider<TunnelTre
                 return [];
             }
 
-            const tunnels = await this.cloudflaredService.listTunnels();
-            return Promise.all(
-                tunnels.map(async tunnel => {
-                    const isRunning = tunnel.connections && tunnel.connections.length > 0;
-                    return new TunnelTreeItem(
-                        tunnel.name,
-                        tunnel.id,
-                        isRunning ? 'running' : 'stopped'
-                    );
-                })
-            );
+            const tunnels = await this.tunnelManager.listTunnels();
+            return tunnels.map(tunnel => {
+                const isRunning = tunnel.connections && tunnel.connections.length > 0;
+                return new TunnelTreeItem(
+                    tunnel.name,
+                    tunnel.id,
+                    isRunning ? 'running' : 'stopped'
+                );
+            });
         } catch (error) {
-            this.logger.error(LogComponent.TUNNEL, 'Failed to get tunnels:', error);
-            throw error;
+            this.logger.error(LogComponent.EXTENSION, `Failed to get tunnels: ${error}`);
+            return [];
         }
     }
 

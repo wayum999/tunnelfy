@@ -26,6 +26,7 @@ suite('Tunnelfy Extension Test Suite', () => {
 
     test('All commands should be registered', async () => {
         // Profile management commands
+        await assertCommandAvailable('tunnelfy.refreshProfiles');
         await assertCommandAvailable('tunnelfy.createProfile');
         await assertCommandAvailable('tunnelfy.switchProfile');
         await assertCommandAvailable('tunnelfy.deleteProfile');
@@ -34,7 +35,11 @@ suite('Tunnelfy Extension Test Suite', () => {
         await assertCommandAvailable('tunnelfy.createTunnel');
         await assertCommandAvailable('tunnelfy.createQuickTunnel');
         await assertCommandAvailable('tunnelfy.refreshTunnels');
+        await assertCommandAvailable('tunnelfy.refreshQuickTunnels');
+        await assertCommandAvailable('tunnelfy.stopTunnel');
         await assertCommandAvailable('tunnelfy.stopQuickTunnel');
+        await assertCommandAvailable('tunnelfy.deleteTunnel');
+        await assertCommandAvailable('tunnelfy.deleteQuickTunnel');
     });
 
     test('Profile management with API keys', async () => {

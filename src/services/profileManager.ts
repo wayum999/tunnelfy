@@ -168,6 +168,13 @@ export class ProfileManager {
     }
 
     /**
+     * Checks if the given profile is the active one
+     */
+    async isActiveProfile(name: string): Promise<boolean> {
+        return this.activeProfile === name;
+    }
+
+    /**
      * Sets the active profile
      */
     async setActiveProfile(name: string): Promise<void> {

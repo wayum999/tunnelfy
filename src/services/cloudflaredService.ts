@@ -645,7 +645,7 @@ export class CloudflaredService {
                 throw new Error('Failed to get process ID for tunnel');
             }
 
-            this.logger.debug(LogComponent.TUNNEL, `Tunnel process started with PID ${tunnelPid}`, { preserveFocus: true });
+            this.logger.debug(LogComponent.TUNNEL, `Tunnel process started with PID: ${tunnelPid}`, { preserveFocus: true });
 
             // Create write streams for the log files
             const stdoutStream = fs.createWriteStream(stdoutLog, { flags: 'a' });
@@ -659,7 +659,7 @@ export class CloudflaredService {
             });
 
             // Show started notification immediately after process is confirmed running
-            vscode.window.showInformationMessage(`Tunnel ${tunnelInfo.name} started successfully.`);
+            vscode.window.showInformationMessage(`TUNNEL: ${tunnelInfo.name} started successfully.`);
 
             // Set up stdout handling
             if (tunnel.stdout) {
@@ -952,7 +952,7 @@ export class CloudflaredService {
             }
 
             // Show stopping notification
-            vscode.window.showInformationMessage(`Stopping tunnel ${tunnelInfo.name} ...`);
+            vscode.window.showInformationMessage(`Stopping TUNNEL: ${tunnelInfo.name} ...`);
 
             // Log initial tunnel state
             this.logger.info(
@@ -1104,7 +1104,7 @@ export class CloudflaredService {
             });
 
             // Show the success message after we've confirmed the stop
-            vscode.window.showInformationMessage(`Stopped tunnel ${tunnelInfo.name}.`);
+            vscode.window.showInformationMessage(`Stopped TUNNEL: ${tunnelInfo.name}.`);
         } catch (error) {
             this.logger.error(LogComponent.TUNNEL, 'Failed to stop tunnel', error);
             throw error;
@@ -1297,7 +1297,7 @@ export class CloudflaredService {
                 for (const process of processInfo) {
                     await this.killProcess(process.pid, true);
                 }
-                this.logger.info(LogComponent.TUNNEL, `Quick tunnel on port ${port} stopped`, { preserveFocus: true });
+                this.logger.info(LogComponent.TUNNEL, `Quick tunnel for PORT: ${port} stopped.`, { preserveFocus: true });
                 return true;
             }
             return true; // No process found is still success

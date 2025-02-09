@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
-import { CloudflaredService } from '../services/cloudflaredService';
+import { TunnelManager, TunnelEvent } from '../services/cloudflared';
 import { Logger, LogComponent } from '../utils/logger';
-import { ProfileManager } from '../services/profileManager';
 
 export class QuickTunnelTreeItem extends vscode.TreeItem {
     constructor(
@@ -42,13 +41,6 @@ export class QuickTunnelTreeItem extends vscode.TreeItem {
         }
 
         this.contextValue = 'quickTunnel';
-        
-        // Add command to handle clicking on the item
-        this.command = {
-            command: 'tunnelfy.tunnelInfo',
-            title: 'Show Tunnel Info',
-            arguments: [this]
-        };
     }
 }
 
@@ -64,18 +56,25 @@ export class QuickTunnelTreeDataProvider implements vscode.TreeDataProvider<Quic
     private quickTunnels: Map<number, QuickTunnel> = new Map();
     private readonly logger = Logger.getInstance();
     private refreshInterval: NodeJS.Timeout | null = null;
+    private treeView: vscode.TreeView<QuickTunnelTreeItem>;
 
     constructor(
-        private readonly cloudflaredService: CloudflaredService
+        private readonly tunnelManager: TunnelManager
     ) {
-        this.logger.debug(LogComponent.TUNNEL, 'QuickTunnelTreeDataProvider initialized');
+        // Create the tree view
+        this.treeView = vscode.window.createTreeView('tunnelfy-quick-tunnels', {
+            treeDataProvider: this,
+            showCollapseAll: false,
+            canSelectMany: false
+        });
+
         this.setupAutoRefresh();
 
-        // Listen for configuration changes
-        vscode.workspace.onDidChangeConfiguration(e => {
-            if (e.affectsConfiguration('tunnelfy.autoRefreshEnabled') || 
-                e.affectsConfiguration('tunnelfy.autoRefreshInterval')) {
-                this.setupAutoRefresh();
+        // Subscribe to tunnel events
+        this.tunnelManager.onTunnelEvent((event: TunnelEvent) => {
+            this.logger.debug(LogComponent.EXTENSION, `Quick tunnel event received: ${event.type} - ${event.tunnelId}`);
+            if (event.type === 'start' || event.type === 'stop') {
+                this.refresh();
             }
         });
     }
@@ -111,13 +110,21 @@ export class QuickTunnelTreeDataProvider implements vscode.TreeDataProvider<Quic
     }
 
     async getChildren(): Promise<QuickTunnelTreeItem[]> {
-        return Array.from(this.quickTunnels.values()).map(tunnel => 
-            new QuickTunnelTreeItem(
-                tunnel.port,
-                tunnel.url,
-                tunnel.tunnelUrl
-            )
-        );
+        try {
+            const items: QuickTunnelTreeItem[] = [];
+            for (const [port, tunnel] of this.quickTunnels) {
+                items.push(new QuickTunnelTreeItem(
+                    port,
+                    'running',
+                    tunnel.url,
+                    tunnel.tunnelUrl
+                ));
+            }
+            return items;
+        } catch (error) {
+            this.logger.error(LogComponent.EXTENSION, `Failed to get quick tunnels: ${error}`);
+            return [];
+        }
     }
 
     refresh(): void {
@@ -126,24 +133,30 @@ export class QuickTunnelTreeDataProvider implements vscode.TreeDataProvider<Quic
 
     async addQuickTunnel(port: number): Promise<void> {
         try {
-            const result = await this.cloudflaredService.createQuickTunnel(port);
+            const result = await this.tunnelManager.createQuickTunnel(port);
             if (result) {
                 this.quickTunnels.set(port, {
                     port,
-                    url: result.url,
+                    url: `http://localhost:${port}`,
                     tunnelUrl: result.tunnelUrl
                 });
                 this.refresh();
             }
         } catch (error) {
-            this.logger.error(LogComponent.TUNNEL, 'Failed to add quick tunnel:', error);
+            this.logger.error(LogComponent.EXTENSION, `Failed to add quick tunnel: ${error}`);
             throw error;
         }
     }
 
     async removeQuickTunnel(port: number): Promise<void> {
-        this.quickTunnels.delete(port);
-        this.refresh();
+        try {
+            await this.tunnelManager.stopQuickTunnel(port);
+            this.quickTunnels.delete(port);
+            this.refresh();
+        } catch (error) {
+            this.logger.error(LogComponent.EXTENSION, `Failed to remove quick tunnel: ${error}`);
+            throw error;
+        }
     }
 
     getQuickTunnels(): QuickTunnel[] {
@@ -154,5 +167,6 @@ export class QuickTunnelTreeDataProvider implements vscode.TreeDataProvider<Quic
         if (this.refreshInterval) {
             clearInterval(this.refreshInterval);
         }
+        this.treeView.dispose();
     }
 }

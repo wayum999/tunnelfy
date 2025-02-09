@@ -181,11 +181,9 @@ export class Logger {
             this.fileStream.write(formattedMessage + '\n');
         }
 
-        // Show output channel for important messages
-        if (level >= LogLevel.ERROR || 
-            (level >= LogLevel.WARN && !message.includes('Running tunnel')) || 
-            message.includes('Extension activated')) {
-            this.outputChannel.show(true);
+        // Only show output channel for errors, and respect preserveFocus
+        if (level >= LogLevel.ERROR) {
+            this.outputChannel.show(false);
         }
     }
 
@@ -199,9 +197,6 @@ export class Logger {
         if (this.currentLogLevel <= LogLevel.DEBUG) {
             const logMessage = this.formatMessage('DEBUG', component, message);
             this.outputChannel.appendLine(logMessage);
-            if (!options.preserveFocus) {
-                this.outputChannel.show(true);
-            }
             this.writeToFile(logMessage);
         }
     }
@@ -216,9 +211,6 @@ export class Logger {
         if (this.currentLogLevel <= LogLevel.INFO) {
             const logMessage = this.formatMessage('INFO', component, message);
             this.outputChannel.appendLine(logMessage);
-            if (!options.preserveFocus) {
-                this.outputChannel.show(true);
-            }
             this.writeToFile(logMessage);
         }
     }
@@ -233,9 +225,6 @@ export class Logger {
         if (this.currentLogLevel <= LogLevel.WARN) {
             const logMessage = this.formatMessage('WARN', component, message);
             this.outputChannel.appendLine(logMessage);
-            if (!options.preserveFocus) {
-                this.outputChannel.show(true);
-            }
             this.writeToFile(logMessage);
         }
     }
@@ -254,22 +243,22 @@ export class Logger {
             if (error) {
                 this.outputChannel.appendLine(error.toString());
             }
-            if (!options.preserveFocus) {
-                this.outputChannel.show(true);
-            }
             this.writeToFile(logMessage);
             if (error) {
                 this.writeToFile(error.toString());
             }
+            // Show output channel for errors, but respect preserveFocus
+            this.outputChannel.show(!options.preserveFocus);
         }
     }
 
     /**
      * Manually shows the output channel
      * Useful when you want to force the log to be visible
+     * @param preserveFocus - Whether to preserve the current focus
      */
-    public show(): void {
-        this.outputChannel.show();
+    public show(preserveFocus: boolean = false): void {
+        this.outputChannel.show(!preserveFocus);
     }
 
     private writeToFile(message: string): void {

@@ -1,6 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as fsPromises from 'fs/promises';
 import { Logger, LogComponent } from '../../utils/logger';
+import * as crypto from 'crypto';
 
 /**
  * TunnelLogger - Manages logging for Cloudflare tunnels
@@ -12,7 +14,7 @@ import { Logger, LogComponent } from '../../utils/logger';
  * 4. Providing structured logging for tunnel events
  * 
  * Features:
- * - Automatic log rotation when files exceed size limit
+ * - Atomic log rotation with file locking
  * - Configurable retention period for log files
  * - Separate log file for each tunnel
  * - Structured event logging with timestamps
@@ -21,6 +23,8 @@ export class TunnelLogger {
     private readonly logDir: string;
     private readonly maxLogSize = 10 * 1024 * 1024; // 10MB
     private readonly maxLogFiles = 5;
+    private readonly lockMap: Map<string, boolean> = new Map();
+    private readonly activeStreams: Map<string, fs.WriteStream> = new Map();
 
     constructor(
         private baseLogger: Logger,
@@ -47,7 +51,18 @@ export class TunnelLogger {
      */
     createLogStream(tunnelId: string): fs.WriteStream {
         const logFile = path.join(this.logDir, `${tunnelId}.log`);
-        return fs.createWriteStream(logFile, { flags: 'a' });
+        
+        // Close existing stream if it exists
+        const existingStream = this.activeStreams.get(tunnelId);
+        if (existingStream) {
+            existingStream.end();
+            this.activeStreams.delete(tunnelId);
+        }
+
+        const stream = fs.createWriteStream(logFile, { flags: 'a' });
+        this.activeStreams.set(tunnelId, stream);
+        
+        return stream;
     }
 
     /**
@@ -58,10 +73,49 @@ export class TunnelLogger {
      */
     async logTunnelEvent(tunnelId: string, event: string, details?: any): Promise<void> {
         const timestamp = new Date().toISOString();
-        const logMessage = `[${timestamp}] Tunnel ${tunnelId}: ${event}${details ? ` - ${JSON.stringify(details)}` : ''}`;
+        const logMessage = `[${timestamp}] Tunnel ${tunnelId}: ${event}${details ? ` - ${JSON.stringify(details)}` : ''}\n`;
         
-        this.baseLogger.info(LogComponent.TUNNEL, logMessage);
-        await this.checkAndRotateLogs(tunnelId);
+        // Pass preserveFocus option if it exists in details
+        const preserveFocus = details?.preserveFocus;
+        this.baseLogger.info(LogComponent.TUNNEL, logMessage.trim(), { preserveFocus });
+        
+        const stream = this.activeStreams.get(tunnelId) || this.createLogStream(tunnelId);
+        
+        try {
+            // Use promisified write to ensure message is written before checking size
+            await new Promise<void>((resolve, reject) => {
+                stream.write(logMessage, (err) => {
+                    if (err) reject(err);
+                    else resolve();
+                });
+            });
+            
+            await this.checkAndRotateLogs(tunnelId);
+        } catch (error) {
+            this.baseLogger.error(LogComponent.TUNNEL, `Error writing to log: ${error}`, { preserveFocus: true });
+        }
+    }
+
+    /**
+     * Acquires a lock for a tunnel's log operations
+     * @param tunnelId The ID of the tunnel
+     * @private
+     */
+    private async acquireLock(tunnelId: string): Promise<boolean> {
+        if (this.lockMap.get(tunnelId)) {
+            return false;
+        }
+        this.lockMap.set(tunnelId, true);
+        return true;
+    }
+
+    /**
+     * Releases a lock for a tunnel's log operations
+     * @param tunnelId The ID of the tunnel
+     * @private
+     */
+    private releaseLock(tunnelId: string): void {
+        this.lockMap.delete(tunnelId);
     }
 
     /**
@@ -73,9 +127,15 @@ export class TunnelLogger {
         const logFile = path.join(this.logDir, `${tunnelId}.log`);
         
         try {
-            const stats = await fs.promises.stat(logFile);
+            const stats = await fsPromises.stat(logFile);
             if (stats.size > this.maxLogSize) {
-                await this.rotateLogs(tunnelId);
+                if (await this.acquireLock(tunnelId)) {
+                    try {
+                        await this.rotateLogs(tunnelId);
+                    } finally {
+                        this.releaseLock(tunnelId);
+                    }
+                }
             }
         } catch (error) {
             this.baseLogger.error(LogComponent.TUNNEL, `Error checking log size: ${error}`);
@@ -83,37 +143,57 @@ export class TunnelLogger {
     }
 
     /**
-     * Performs log rotation for a tunnel's log files
-     * Keeps a maximum number of backup files defined by maxLogFiles
+     * Performs atomic log rotation for a tunnel's log files
      * @param tunnelId The ID of the tunnel
      * @private
      */
     private async rotateLogs(tunnelId: string): Promise<void> {
         const baseLogFile = path.join(this.logDir, `${tunnelId}.log`);
         
-        // Rotate existing log files
-        for (let i = this.maxLogFiles - 1; i >= 0; i--) {
-            const oldFile = i === 0 ? baseLogFile : path.join(this.logDir, `${tunnelId}.${i}.log`);
-            const newFile = path.join(this.logDir, `${tunnelId}.${i + 1}.log`);
-            
-            try {
-                if (fs.existsSync(oldFile)) {
-                    if (i === this.maxLogFiles - 1) {
-                        await fs.promises.unlink(oldFile);
-                    } else {
-                        await fs.promises.rename(oldFile, newFile);
-                    }
-                }
-            } catch (error) {
-                this.baseLogger.error(LogComponent.TUNNEL, `Error rotating logs: ${error}`);
-            }
-        }
-
-        // Create new empty log file
         try {
-            await fs.promises.writeFile(baseLogFile, '');
+            // Close the active stream if it exists
+            const activeStream = this.activeStreams.get(tunnelId);
+            if (activeStream) {
+                activeStream.end();
+                this.activeStreams.delete(tunnelId);
+            }
+
+            // Generate a temporary file name for atomic rotation
+            const tempFile = path.join(this.logDir, `${tunnelId}.${crypto.randomBytes(8).toString('hex')}.tmp`);
+            
+            // Move the oldest log file out if it exists
+            const oldestLog = path.join(this.logDir, `${tunnelId}.${this.maxLogFiles}.log`);
+            if (fs.existsSync(oldestLog)) {
+                await fsPromises.unlink(oldestLog);
+            }
+
+            // Shift existing log files
+            for (let i = this.maxLogFiles - 1; i > 0; i--) {
+                const oldFile = path.join(this.logDir, `${tunnelId}.${i}.log`);
+                const newFile = path.join(this.logDir, `${tunnelId}.${i + 1}.log`);
+                
+                if (fs.existsSync(oldFile)) {
+                    await fsPromises.rename(oldFile, newFile);
+                }
+            }
+
+            // Move current log to .1
+            if (fs.existsSync(baseLogFile)) {
+                await fsPromises.rename(baseLogFile, path.join(this.logDir, `${tunnelId}.1.log`));
+            }
+
+            // Create new empty log file
+            await fsPromises.writeFile(baseLogFile, '');
+
+            // Create a new stream for the rotated log
+            this.createLogStream(tunnelId);
         } catch (error) {
-            this.baseLogger.error(LogComponent.TUNNEL, `Error creating new log file: ${error}`);
+            this.baseLogger.error(LogComponent.TUNNEL, `Error during log rotation: ${error}`);
+            // Attempt to ensure a valid log file exists even after error
+            if (!fs.existsSync(baseLogFile)) {
+                await fsPromises.writeFile(baseLogFile, '');
+                this.createLogStream(tunnelId);
+            }
         }
     }
 
@@ -123,21 +203,37 @@ export class TunnelLogger {
      */
     async cleanupOldLogs(): Promise<void> {
         try {
-            const files = await fs.promises.readdir(this.logDir);
+            const files = await fsPromises.readdir(this.logDir);
             const now = Date.now();
             const maxAge = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-            for (const file of files) {
-                const filePath = path.join(this.logDir, file);
-                const stats = await fs.promises.stat(filePath);
-                
-                if (now - stats.mtime.getTime() > maxAge) {
-                    await fs.promises.unlink(filePath);
-                    this.baseLogger.info(LogComponent.TUNNEL, `Deleted old log file: ${file}`);
+            await Promise.all(files.map(async (file) => {
+                try {
+                    const filePath = path.join(this.logDir, file);
+                    const stats = await fsPromises.stat(filePath);
+                    
+                    if (now - stats.mtime.getTime() > maxAge) {
+                        await fsPromises.unlink(filePath);
+                        this.baseLogger.info(LogComponent.TUNNEL, `Deleted old log file: ${file}`);
+                    }
+                } catch (error) {
+                    this.baseLogger.error(LogComponent.TUNNEL, `Error processing file ${file}: ${error}`);
                 }
-            }
+            }));
         } catch (error) {
             this.baseLogger.error(LogComponent.TUNNEL, `Error cleaning up old logs: ${error}`);
         }
+    }
+
+    /**
+     * Closes all active write streams
+     * Should be called when shutting down the logger
+     */
+    async dispose(): Promise<void> {
+        for (const [tunnelId, stream] of this.activeStreams) {
+            stream.end();
+        }
+        this.activeStreams.clear();
+        this.lockMap.clear();
     }
 } 

@@ -32,14 +32,11 @@ const exec = promisify(cp.exec);
 /**
  * Interface representing a Cloudflare profile
  * Contains all necessary information for API authentication
+ * Note: Sensitive data (API key and account ID) are stored in secure storage
  */
 interface Profile {
     /** Unique name for the profile */
     name: string;
-    /** API key for Cloudflare authentication */
-    apiKey: string;
-    /** Optional account ID for API requests */
-    accountId?: string;
 }
 
 export class ProfileManager {
@@ -47,6 +44,8 @@ export class ProfileManager {
     private readonly logger = Logger.getInstance();
     private readonly STORAGE_KEY = 'cloudflare.profiles';
     private readonly ACTIVE_PROFILE_KEY = 'cloudflare.activeProfile';
+    private readonly ACCOUNT_ID_PREFIX = 'cloudflare.account.';
+    private readonly API_KEY_PREFIX = 'cloudflare.apikey.';
     private profiles: Map<string, Profile> = new Map();
     private activeProfile: string | null = null;
 
@@ -58,6 +57,7 @@ export class ProfileManager {
         this.cloudflaredDir = path.join(os.homedir(), '.cloudflared');
         this.loadProfiles();
         this.logger.debug(LogComponent.PROFILE, 'ProfileManager initialized');
+        this.migrateToSecureStorage();
     }
 
     /**
@@ -85,6 +85,76 @@ export class ProfileManager {
             this.profiles = new Map();
             this.activeProfile = null;
         }
+    }
+
+    /**
+     * Migrates existing account IDs and API keys to secure storage
+     * @private
+     */
+    private async migrateToSecureStorage(): Promise<void> {
+        try {
+            // Skip migration if no profiles exist
+            if (this.profiles.size === 0) {
+                this.logger.debug(LogComponent.PROFILE, 'No profiles to migrate');
+                return;
+            }
+
+            for (const [name, profile] of this.profiles.entries()) {
+                // Handle legacy profile format that might have accountId and apiKey
+                const legacyProfile = profile as { 
+                    name: string; 
+                    accountId?: string;
+                    apiKey?: string;
+                };
+
+                // Migrate account ID if present
+                if (legacyProfile.accountId) {
+                    this.logger.debug(LogComponent.PROFILE, `Migrating account ID for profile: ${name}`);
+                    await this.context.secrets.store(
+                        this.getAccountIdKey(name),
+                        legacyProfile.accountId
+                    );
+                    delete legacyProfile.accountId;
+                }
+
+                // Migrate API key if present
+                if (legacyProfile.apiKey) {
+                    this.logger.debug(LogComponent.PROFILE, `Migrating API key for profile: ${name}`);
+                    await this.context.secrets.store(
+                        this.getApiKeyKey(name),
+                        legacyProfile.apiKey
+                    );
+                    delete legacyProfile.apiKey;
+                }
+            }
+
+            // Save the cleaned up profiles without sensitive data
+            await this.saveProfiles();
+            this.logger.info(LogComponent.PROFILE, 'Migration to secure storage completed successfully');
+        } catch (error) {
+            this.logger.error(LogComponent.PROFILE, 'Failed to migrate to secure storage:', error);
+            throw new Error('Failed to migrate profiles to secure storage');
+        }
+    }
+
+    /**
+     * Gets the secure storage key for an account ID
+     * @param name Profile name
+     * @returns Secure storage key
+     * @private
+     */
+    private getAccountIdKey(name: string): string {
+        return `${this.ACCOUNT_ID_PREFIX}${name}`;
+    }
+
+    /**
+     * Gets the secure storage key for an API key
+     * @param name Profile name
+     * @returns Secure storage key
+     * @private
+     */
+    private getApiKeyKey(name: string): string {
+        return `${this.API_KEY_PREFIX}${name}`;
     }
 
     /**
@@ -147,19 +217,34 @@ export class ProfileManager {
             throw new Error(`Profile '${name}' already exists`);
         }
 
-        // Create and save the profile
-        const profile: Profile = { name, apiKey, accountId };
-        this.profiles.set(name, profile);
-        await this.saveProfiles();
-        
-        // Make this profile active if it's the first one or there's no active profile
-        if (!this.activeProfile || this.profiles.size === 1) {
-            this.activeProfile = name;
-            await this.saveProfiles();
-            this.logger.info(LogComponent.PROFILE, `Set ${name} as active profile`);
-        }
+        try {
+            // Store API key and account ID in secure storage
+            await Promise.all([
+                this.context.secrets.store(this.getApiKeyKey(name), apiKey),
+                this.context.secrets.store(this.getAccountIdKey(name), accountId)
+            ]);
 
-        this.logger.info(LogComponent.PROFILE, `Profile ${name} created successfully`);
+            // Create profile without sensitive data
+            const profile: Profile = { name };
+            this.profiles.set(name, profile);
+            await this.saveProfiles();
+            
+            // Make this profile active if it's the first one or there's no active profile
+            if (!this.activeProfile || this.profiles.size === 1) {
+                this.activeProfile = name;
+                await this.saveProfiles();
+                this.logger.info(LogComponent.PROFILE, `Set ${name} as active profile`);
+            }
+
+            this.logger.info(LogComponent.PROFILE, `Profile ${name} created successfully`);
+        } catch (error) {
+            // Clean up if anything fails
+            await Promise.all([
+                this.context.secrets.delete(this.getApiKeyKey(name)),
+                this.context.secrets.delete(this.getAccountIdKey(name))
+            ]);
+            throw error;
+        }
     }
 
     /**
@@ -172,15 +257,26 @@ export class ProfileManager {
             throw new Error(`Profile '${name}' does not exist`);
         }
 
-        this.profiles.delete(name);
-        
-        // If this was the active profile, clear it
-        if (this.activeProfile === name) {
-            this.activeProfile = null;
-        }
+        try {
+            // Delete sensitive data from secure storage
+            await Promise.all([
+                this.context.secrets.delete(this.getApiKeyKey(name)),
+                this.context.secrets.delete(this.getAccountIdKey(name))
+            ]);
 
-        await this.saveProfiles();
-        this.logger.info(LogComponent.PROFILE, `Profile ${name} deleted successfully`);
+            this.profiles.delete(name);
+            
+            // If this was the active profile, clear it
+            if (this.activeProfile === name) {
+                this.activeProfile = null;
+            }
+
+            await this.saveProfiles();
+            this.logger.info(LogComponent.PROFILE, `Profile ${name} deleted successfully`);
+        } catch (error) {
+            this.logger.error(LogComponent.PROFILE, `Failed to delete profile ${name}:`, error);
+            throw error;
+        }
     }
 
     /**
@@ -224,40 +320,86 @@ export class ProfileManager {
     }
 
     /**
-     * Gets the API key for a profile
+     * Gets the API key for a profile from secure storage
      * @param name Name of profile
      * @returns API key or null if not found
      */
     async getProfileApiKey(name: string): Promise<string | null> {
-        const profile = this.profiles.get(name);
-        return profile?.apiKey || null;
+        try {
+            const apiKey = await this.context.secrets.get(this.getApiKeyKey(name));
+            return apiKey || null;
+        } catch (error) {
+            this.logger.error(LogComponent.PROFILE, `Failed to get API key for profile ${name}:`, error);
+            return null;
+        }
     }
 
     /**
-     * Gets the account ID for a profile
+     * Gets the account ID for a profile from secure storage
      * @param name Name of profile
      * @returns Account ID or null if not found
      */
     async getProfileAccountId(name: string): Promise<string | null> {
-        const profile = this.profiles.get(name);
-        return profile?.accountId || null;
+        try {
+            const accountId = await this.context.secrets.get(this.getAccountIdKey(name));
+            return accountId || null;
+        } catch (error) {
+            this.logger.error(LogComponent.PROFILE, `Failed to get account ID for profile ${name}:`, error);
+            return null;
+        }
     }
 
     /**
-     * Sets the account ID for a profile
+     * Sets the account ID for a profile in secure storage
      * @param name Name of profile
      * @param accountId Account ID to set
-     * @throws Error if profile doesn't exist
+     * @throws Error if profile doesn't exist or validation fails
      */
     async setProfileAccountId(name: string, accountId: string): Promise<void> {
-        const profile = this.profiles.get(name);
-        if (!profile) {
+        if (!this.profiles.has(name)) {
             throw new Error(`Profile '${name}' does not exist`);
         }
 
-        profile.accountId = accountId;
-        await this.saveProfiles();
-        this.logger.debug(LogComponent.PROFILE, `Account ID set for profile ${name}`);
+        if (!accountId || !accountId.trim()) {
+            throw new Error('Account ID cannot be empty');
+        }
+
+        // Validate account ID format
+        if (!/^[a-f0-9]{32}$/i.test(accountId)) {
+            throw new Error('Account ID must be a 32-character hexadecimal string');
+        }
+
+        try {
+            await this.context.secrets.store(this.getAccountIdKey(name), accountId);
+            this.logger.debug(LogComponent.PROFILE, `Account ID set for profile ${name}`);
+        } catch (error) {
+            this.logger.error(LogComponent.PROFILE, `Failed to set account ID for profile ${name}:`, error);
+            throw error;
+        }
+    }
+
+    /**
+     * Updates the API key for a profile in secure storage
+     * @param name Name of profile
+     * @param apiKey New API key
+     * @throws Error if profile doesn't exist or validation fails
+     */
+    async updateProfileApiKey(name: string, apiKey: string): Promise<void> {
+        if (!this.profiles.has(name)) {
+            throw new Error(`Profile '${name}' does not exist`);
+        }
+
+        if (!apiKey || !apiKey.trim()) {
+            throw new Error('API key cannot be empty');
+        }
+
+        try {
+            await this.context.secrets.store(this.getApiKeyKey(name), apiKey);
+            this.logger.info(LogComponent.PROFILE, `Updated API key for profile ${name}`);
+        } catch (error) {
+            this.logger.error(LogComponent.PROFILE, `Failed to update API key for profile ${name}:`, error);
+            throw error;
+        }
     }
 
     /**
@@ -277,26 +419,5 @@ export class ProfileManager {
             }
             return false;
         }
-    }
-
-    /**
-     * Updates the API key for a profile
-     * @param name Name of profile
-     * @param apiKey New API key
-     * @throws Error if profile doesn't exist or API key is invalid
-     */
-    async updateProfileApiKey(name: string, apiKey: string): Promise<void> {
-        const profile = this.profiles.get(name);
-        if (!profile) {
-            throw new Error(`Profile '${name}' does not exist`);
-        }
-
-        if (!apiKey || !apiKey.trim()) {
-            throw new Error('API key cannot be empty');
-        }
-
-        profile.apiKey = apiKey;
-        await this.saveProfiles();
-        this.logger.info(LogComponent.PROFILE, `Updated API key for profile ${name}`);
     }
 }

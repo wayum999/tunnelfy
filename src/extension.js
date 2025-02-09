@@ -788,7 +788,7 @@ async function showCloudflaredInstallPrompt() {
                 vscode.env.clipboard.writeText(winResult.description);
                 vscode.window.showInformationMessage('Install command copied to clipboard. Run it in PowerShell,  and Default Profile will be created.', 'Open PowerShell').then(selection => {
                     if (selection === 'Open PowerShell') {
-                        vscode.env.openExternal(vscode.Uri.parse('terminal://'));
+                        vscode.commands.executeCommand('workbench.action.terminal.new');
                     }
                 });
             }

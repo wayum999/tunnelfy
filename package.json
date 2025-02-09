@@ -156,12 +156,12 @@
           "group": "inline@3"
         },
         {
-          "command": "tunnelfy.stopQuickTunnel",
+          "command": "tunnelfy.copyQuickTunnelUrl",
           "when": "view == tunnelfy-quick-tunnels && viewItem == quickTunnel",
           "group": "inline@1"
         },
         {
-          "command": "tunnelfy.copyQuickTunnelUrl",
+          "command": "tunnelfy.stopQuickTunnel",
           "when": "view == tunnelfy-quick-tunnels && viewItem == quickTunnel",
           "group": "inline@2"
         }

@@ -329,7 +329,7 @@ export class TunnelManager {
         }
 
         this.runningTunnels.delete(tunnelId);
-        await this.tunnelLogger.logTunnelEvent(tunnelId, 'stopped');
+        await this.tunnelLogger.logTunnelEvent(tunnelId, 'stopped', { preserveFocus: true });
         this._onTunnelEvent.fire({
             type: 'stop',
             tunnelId,
@@ -530,18 +530,18 @@ export class TunnelManager {
         try {
             const runningTunnel = this.runningTunnels.get(tunnelId);
             if (!runningTunnel) {
-                this.logger.warn(LogComponent.TUNNEL, `No running tunnel found for ID: ${tunnelId}`);
+                this.logger.warn(LogComponent.TUNNEL, `No running tunnel found for ID: ${tunnelId}`, { preserveFocus: true });
                 return;
             }
 
-            this.logger.info(LogComponent.TUNNEL, `Stopping TUNNEL: ${tunnelId}`);
+            this.logger.info(LogComponent.TUNNEL, `Stopping TUNNEL: ${tunnelId}`, { preserveFocus: true });
 
             // Kill the process
             if (process.platform === 'win32') {
                 try {
                     process.kill(runningTunnel.pid);
                 } catch (error) {
-                    this.logger.warn(LogComponent.TUNNEL, `Failed to kill process: ${error}`);
+                    this.logger.warn(LogComponent.TUNNEL, `Failed to kill process: ${error}`, { preserveFocus: true });
                 }
             } else {
                 try {
@@ -555,16 +555,16 @@ export class TunnelManager {
                         // Process is already dead
                     }
                 } catch (error) {
-                    this.logger.warn(LogComponent.TUNNEL, `Failed to kill process: ${error}`);
+                    this.logger.warn(LogComponent.TUNNEL, `Failed to kill process: ${error}`, { preserveFocus: true });
                 }
             }
 
             // Clean up resources
             await this.cleanupTunnelProcess(tunnelId);
 
-            this.logger.info(LogComponent.TUNNEL, `TUNNEL: ${tunnelId} stopped`);
+            this.logger.info(LogComponent.TUNNEL, `TUNNEL: ${tunnelId} stopped`, { preserveFocus: true });
         } catch (error) {
-            this.logger.error(LogComponent.TUNNEL, `Failed to stop tunnel: ${error}`);
+            this.logger.error(LogComponent.TUNNEL, `Failed to stop tunnel: ${error}`, { preserveFocus: true });
             throw error;
         }
     }

@@ -78,8 +78,11 @@ export class TokenAuditService {
         
         // Log suspicious activity
         if (!event.success) {
-            this.logger.warn(LogComponent.TUNNEL, 'Suspicious token activity detected:', { preserveFocus: true });
-            this.logger.warn(LogComponent.TUNNEL, JSON.stringify(auditEvent), { preserveFocus: true });
+            this.logger.warn(
+                LogComponent.TUNNEL,
+                `Suspicious token activity detected: ${JSON.stringify(auditEvent, null, 2)}`,
+                { preserveFocus: true }
+            );
         }
     }
 

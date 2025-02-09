@@ -32,114 +32,117 @@ export class TunnelTreeItem extends vscode.TreeItem {
 }
 
 /**
- * TunnelTreeDataProvider - Provides tunnel data for the VS Code tree view
+ * TunnelTreeDataProvider - Manages the VS Code tree view for Cloudflare tunnels
  * 
- * This class implements VS Code's TreeDataProvider interface and is responsible for:
- * 1. Fetching tunnel data from the TunnelManager
- * 2. Transforming tunnel data into TunnelTreeItems
- * 3. Managing a periodic refresh cycle to keep the view up to date
- * 4. Handling updates triggered by tunnel events (e.g., status changes)
+ * This class implements VS Code's TreeDataProvider interface to display and manage
+ * Cloudflare tunnels in a tree view. It handles:
+ * 1. Displaying tunnel status and information
+ * 2. Refreshing the view when tunnels change
+ * 3. Managing tunnel lifecycle events
+ * 4. Providing context menu actions
  */
 export class TunnelTreeDataProvider implements vscode.TreeDataProvider<TunnelTreeItem> {
     private _onDidChangeTreeData: vscode.EventEmitter<TunnelTreeItem | undefined | null | void> = new vscode.EventEmitter<TunnelTreeItem | undefined | null | void>();
     readonly onDidChangeTreeData: vscode.Event<TunnelTreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
-    private readonly logger: Logger;
-    private refreshInterval: NodeJS.Timeout | null = null;
+    private readonly logger = Logger.getInstance();
     private treeView: vscode.TreeView<TunnelTreeItem>;
+    private currentItems: TunnelTreeItem[] = [];
 
+    /**
+     * Creates a new instance of TunnelTreeDataProvider
+     * @param tunnelManager Service for managing tunnel operations
+     * @param profileManager Service for managing Cloudflare profiles
+     */
     constructor(
         private readonly tunnelManager: TunnelManager,
         private readonly profileManager: ProfileManager
     ) {
-        this.logger = Logger.getInstance();
-        this.logger.debug(LogComponent.TUNNEL, 'TunnelTreeDataProvider initialized');
-
         // Create the tree view
         this.treeView = vscode.window.createTreeView('tunnelfy-tunnels', {
             treeDataProvider: this,
-            showCollapseAll: false,
+            showCollapseAll: true,
             canSelectMany: false
         });
 
-        this.setupAutoRefresh();
-
-        // Listen for configuration changes
-        vscode.workspace.onDidChangeConfiguration(e => {
-            if (e.affectsConfiguration('tunnelfy.autoRefreshEnabled') || 
-                e.affectsConfiguration('tunnelfy.autoRefreshInterval')) {
-                this.setupAutoRefresh();
-            }
-        });
-
-        // Subscribe to tunnel events
+        // Subscribe to tunnel events for automatic updates
         this.tunnelManager.onTunnelEvent((event: TunnelEvent) => {
             this.logger.debug(LogComponent.EXTENSION, `Tunnel event received: ${event.type} - ${event.tunnelId}`);
-            if (event.type === 'start' || event.type === 'stop' || event.type === 'status') {
-                this.refresh();
-            }
+            this.refresh();
         });
     }
 
-    private setupAutoRefresh(): void {
-        // Clear existing interval if any
-        if (this.refreshInterval) {
-            clearInterval(this.refreshInterval);
-            this.refreshInterval = null;
-        }
-
-        // Check if auto-refresh is enabled
-        const config = vscode.workspace.getConfiguration('tunnelfy');
-        const autoRefreshEnabled = config.get<boolean>('autoRefreshEnabled', true);
-        if (!autoRefreshEnabled) {
-            this.logger.debug(LogComponent.TUNNEL, 'Auto-refresh disabled by configuration');
-            return;
-        }
-
-        // Get refresh interval
-        const intervalSeconds = Math.max(5, Math.min(300, config.get<number>('autoRefreshInterval', 30)));
-        
-        // Set up new interval
-        this.refreshInterval = setInterval(() => {
-            this.refresh();
-        }, intervalSeconds * 1000);
-
-        this.logger.debug(LogComponent.TUNNEL, `Auto-refresh set up with interval: ${intervalSeconds}s`);
-    }
-
+    /**
+     * Gets a tree item for display in the view
+     * @param element The tunnel tree item to display
+     * @returns The tree item with display properties set
+     */
     getTreeItem(element: TunnelTreeItem): vscode.TreeItem {
         return element;
     }
 
-    async getChildren(): Promise<TunnelTreeItem[]> {
+    /**
+     * Gets the parent of a tree item (not used in flat list)
+     * @param _element The tree item to get parent for
+     * @returns Always returns null as this is a flat list
+     */
+    getParent(_element: TunnelTreeItem): vscode.ProviderResult<TunnelTreeItem> {
+        return null;
+    }
+
+    /**
+     * Gets the child items to display in the tree
+     * @param element The parent element (unused in flat list)
+     * @returns Array of tunnel tree items
+     */
+    async getChildren(element?: TunnelTreeItem): Promise<TunnelTreeItem[]> {
+        if (element) {
+            return [];
+        }
+
         try {
+            // Check if there's an active profile
             const activeProfile = await this.profileManager.getActiveProfile();
             if (!activeProfile) {
                 return [];
             }
 
+            // Get tunnels from Cloudflare
             const tunnels = await this.tunnelManager.listTunnels();
-            return tunnels.map(tunnel => {
-                const isRunning = tunnel.connections && tunnel.connections.length > 0;
-                return new TunnelTreeItem(
-                    tunnel.name,
-                    tunnel.id,
-                    isRunning ? 'running' : 'stopped'
-                );
-            });
+            
+            // Create tree items for each tunnel
+            this.currentItems = tunnels.map(tunnel => new TunnelTreeItem(
+                tunnel.name,
+                tunnel.id,
+                tunnel.connections && tunnel.connections.length > 0 ? 'running' : 'stopped'
+            ));
+
+            return this.currentItems;
         } catch (error) {
             this.logger.error(LogComponent.EXTENSION, `Failed to get tunnels: ${error}`);
             return [];
         }
     }
 
+    /**
+     * Refreshes the tree view to reflect current tunnel states
+     */
     refresh(): void {
         this._onDidChangeTreeData.fire();
     }
 
+    /**
+     * Finds a tunnel tree item by its ID
+     * @param tunnelId The ID of the tunnel to find
+     * @returns The found tree item or undefined
+     */
+    findTunnelById(tunnelId: string): TunnelTreeItem | undefined {
+        return this.currentItems.find(item => item.tunnelId === tunnelId);
+    }
+
+    /**
+     * Disposes of the tree view and its resources
+     */
     dispose(): void {
-        if (this.refreshInterval) {
-            clearInterval(this.refreshInterval);
-        }
         this.treeView.dispose();
     }
 }

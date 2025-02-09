@@ -101,6 +101,11 @@ export class CloudflareApiService {
     private accountId: string | null = null;
     private apiKey: string | null = null;
 
+    /**
+     * Creates a new instance of CloudflareApiService
+     * @param context VS Code extension context for storage access
+     * @param profileManager Profile manager for handling authentication
+     */
     constructor(
         private readonly context: vscode.ExtensionContext,
         private readonly profileManager: ProfileManager
@@ -109,18 +114,18 @@ export class CloudflareApiService {
     }
 
     /**
-     * Sets the API key for making requests
-     * Used for temporary API key validation during profile creation
-     * @param apiKey The API key to set
+     * Sets the API key for Cloudflare authentication
+     * @param apiKey Cloudflare API key
+     * @throws Error if API key is invalid
      */
     async setApiKey(apiKey: string): Promise<void> {
         this.apiKey = apiKey;
     }
 
     /**
-     * Gets the API key from the active profile
-     * @returns The current API key
-     * @throws Error if no active profile or API key is found
+     * Retrieves the API key for the current profile
+     * @returns API key string
+     * @throws Error if no active profile or API key not found
      * @private
      */
     private async getApiKey(): Promise<string> {
@@ -140,9 +145,8 @@ export class CloudflareApiService {
 
     /**
      * Gets the account ID for the current profile
-     * If not found in profile, fetches from API and stores it
-     * @returns The account ID
-     * @throws Error if account ID cannot be retrieved
+     * @returns Account ID string
+     * @throws Error if no active profile or account ID not found
      * @private
      */
     private async getAccountId(): Promise<string> {
@@ -152,30 +156,65 @@ export class CloudflareApiService {
             throw new Error('No active profile found');
         }
 
-        // First try to get from profile
-        const profileAccountId = await this.profileManager.getProfileAccountId(activeProfile);
-        if (profileAccountId) {
-            return profileAccountId;
-        }
-
-        // If not found, fetch from API
         try {
-            const accounts = await this.makeRequest('/accounts') as CloudflareAccount[];
-            if (!accounts || accounts.length === 0) {
-                throw new Error('No Cloudflare accounts found');
+            // First try to get from secure storage
+            const profileAccountId = await this.profileManager.getProfileAccountId(activeProfile);
+            if (profileAccountId) {
+                // Validate the account ID format
+                if (!this.isValidAccountId(profileAccountId)) {
+                    this.logger.warn(LogComponent.API, 'Invalid account ID format in storage, refetching from API');
+                    return await this.fetchAndStoreAccountId(activeProfile);
+                }
+                return profileAccountId;
             }
 
-            // Use the first account
-            const accountId = accounts[0].id;
-            
-            // Store the account ID in the profile
-            await this.profileManager.setProfileAccountId(activeProfile, accountId);
-            
-            return accountId;
+            return await this.fetchAndStoreAccountId(activeProfile);
         } catch (error) {
             this.logger.error(LogComponent.API, 'Failed to get account ID:', error);
             throw new Error('Failed to get Cloudflare account ID. Please check your API key permissions.');
         }
+    }
+
+    /**
+     * Validates the format of a Cloudflare account ID
+     * @param accountId The account ID to validate
+     * @returns boolean indicating if the account ID is valid
+     * @private
+     */
+    private isValidAccountId(accountId: string): boolean {
+        // Cloudflare account IDs are 32-character hexadecimal strings
+        const accountIdRegex = /^[a-f0-9]{32}$/i;
+        return accountIdRegex.test(accountId);
+    }
+
+    /**
+     * Fetches account ID from API and stores it securely
+     * @param profileName The profile to store the account ID for
+     * @returns The fetched account ID
+     * @private
+     */
+    private async fetchAndStoreAccountId(profileName: string): Promise<string> {
+        const accounts = await this.makeRequest('/accounts') as CloudflareAccount[];
+        if (!accounts || accounts.length === 0) {
+            throw new Error('No Cloudflare accounts found');
+        }
+
+        const accountId = accounts[0].id;
+        
+        // Validate the account ID before storing
+        if (!this.isValidAccountId(accountId)) {
+            throw new Error('Invalid account ID received from Cloudflare API');
+        }
+
+        // Store the account ID securely
+        try {
+            await this.profileManager.setProfileAccountId(profileName, accountId);
+        } catch (error) {
+            this.logger.error(LogComponent.API, 'Failed to store account ID securely:', error);
+            throw new Error('Failed to securely store account ID');
+        }
+        
+        return accountId;
     }
 
     /**

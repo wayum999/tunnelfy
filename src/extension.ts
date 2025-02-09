@@ -809,12 +809,20 @@ export async function activate(context: vscode.ExtensionContext) {
 
                     const port = parseInt(portInput);
 
-                    logger.info(LogComponent.TUNNEL, `Starting tunnel ${tunnelName} (${tunnelId}) on port ${port}`);
+                    // Start the tunnel
                     await cloudflaredService.runTunnel(tunnelId, port);
-                    vscode.window.showInformationMessage(`Started tunnel ${tunnelName} on port ${port}`);
-                    tunnelProvider.refresh();
+                    
+                    // Refresh the tunnel list after a short delay
+                    setTimeout(() => {
+                        tunnelProvider.refresh();
+                    }, 2000);
+                    
+                    // And another refresh after a bit longer to ensure we catch the status
+                    setTimeout(() => {
+                        tunnelProvider.refresh();
+                    }, 5000);
                 } catch (error) {
-                    logger.error(LogComponent.COMMAND, 'Failed to start tunnel', error as Error);
+                    logger.error(LogComponent.COMMAND, 'Failed to start tunnel', error);
                     vscode.window.showErrorMessage(`Failed to start tunnel: ${error instanceof Error ? error.message : String(error)}`);
                 }
             }),

@@ -379,114 +379,8 @@ export class CloudflaredService {
 
     /**
      * Runs a tunnel in the background using token-based authentication
-     * @param tunnelId - The ID of the tunnel to run
-     * @param port - The port to run the tunnel on
-     * @returns The child process running the tunnel
      */
     async runTunnel(tunnelId: string, port: number): Promise<cp.ChildProcess> {
-        try {
-            // Get tunnel info first to include name in logs
-            const tunnelInfo = await this.getTunnelInfo(tunnelId);
-            if (!tunnelInfo || !tunnelInfo.name) {
-                throw new Error('Failed to get tunnel information');
-            }
-            this.logger.info(LogComponent.TUNNEL, `Starting tunnel ${tunnelInfo.name} (${tunnelId}) on port ${port}`);
-            
-            try {
-                // First check if cloudflared is installed
-                const isInstalled = await this.ensureCloudflaredInstalled();
-                if (!isInstalled) {
-                    throw new Error('Cloudflared is required to run tunnels. Please install it and try again.');
-                }
-
-                // Get the token
-                this.logger.debug(LogComponent.TUNNEL, 'Getting tunnel token...');
-                const token = await this.getTunnelToken(tunnelId);
-                if (!token) {
-                    const errorMessage = 'Failed to get tunnel token';
-                    this.logger.error(LogComponent.TUNNEL, errorMessage);
-                    this._onTunnelEvent.fire({
-                        type: 'error',
-                        tunnelId,
-                        data: errorMessage
-                    });
-                    throw new Error(errorMessage);
-                }
-                this.logger.debug(LogComponent.TUNNEL, `Got token for tunnel ${tunnelId}`);
-
-                // Get zones (domains) from Cloudflare
-                const zones = await this.apiService.listZones();
-                if (!zones.length) {
-                    throw new Error('No domains found in your Cloudflare account');
-                }
-
-                // Let user select a zone
-                const selectedZone = await vscode.window.showQuickPick(
-                    zones.map(zone => ({
-                        label: zone.name,
-                        description: zone.id,
-                        zone: zone
-                    })),
-                    {
-                        placeHolder: 'Select a domain for your tunnel'
-                    }
-                );
-
-                if (!selectedZone) {
-                    throw new Error('Domain selection is required');
-                }
-
-                // Get DNS records for selected zone
-                const dnsRecords = await this.apiService.listDnsRecords(selectedZone.zone.id);
-                
-                // Define the type for our quick pick items
-                type CnameQuickPickItem = {
-                    label: string;
-                    description: string;
-                    isNew: boolean;
-                    record?: {
-                        id: string;
-                        name: string;
-                        type: string;
-                        content: string;
-                    };
-                };
-
-                // Add option to create new CNAME record
-                const quickPickItems: CnameQuickPickItem[] = [
-                    { label: '$(add) Create new CNAME record', description: '', isNew: true },
-                    ...dnsRecords
-                        .filter(record => record.type === 'CNAME')
-                        .map(record => ({
-                            label: record.name,
-                            description: record.content,
-                            isNew: false,
-                            record: record
-                        }))
-                ];
-
-                const selectedRecord = await vscode.window.showQuickPick(
-                    quickPickItems,
-                    {
-                        placeHolder: 'Select existing CNAME record or create new one'
-                    }
-                );
-
-                if (!selectedRecord) {
-                    throw new Error('Hostname selection is required');
-                }
-
-                let hostname: string;
-                if (selectedRecord.isNew) {
-                    // Get subdomain from user for new CNAME record
-                    const subdomain = await vscode.window.showInputBox({
-                        prompt: `Enter subdomain for ${selectedZone.zone.name}`,
-                        placeHolder: 'e.g., myapp',
-                        validateInput: (value) => {
-        // Get tunnel info first to include name in logs
-        const tunnelInfo = await this.getTunnelInfo(tunnelId);
-        this.logger.info(LogComponent.TUNNEL, `Starting tunnel ${tunnelInfo.name} (${tunnelId}) on port ${port}`);
-        
         try {
             // First check if cloudflared is installed
             const isInstalled = await this.ensureCloudflaredInstalled();
@@ -494,12 +388,18 @@ export class CloudflaredService {
                 throw new Error('Cloudflared is required to run tunnels. Please install it and try again.');
             }
 
+            // Get tunnel info first to include name in logs
+            const tunnelInfo = await this.getTunnelInfo(tunnelId);
+            if (!tunnelInfo || !tunnelInfo.name) {
+                throw new Error('Failed to get tunnel information');
+            }
+
             // Get the token
-            this.logger.debug(LogComponent.TUNNEL, 'Getting tunnel token...');
+            this.logger.debug(LogComponent.TUNNEL, 'Getting tunnel token...', { preserveFocus: true });
             const token = await this.getTunnelToken(tunnelId);
             if (!token) {
                 const errorMessage = 'Failed to get tunnel token';
-                this.logger.error(LogComponent.TUNNEL, errorMessage);
+                this.logger.error(LogComponent.TUNNEL, errorMessage, undefined, { preserveFocus: true });
                 this._onTunnelEvent.fire({
                     type: 'error',
                     tunnelId,
@@ -507,7 +407,19 @@ export class CloudflaredService {
                 });
                 throw new Error(errorMessage);
             }
-            this.logger.debug(LogComponent.TUNNEL, `Got token for tunnel ${tunnelId}`);
+
+            // Check if tunnel is already running
+            const existingProcesses = await this.findTunnelProcess(tunnelId);
+            if (existingProcesses.length > 0) {
+                this.logger.warn(LogComponent.TUNNEL, `Tunnel ${tunnelInfo.name} appears to be already running. Stopping existing processes...`, { preserveFocus: true });
+                for (const process of existingProcesses) {
+                    await this.killProcess(process.pid, true);
+                }
+                // Wait a moment for processes to fully stop
+                await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+
+            this.logger.debug(LogComponent.TUNNEL, `Configuring tunnel ${tunnelInfo.name}...`, { preserveFocus: true });
 
             // Get zones (domains) from Cloudflare
             const zones = await this.apiService.listZones();
@@ -523,7 +435,8 @@ export class CloudflaredService {
                     zone: zone
                 })),
                 {
-                    placeHolder: 'Select a domain for your tunnel'
+                    placeHolder: 'Select a domain for your tunnel',
+                    title: 'Select Domain'
                 }
             );
 
@@ -563,7 +476,8 @@ export class CloudflaredService {
             const selectedRecord = await vscode.window.showQuickPick(
                 quickPickItems,
                 {
-                    placeHolder: 'Select existing CNAME record or create new one'
+                    placeHolder: 'Select existing CNAME record or create new one',
+                    title: 'Configure Hostname'
                 }
             );
 
@@ -577,7 +491,11 @@ export class CloudflaredService {
                 const subdomain = await vscode.window.showInputBox({
                     prompt: `Enter subdomain for ${selectedZone.zone.name}`,
                     placeHolder: 'e.g., myapp',
+                    title: 'Create New Subdomain',
                     validateInput: (value) => {
+                        if (!value) {
+                            return 'Subdomain is required';
+                        }
                         if (!/^[a-zA-Z0-9-]+$/.test(value)) {
                             return 'Subdomain can only contain letters, numbers, and hyphens';
                         }
@@ -684,16 +602,20 @@ export class CloudflaredService {
                 hostname = selectedRecord.label;
             }
 
+            // Now that we have all the configuration, show the start notification
+            vscode.window.showInformationMessage(`Starting tunnel ${tunnelInfo.name} on port ${port}`);
+
+            // Log the start of tunnel operation
+            this.logger.info(LogComponent.TUNNEL, `Starting tunnel ${tunnelInfo.name} (${tunnelId}) on port ${port} with hostname ${hostname}`, { preserveFocus: true });
+
             // Build command arguments
             const args = ['tunnel', 'run'];
-            
-            // Add token first
             args.push('--token', token);
-
-            // Add URL (localhost with port)
             args.push('--url', `http://localhost:${port}`);
 
-            this.logger.debug(LogComponent.TUNNEL, `Running cloudflared with args: ${args.join(' ')}`);
+            // Log the full command for debugging (redact token)
+            const debugCommand = ['cloudflared', ...args].join(' ').replace(token, '[REDACTED]');
+            this.logger.debug(LogComponent.TUNNEL, `Running command: ${debugCommand}`, { preserveFocus: true });
 
             // Create log files for stdout and stderr
             const logDir = path.join(this.context.extensionPath, 'logs');
@@ -702,33 +624,28 @@ export class CloudflaredService {
             }
             const stdoutLog = path.join(logDir, `tunnel-${tunnelId}-stdout.log`);
             const stderrLog = path.join(logDir, `tunnel-${tunnelId}-stderr.log`);
-            
-            // Run tunnel in the background
-            this.logger.debug(LogComponent.TUNNEL, 'Spawning cloudflared process...');
-            
-            // First try running the command directly to see any immediate errors
-            try {
-                const { stdout: testStdout, stderr: testStderr } = await this.runCloudflaredCommand(`cloudflared ${args.join(' ')}`);
-                this.logger.debug(LogComponent.TUNNEL, `Test command output - stdout: ${testStdout}, stderr: ${testStderr}`);
-            } catch (error) {
-                this.logger.error(LogComponent.TUNNEL, 'Test command failed:', error);
-                // Continue anyway as we'll try the detached process
-            }
-            
-            // Spawn the process with pipes first to catch initial output
+
+            // Spawn the process
             const tunnel = cp.spawn('cloudflared', args, {
                 stdio: ['ignore', 'pipe', 'pipe'],
-                env: process.env, // No need for cert.pem when using token
+                env: {
+                    ...process.env,
+                    NO_AUTOUPDATE: '1', // Prevent autoupdate during tunnel operation
+                },
                 detached: true,
-                shell: true // This helps with process group management
+                shell: true
             });
+
+            // Detach the process
+            tunnel.unref();
 
             // Store the process ID for cleanup
             const tunnelPid = tunnel.pid;
             if (!tunnelPid) {
                 throw new Error('Failed to get process ID for tunnel');
             }
-            this.logger.debug(LogComponent.TUNNEL, `Spawned cloudflared process with PID: ${tunnelPid}`);
+
+            this.logger.debug(LogComponent.TUNNEL, `Tunnel process started with PID ${tunnelPid}`, { preserveFocus: true });
 
             // Create write streams for the log files
             const stdoutStream = fs.createWriteStream(stdoutLog, { flags: 'a' });
@@ -741,85 +658,158 @@ export class CloudflaredService {
                 logStreams: [stdoutStream, stderrStream]
             });
 
-            // Handle process exit
-            tunnel.on('exit', (code, signal) => {
-                this.logger.debug(LogComponent.TUNNEL, `Tunnel process exited with code ${code} and signal ${signal}`);
-                stdoutStream.end();
-                stderrStream.end();
-
-                // Clean up process tracking
-                this.runningTunnels.delete(tunnelId);
-
-                // Try to kill any remaining processes
-                if (tunnelPid) {
-                    try {
-                        // Try to kill the process group
-                        process.kill(-tunnelPid);
-                    } catch (error) {
-                        try {
-                            // Fallback to killing just the process
-                            process.kill(tunnelPid);
-                        } catch (error) {
-                            // Process might already be gone, ignore errors
-                        }
-                    }
-                }
-            });
-
-            // Handle process errors
-            tunnel.on('error', (error) => {
-                this.logger.error(LogComponent.TUNNEL, `Tunnel process error: ${error.message}`);
-                stdoutStream.end();
-                stderrStream.end();
-            });
-
-            this.logger.debug(LogComponent.TUNNEL, 'Cloudflared process spawned and detached');
-
+            // Set up stdout handling
             if (tunnel.stdout) {
-                tunnel.stdout.on('data', (data: Buffer) => {
-                    const lines = data.toString().split('\n');
+                tunnel.stdout.setEncoding('utf8');
+                tunnel.stdout.on('data', (data: string) => {
+                    const lines = data.split('\n');
                     for (const line of lines) {
                         if (!line.trim()) continue;
                         
-                        this.logger.debug(LogComponent.TUNNEL, `Tunnel stdout: ${line}`);
+                        // Write to log file
                         stdoutStream.write(line + '\n');
 
                         // Look for connection status
-                        const connMatch = line.match(/Registered tunnel connection .* location=(\w+)/);
-                        if (connMatch) {
+                        if (line.includes('Registered tunnel connection')) {
+                            const connMatch = line.match(/location=(\w+)/);
+                            const location = connMatch ? connMatch[1] : 'unknown';
+                            
+                            // Log successful connection
+                            this.logger.info(LogComponent.TUNNEL, `Tunnel ${tunnelInfo.name} connected successfully at ${location}`, { preserveFocus: true });
+                            
+                            // Show success notification
+                            vscode.window.showInformationMessage(`Tunnel ${tunnelInfo.name} connected successfully at ${location}`);
+                            
                             this._onTunnelEvent.fire({
                                 type: 'status',
                                 tunnelId,
                                 data: {
                                     status: 'connected',
-                                    location: connMatch[1]
+                                    location: location
                                 }
                             });
                             
                             // Refresh tunnel list after successful connection
-                            // Add a small delay to ensure Cloudflare API shows the updated status
-                            setTimeout(async () => {
-                                try {
-                                    this.logger.debug(LogComponent.TUNNEL, 'Refreshing tunnel list after successful connection');
-                                    await this.listTunnels();
-                                    this._onTunnelEvent.fire({
-                                        type: 'status',
-                                        tunnelId,
-                                        data: { status: 'refresh' }
-                                    });
-                                } catch (err) {
-                                    this.logger.error(LogComponent.TUNNEL, 'Failed to refresh tunnel list:', err);
-                                }
-                            }, 2000);
+                            this.refreshTunnelList(tunnelId);
                         }
                     }
                 });
             }
 
+            // Handle stderr
+            if (tunnel.stderr) {
+                tunnel.stderr.setEncoding('utf8');
+                tunnel.stderr.on('data', (data: string) => {
+                    const lines = data.split('\n');
+                    for (const line of lines) {
+                        if (!line.trim()) continue;
+                        
+                        // Write to log file
+                        stderrStream.write(line + '\n');
+
+                        // Only log actual errors
+                        if (line.includes('ERR') || line.includes('error') || line.includes('Error')) {
+                            this.logger.error(LogComponent.TUNNEL, `Tunnel error: ${line}`, undefined, { preserveFocus: true });
+                            this._onTunnelEvent.fire({
+                                type: 'error',
+                                tunnelId,
+                                data: line
+                            });
+                        }
+                    }
+                });
+            }
+
+            // Handle process exit
+            tunnel.on('exit', (code, signal) => {
+                const exitMsg = `Tunnel process exited with code ${code} and signal ${signal}`;
+                this.logger.debug(LogComponent.TUNNEL, exitMsg, { preserveFocus: true });
+                stdoutStream.end();
+                stderrStream.end();
+                this.runningTunnels.delete(tunnelId);
+
+                if (code !== 0) {
+                    this.logger.error(LogComponent.TUNNEL, `Tunnel failed: ${exitMsg}`, undefined, { preserveFocus: true });
+                    this._onTunnelEvent.fire({
+                        type: 'error',
+                        tunnelId,
+                        data: `Tunnel process exited with code ${code}`
+                    });
+                }
+            });
+
+            // Handle process errors
+            tunnel.on('error', (error) => {
+                const errorMsg = `Tunnel process error: ${error.message}`;
+                this.logger.error(LogComponent.TUNNEL, errorMsg, error, { preserveFocus: true });
+                stdoutStream.end();
+                stderrStream.end();
+                this._onTunnelEvent.fire({
+                    type: 'error',
+                    tunnelId,
+                    data: errorMsg
+                });
+            });
+
+            // Set up a timeout to verify the tunnel is running
+            const timeout = setTimeout(async () => {
+                const isRunning = await this.checkTunnelStatus(tunnelId);
+                if (!isRunning) {
+                    const timeoutMsg = `Tunnel ${tunnelInfo.name} failed to start within the timeout period`;
+                    this.logger.error(LogComponent.TUNNEL, timeoutMsg, undefined, { preserveFocus: true });
+                    this._onTunnelEvent.fire({
+                        type: 'error',
+                        tunnelId,
+                        data: timeoutMsg
+                    });
+                }
+            }, 30000); // 30 second timeout
+
+            // Clear timeout if process exits
+            tunnel.on('exit', () => clearTimeout(timeout));
+
             return tunnel;
         } catch (error) {
             this.logger.error(LogComponent.TUNNEL, 'Failed to run tunnel:', error);
             throw error;
+        }
+    }
+
+    /**
+     * Helper method to refresh tunnel list
+     */
+    private async refreshTunnelList(tunnelId: string): Promise<void> {
+        try {
+            // Initial refresh after 2 seconds
+            setTimeout(async () => {
+                try {
+                    await this.listTunnels();
+                    this._onTunnelEvent.fire({
+                        type: 'status',
+                        tunnelId,
+                        data: { status: 'refresh' }
+                    });
+                } catch (err) {
+                    this.logger.error(LogComponent.TUNNEL, 'Failed initial refresh of tunnel list:', err);
+                }
+            }, 2000);
+
+            // Second refresh after 5 seconds to ensure status is up to date
+            setTimeout(async () => {
+                try {
+                    await this.listTunnels();
+                    this._onTunnelEvent.fire({
+                        type: 'status',
+                        tunnelId,
+                        data: { status: 'refresh' }
+                    });
+                } catch (err) {
+                    this.logger.error(LogComponent.TUNNEL, 'Failed second refresh of tunnel list:', err);
+                }
+            }, 5000);
+        } catch (err) {
+            const error = err instanceof Error ? err : new Error(String(err));
+            this.logger.error(LogComponent.TUNNEL, 'Failed to refresh tunnel list', error);
         }
     }
 
@@ -876,31 +866,59 @@ export class CloudflaredService {
     private async killProcess(pid: number, graceful: boolean = true): Promise<boolean> {
         try {
             if (graceful) {
-                // Try SIGTERM first
-                process.kill(pid, 'SIGTERM');
+                // On macOS, we need to use sudo for some cloudflared processes
+                if (process.platform === 'darwin') {
+                    try {
+                        // Try pkill first as it might not require sudo
+                        await exec(`pkill -TERM -P ${pid}`).catch(() => {});
+                        await exec(`pkill -TERM -f "cloudflared.*${pid}"`).catch(() => {});
+                        await exec(`pkill -TERM -f "cloudflared.*tunnel.*run"`).catch(() => {});
+                    } catch (error) {
+                        // If pkill fails, try direct kill
+                        try {
+                            process.kill(pid, 'SIGTERM');
+                        } catch (error) {
+                            this.logger.warn(LogComponent.TUNNEL, `Failed to kill process ${pid} with SIGTERM`, { preserveFocus: true });
+                        }
+                    }
+                } else {
+                    process.kill(pid, 'SIGTERM');
+                }
                 
-                // Wait a bit for graceful shutdown
+                // Wait for process to exit gracefully
                 await new Promise(resolve => setTimeout(resolve, 2000));
                 
                 // Check if process is still running
                 try {
-                    process.kill(pid, 0); // This throws if process doesn't exist
-                    // Process still running, try SIGKILL
-                    process.kill(pid, 'SIGKILL');
-                    
-                    // Wait a bit more to ensure process is gone
-                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    if (process.platform === 'darwin') {
+                        const { stdout } = await exec(`ps -p ${pid} | grep -v PID`);
+                        if (!stdout.trim()) {
+                            return true; // Process is gone
+                        }
+                        // Process still running, try SIGKILL
+                        await exec(`pkill -KILL -P ${pid}`).catch(() => {});
+                        await exec(`pkill -KILL -f "cloudflared.*${pid}"`).catch(() => {});
+                        await exec(`pkill -KILL -f "cloudflared.*tunnel.*run"`).catch(() => {});
+                    } else {
+                        process.kill(pid, 0);
+                        process.kill(pid, 'SIGKILL');
+                    }
                 } catch (error) {
-                    // Process already gone, which is good
-                    return true;
+                    return true; // Process is gone
                 }
             } else {
                 // Skip graceful shutdown, go straight to SIGKILL
-                process.kill(pid, 'SIGKILL');
-                await new Promise(resolve => setTimeout(resolve, 1000));
+                if (process.platform === 'darwin') {
+                    await exec(`pkill -KILL -P ${pid}`).catch(() => {});
+                    await exec(`pkill -KILL -f "cloudflared.*${pid}"`).catch(() => {});
+                    await exec(`pkill -KILL -f "cloudflared.*tunnel.*run"`).catch(() => {});
+                } else {
+                    process.kill(pid, 'SIGKILL');
+                }
             }
 
-            // Verify process is really gone
+            // Final verification
+            await new Promise(resolve => setTimeout(resolve, 1000));
             try {
                 process.kill(pid, 0);
                 return false; // Process still running
@@ -908,14 +926,13 @@ export class CloudflaredService {
                 return true; // Process is gone
             }
         } catch (error) {
-            this.logger.error(LogComponent.TUNNEL, `Failed to kill process ${pid}:`, error);
+            this.logger.warn(LogComponent.TUNNEL, `Failed to kill process ${pid}`, { preserveFocus: true });
             return false;
         }
     }
 
     /**
      * Stops a tunnel
-     * @param tunnelId - The ID of the tunnel to stop
      */
     async stopTunnel(tunnelId: string): Promise<void> {
         try {
@@ -927,77 +944,161 @@ export class CloudflaredService {
 
             // Get tunnel info for the name
             const tunnelInfo = await this.getTunnelInfo(cleanTunnelId);
-            this.logger.info(LogComponent.TUNNEL, `Stopping tunnel ${tunnelInfo.name} (${cleanTunnelId})`);
+            if (!tunnelInfo || !tunnelInfo.name) {
+                throw new Error('Failed to get tunnel information');
+            }
+
+            // Log initial tunnel state
+            this.logger.info(
+                LogComponent.TUNNEL, 
+                `Initial tunnel state for ${tunnelInfo.name} (${cleanTunnelId}) - Connections: ${tunnelInfo.connections?.length || 0}, Status: ${tunnelInfo.status}, Active: ${tunnelInfo.conns_active_at}, Inactive: ${tunnelInfo.conns_inactive_at}`,
+                { preserveFocus: true }
+            );
             
             let processesKilled = false;
             
             // First try our tracked process
             const tunnelData = this.runningTunnels.get(cleanTunnelId);
             if (tunnelData) {
-                this.logger.debug(LogComponent.TUNNEL, 'Found tracked tunnel process, terminating...');
+                this.logger.debug(LogComponent.TUNNEL, `Found tracked tunnel process with PID ${tunnelData.pid}`);
                 
                 const { process: tunnelProcess, pid, logStreams } = tunnelData;
                 processesKilled = await this.killProcess(pid, true);
+                this.logger.debug(LogComponent.TUNNEL, `Kill result for tracked process ${pid}: ${processesKilled}`);
                 
                 // Clean up log streams
                 logStreams.forEach(stream => stream.end());
                 this.runningTunnels.delete(cleanTunnelId);
+            } else {
+                this.logger.debug(LogComponent.TUNNEL, 'No tracked tunnel process found');
             }
 
             // Find all processes that might be running this tunnel
             const processes = await this.findTunnelProcess(cleanTunnelId);
             if (processes.length > 0) {
-                this.logger.debug(LogComponent.TUNNEL, `Found ${processes.length} untracked tunnel processes`);
+                this.logger.debug(
+                    LogComponent.TUNNEL, 
+                    `Found ${processes.length} untracked tunnel processes: ${JSON.stringify(processes.map(p => ({ pid: p.pid, cmd: p.cmdline })))}`,
+                    { preserveFocus: true }
+                );
                 
                 // Try to kill all found processes
                 for (const process of processes) {
                     this.logger.debug(LogComponent.TUNNEL, `Attempting to kill process ${process.pid}`);
                     const killed = await this.killProcess(process.pid, true);
+                    this.logger.debug(LogComponent.TUNNEL, `Kill result for process ${process.pid}: ${killed}`);
                     processesKilled = processesKilled || killed;
                 }
+            } else {
+                this.logger.debug(LogComponent.TUNNEL, 'No untracked tunnel processes found');
             }
 
             if (!processesKilled) {
                 // If no processes were killed, try a more aggressive approach
                 this.logger.debug(LogComponent.TUNNEL, 'No processes killed, trying aggressive cleanup');
                 const allProcesses = await this.findCloudflaredProcesses();
+                this.logger.debug(
+                    LogComponent.TUNNEL, 
+                    `Found ${allProcesses.length} total cloudflared processes: ${JSON.stringify(allProcesses.map(p => ({ pid: p.pid, cmd: p.cmdline })))}`,
+                    { preserveFocus: true }
+                );
+                
                 for (const process of allProcesses) {
                     if (process.cmdline.includes('cloudflared') && process.cmdline.includes('tunnel')) {
-                        await this.killProcess(process.pid, false);
+                        this.logger.debug(LogComponent.TUNNEL, `Attempting aggressive kill of process ${process.pid}`);
+                        const killed = await this.killProcess(process.pid, false);
+                        this.logger.debug(LogComponent.TUNNEL, `Aggressive kill result for process ${process.pid}: ${killed}`);
                     }
                 }
             }
 
+            // Give Cloudflare API time to register the tunnel stop
+            this.logger.debug(LogComponent.TUNNEL, 'Waiting for API to register tunnel stop...');
+            await new Promise(resolve => setTimeout(resolve, 4000));
+
+            // Initial refresh after process cleanup
+            await this.listTunnels();
+            this._onTunnelEvent.fire({
+                type: 'status',
+                tunnelId: cleanTunnelId,
+                data: { status: 'refresh' }
+            });
+
             // Verify tunnel is actually stopped by checking its status
             let retries = 3;
-            while (retries > 0) {
-                await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds between checks
-                const info = await this.getTunnelInfo(cleanTunnelId);
-                if (!info.connections || info.connections.length === 0) {
-                    break;
-                }
-                retries--;
-                if (retries === 0) {
-                    throw new Error('Failed to verify tunnel stop - tunnel still shows active connections');
-                }
-            }
-
-            this.logger.info(LogComponent.TUNNEL, `Tunnel ${tunnelInfo.name} (${cleanTunnelId}) stopped`);
+            let verificationDelay = 2000; // Start with 2 seconds
             
-            // Refresh tunnel list after successful stop
-            setTimeout(async () => {
-                try {
-                    this.logger.debug(LogComponent.TUNNEL, 'Refreshing tunnel list after stopping tunnel');
+            while (retries > 0) {
+                const info = await this.getTunnelInfo(cleanTunnelId);
+                this.logger.debug(
+                    LogComponent.TUNNEL, 
+                    `Verification attempt ${4-retries} - Connections: ${info.connections?.length || 0}, Status: ${info.status}, Active: ${info.conns_active_at}, Inactive: ${info.conns_inactive_at}`,
+                    { preserveFocus: true }
+                );
+
+                if (!info.connections || info.connections.length === 0) {
+                    this.logger.debug(LogComponent.TUNNEL, 'Tunnel verified as stopped');
+                    // Refresh immediately when we confirm the tunnel is stopped
                     await this.listTunnels();
                     this._onTunnelEvent.fire({
                         type: 'status',
                         tunnelId: cleanTunnelId,
                         data: { status: 'refresh' }
                     });
-                } catch (err) {
-                    this.logger.error(LogComponent.TUNNEL, 'Failed to refresh tunnel list:', err);
+                    break;
                 }
-            }, 2000);
+                
+                // Check remaining processes
+                const remainingProcesses = await this.findTunnelProcess(cleanTunnelId);
+                if (remainingProcesses.length > 0) {
+                    this.logger.debug(
+                        LogComponent.TUNNEL, 
+                        `Found ${remainingProcesses.length} remaining processes: ${JSON.stringify(remainingProcesses.map(p => ({ pid: p.pid, cmd: p.cmdline })))}`,
+                        { preserveFocus: true }
+                    );
+                    // Try to kill them again
+                    for (const process of remainingProcesses) {
+                        await this.killProcess(process.pid, false);
+                    }
+                }
+
+                this.logger.debug(LogComponent.TUNNEL, `Tunnel still shows connections, waiting ${verificationDelay/1000}s before retry...`);
+                await new Promise(resolve => setTimeout(resolve, verificationDelay));
+                verificationDelay *= 1.5; // Increase delay exponentially
+                retries--;
+                
+                // Refresh on each verification attempt
+                await this.listTunnels();
+                this._onTunnelEvent.fire({
+                    type: 'status',
+                    tunnelId: cleanTunnelId,
+                    data: { status: 'refresh' }
+                });
+                
+                if (retries === 0) {
+                    this.logger.warn(LogComponent.TUNNEL, 'Tunnel processes killed but API still shows active connections');
+                    // Log final tunnel state
+                    const finalInfo = await this.getTunnelInfo(cleanTunnelId);
+                    this.logger.debug(
+                        LogComponent.TUNNEL, 
+                        `Final tunnel state - Connections: ${finalInfo.connections?.length || 0}, Status: ${finalInfo.status}, Active: ${finalInfo.conns_active_at}, Inactive: ${finalInfo.conns_inactive_at}`,
+                        { preserveFocus: true }
+                    );
+                }
+            }
+
+            this.logger.info(LogComponent.TUNNEL, `Tunnel ${tunnelInfo.name} (${cleanTunnelId}) stopped`);
+            
+            // Final refresh after everything is done
+            await this.listTunnels();
+            this._onTunnelEvent.fire({
+                type: 'status',
+                tunnelId: cleanTunnelId,
+                data: { status: 'refresh' }
+            });
+
+            // Show the success message after we've confirmed the stop
+            vscode.window.showInformationMessage(`Stopped tunnel ${tunnelInfo.name}`);
         } catch (error) {
             this.logger.error(LogComponent.TUNNEL, 'Failed to stop tunnel', error);
             throw error;
@@ -1011,40 +1112,9 @@ export class CloudflaredService {
      */
     async checkTunnelStatus(tunnelId: string): Promise<boolean> {
         try {
-            // Get list of all tunnels with their status
-            const { stdout } = await this.runCloudflaredCommand('cloudflared tunnel list -o json');
-            console.log('Tunnel list output:', stdout);
-            
-            try {
-                const tunnels = JSON.parse(stdout);
-                const tunnel = tunnels.find((t: any) => t.id === tunnelId);
-                
-                if (tunnel) {
-                    // Check if the tunnel has any running connections
-                    if (tunnel.connections && tunnel.connections.length > 0) {
-                        return true;
-                    }
-                    
-                    // Also check the status field if available
-                    if (tunnel.status === 'active' || tunnel.status === 'running') {
-                        return true;
-                    }
-                }
-            } catch (parseError) {
-                this.logger.error(LogComponent.TUNNEL, 'Error parsing tunnel list:', parseError);
-            }
-
-            // Fallback to checking connections directly
-            try {
-                const { stdout: connOutput } = await this.runCloudflaredCommand(`cloudflared tunnel info ${tunnelId}`);
-                console.log(`Tunnel ${tunnelId} info output:`, connOutput);
-                return connOutput.includes('Active connectors') || 
-                       connOutput.includes('Connection ID');
-            } catch (connError) {
-                this.logger.error(LogComponent.TUNNEL, `Could not get tunnel info: ${connError}`);
-            }
-
-            return false;
+            // Get tunnel info directly from API instead of using CLI
+            const info = await this.getTunnelInfo(tunnelId);
+            return !!(info.connections && info.connections.length > 0);
         } catch (error) {
             this.logger.error(LogComponent.TUNNEL, `Error checking tunnel status: ${error}`);
             return false;
@@ -1126,21 +1196,21 @@ export class CloudflaredService {
                 let errorOutput = '';
                 let tunnelUrl = '';
                 let localUrl = `http://localhost:${port}`;
-                let timeoutId: NodeJS.Timeout;
-
-                this.logger.debug(LogComponent.TUNNEL, 'Setting up tunnel output handlers');
+                const timeoutId: NodeJS.Timeout = setTimeout(() => {
+                    this.logger.error(LogComponent.TUNNEL, 'Timeout waiting for quick tunnel URL');
+                    tunnel.kill();
+                    reject(new Error('Timeout waiting for quick tunnel URL'));
+                }, 30000);
 
                 tunnel.stdout?.on('data', (data: Buffer) => {
                     const line = data.toString();
                     output += line;
                     this.logger.debug(LogComponent.TUNNEL, `Quick tunnel stdout: ${line}`);
 
-                    // Look for the tunnel URL in the output
                     const tunnelMatch = line.match(/https:\/\/[^\s]+\.trycloudflare\.com/);
                     if (tunnelMatch && !tunnelUrl) {
                         tunnelUrl = tunnelMatch[0];
                         this.logger.debug(LogComponent.TUNNEL, `Found tunnel URL: ${tunnelUrl}`);
-                        
                         clearTimeout(timeoutId);
                         resolve({
                             url: localUrl,
@@ -1201,13 +1271,6 @@ export class CloudflaredService {
                         reject(new Error(errorMsg));
                     }
                 });
-
-                // Timeout after 30 seconds
-                timeoutId = setTimeout(() => {
-                    this.logger.error(LogComponent.TUNNEL, 'Timeout waiting for quick tunnel URL');
-                    tunnel.kill();
-                    reject(new Error('Timeout waiting for quick tunnel URL'));
-                }, 30000);
             });
         } catch (error) {
             this.logger.error(LogComponent.TUNNEL, 'Failed to create quick tunnel:', error);

@@ -47,16 +47,6 @@
           "minimum": 5,
           "maximum": 300,
           "description": "Interval in seconds between automatic refreshes (min: 5s, max: 300s)"
-        },
-        "tunnelfy.cloudflareToken": {
-          "type": "string",
-          "default": "",
-          "description": "Cloudflare API token for authentication"
-        },
-        "tunnelfy.defaultTunnelName": {
-          "type": "string",
-          "default": "",
-          "description": "Default name for new tunnels"
         }
       }
     },

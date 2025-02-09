@@ -28,8 +28,6 @@ export function createTestConfiguration(): void {
     const config = vscode.workspace.getConfiguration('tunnelfy');
     
     // Set up test configuration
-    config.update('cloudflareToken', 'test-token', vscode.ConfigurationTarget.Global);
-    config.update('defaultTunnelName', 'test-tunnel', vscode.ConfigurationTarget.Global);
     config.update('profiles', [], vscode.ConfigurationTarget.Global);
     config.update('activeProfile', null, vscode.ConfigurationTarget.Global);
 }
@@ -38,8 +36,6 @@ export function cleanupTestConfiguration(): void {
     const config = vscode.workspace.getConfiguration('tunnelfy');
     
     // Clean up test configuration
-    config.update('cloudflareToken', undefined, vscode.ConfigurationTarget.Global);
-    config.update('defaultTunnelName', undefined, vscode.ConfigurationTarget.Global);
     config.update('profiles', undefined, vscode.ConfigurationTarget.Global);
     config.update('activeProfile', undefined, vscode.ConfigurationTarget.Global);
 }

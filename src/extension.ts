@@ -880,7 +880,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
                     logger.info(LogComponent.TUNNEL, `Stopping tunnel ${tunnelName} (${tunnelId})`);
                     await cloudflaredService.stopTunnel(tunnelId);
-                    vscode.window.showInformationMessage(`Stopped tunnel ${tunnelName}`);
+                    vscode.window.showInformationMessage(`Stopped tunnel ${tunnelName}.`);
                     tunnelProvider.refresh();
                 } catch (error) {
                     logger.error(LogComponent.COMMAND, 'Failed to stop tunnel', error);

@@ -603,7 +603,7 @@ export class CloudflaredService {
             }
 
             // Now that we have all the configuration, show the start notification
-            vscode.window.showInformationMessage(`Starting tunnel ${tunnelInfo.name} for port ${port}`);
+            vscode.window.showInformationMessage(`Starting tunnel ${tunnelInfo.name} for port ${port} ...`);
 
             // Log the start of tunnel operation
             this.logger.info(LogComponent.TUNNEL, `Starting tunnel ${tunnelInfo.name} (${tunnelId}) on port ${port} with hostname ${hostname}`, { preserveFocus: true });
@@ -659,7 +659,7 @@ export class CloudflaredService {
             });
 
             // Show started notification immediately after process is confirmed running
-            vscode.window.showInformationMessage(`Tunnel ${tunnelInfo.name} started successfully`);
+            vscode.window.showInformationMessage(`Tunnel ${tunnelInfo.name} started successfully.`);
 
             // Set up stdout handling
             if (tunnel.stdout) {
@@ -952,7 +952,7 @@ export class CloudflaredService {
             }
 
             // Show stopping notification
-            vscode.window.showInformationMessage(`Stopping tunnel ${tunnelInfo.name}`);
+            vscode.window.showInformationMessage(`Stopping tunnel ${tunnelInfo.name} ...`);
 
             // Log initial tunnel state
             this.logger.info(
@@ -1104,7 +1104,7 @@ export class CloudflaredService {
             });
 
             // Show the success message after we've confirmed the stop
-            vscode.window.showInformationMessage(`Stopped tunnel ${tunnelInfo.name}`);
+            vscode.window.showInformationMessage(`Stopped tunnel ${tunnelInfo.name}.`);
         } catch (error) {
             this.logger.error(LogComponent.TUNNEL, 'Failed to stop tunnel', error);
             throw error;

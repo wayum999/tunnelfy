@@ -30,7 +30,8 @@
     "**/node_modules/**": true,
     "**/.hg/store/**": true,
     "**/out/**": true,
-    "**/.vscode-test/**": true
+    "**/.vscode-test/**": true,
+    "**/_DEV/**": true
   },
   "editor.codeActionsOnSave": {
     "source.fixAll.eslint": "explicit"

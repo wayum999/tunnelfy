@@ -142,6 +142,14 @@ export class CloudflareApiService {
                 body: body ? JSON.stringify(body) : undefined
             });
 
+            const contentType = response.headers.get('content-type');
+            if (!contentType || !contentType.includes('application/json')) {
+                // If we get a non-JSON response, try to get the text for better error reporting
+                const text = await response.text();
+                this.logger.error(LogComponent.API, `Received non-JSON response: ${text.substring(0, 200)}...`);
+                throw new Error('Invalid API response: Expected JSON but received HTML. Your API token may have expired.');
+            }
+
             const data = await response.json() as {
                 success: boolean;
                 errors?: Array<{ message: string }>;
@@ -149,15 +157,25 @@ export class CloudflareApiService {
             };
 
             if (!response.ok) {
-                throw new Error(data.errors?.[0]?.message || `API request failed: ${response.statusText}`);
+                const errorMsg = data.errors?.[0]?.message || `API request failed: ${response.statusText}`;
+                this.logger.error(LogComponent.API, `API error: ${errorMsg}`);
+                throw new Error(errorMsg);
             }
 
             if (!data.success) {
-                throw new Error(data.errors?.[0]?.message || 'API request was not successful');
+                const errorMsg = data.errors?.[0]?.message || 'API request was not successful';
+                this.logger.error(LogComponent.API, `API error: ${errorMsg}`);
+                throw new Error(errorMsg);
             }
 
             return data.result;
         } catch (error) {
+            // If this is our custom error about HTML response, suggest token refresh
+            if (error instanceof Error && error.message.includes('Expected JSON but received HTML')) {
+                this.logger.error(LogComponent.API, 'Authentication error - please try refreshing your API token');
+                throw new Error('Authentication failed. Please try updating your API token in the profile settings.');
+            }
+            
             this.logger.error(LogComponent.API, `API request failed: ${endpoint}`, error);
             throw error;
         }

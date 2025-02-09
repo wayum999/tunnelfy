@@ -603,7 +603,7 @@ export class CloudflaredService {
             }
 
             // Now that we have all the configuration, show the start notification
-            vscode.window.showInformationMessage(`Starting tunnel ${tunnelInfo.name} on port ${port}`);
+            vscode.window.showInformationMessage(`Starting tunnel ${tunnelInfo.name} for port ${port}`);
 
             // Log the start of tunnel operation
             this.logger.info(LogComponent.TUNNEL, `Starting tunnel ${tunnelInfo.name} (${tunnelId}) on port ${port} with hostname ${hostname}`, { preserveFocus: true });
@@ -658,6 +658,9 @@ export class CloudflaredService {
                 logStreams: [stdoutStream, stderrStream]
             });
 
+            // Show started notification immediately after process is confirmed running
+            vscode.window.showInformationMessage(`Tunnel ${tunnelInfo.name} started successfully`);
+
             // Set up stdout handling
             if (tunnel.stdout) {
                 tunnel.stdout.setEncoding('utf8');
@@ -677,8 +680,8 @@ export class CloudflaredService {
                             // Log successful connection
                             this.logger.info(LogComponent.TUNNEL, `Tunnel ${tunnelInfo.name} connected successfully at ${location}`, { preserveFocus: true });
                             
-                            // Show success notification
-                            vscode.window.showInformationMessage(`Tunnel ${tunnelInfo.name} connected successfully at ${location}`);
+                            // Show connection notification
+                            vscode.window.showInformationMessage(`Connected at ${location}`);
                             
                             this._onTunnelEvent.fire({
                                 type: 'status',
@@ -856,7 +859,7 @@ export class CloudflaredService {
         // If identifier is a string (tunnel ID), look for token or tunnel ID
         return processes.filter(p => 
             p.cmdline.includes(`--token`) && // Only look in processes using token auth
-            (p.cmdline.includes(identifier) || p.cmdline.includes(`tunnel run`))
+            p.cmdline.includes(identifier) // Must include the exact tunnel ID
         );
     }
 
@@ -947,6 +950,9 @@ export class CloudflaredService {
             if (!tunnelInfo || !tunnelInfo.name) {
                 throw new Error('Failed to get tunnel information');
             }
+
+            // Show stopping notification
+            vscode.window.showInformationMessage(`Stopping tunnel ${tunnelInfo.name}`);
 
             // Log initial tunnel state
             this.logger.info(

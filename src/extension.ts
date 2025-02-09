@@ -249,9 +249,12 @@ export async function activate(context: vscode.ExtensionContext) {
         );
 
         context.subscriptions.push(
-            vscode.commands.registerCommand('tunnelfy.copyToken', async (tunnelId: string) => {
+            vscode.commands.registerCommand('tunnelfy.copyToken', async (item: TunnelTreeItem) => {
                 try {
-                    const token = await apiService.getTunnelToken(tunnelId);
+                    if (!item || !item.tunnelId) {
+                        throw new Error('No tunnel selected');
+                    }
+                    const token = await apiService.getTunnelToken(item.tunnelId);
                     if (token) {
                         const disposable = await tokenService.copyTokenToClipboard(token);
                         context.subscriptions.push(disposable);

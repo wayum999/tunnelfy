@@ -300,8 +300,9 @@ export class CloudflareApiService {
     async getTunnelToken(tunnelId: string): Promise<string> {
         try {
             const accountId = await this.getAccountId();
-            const token = await this.makeRequest(`/accounts/${accountId}/cfd_tunnel/${tunnelId}/token`);
-            return token;
+            const response = await this.makeRequest(`/accounts/${accountId}/cfd_tunnel/${tunnelId}/token`);
+            // The API returns the token as a string
+            return response.toString();
         } catch (error) {
             this.logger.error(LogComponent.API, `Failed to get token for tunnel ${tunnelId}:`, error);
             throw error;

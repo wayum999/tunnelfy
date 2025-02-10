@@ -24,6 +24,7 @@ Managing Cloudflare tunnels directly from a VS Code extension has never been eas
 
 1. VS Code (v1.85.0 or higher)
 2. A Cloudflare account with API key access
+3. Cloudflare Tunnel CLI (`cloudflared`) installed
 
 ## Getting Started
 
@@ -34,16 +35,32 @@ Managing Cloudflare tunnels directly from a VS Code extension has never been eas
 3. Search for "Tunnelfy"
 4. Click Install
 
-### 2. Create a Profile
+### 2. Install Cloudflare Tunnel CLI (`cloudflared`)
+
+1. Follow the instructions in the [Installing Cloudflare Tunnel CLI (`cloudflared`)](#installing-cloudflare-tunnel-cli-cloudflared) section
+
+### 3. Create a Profile
 
 1. Click the cloud icon in the activity bar
 2. Click the + button in the Profiles section
 3. Enter a name for your profile
-4. Enter your Cloudflare API key (you can create one at https://dash.cloudflare.com/profile/api-tokens)
-   - Required permissions: Cloudflare Tunnel:Edit
+4. Enter your Cloudflare API key. You can create one by:
+   1. Navigating to the Cloudflare Dashboard
+   2. Clicking on the "My Profile" icon
+   3. Clicking on "API Tokens"
+   4. Clicking on "Create Token"
+   5. Selecting the following permissions:
+     - Account: Account Settings: Read 
+     - Account: Cloudflare Tunnel: Edit
+     - Zone: DNS: Edit
+   6. Client IP Address Filtering (OPTIONAL but recommended):
+     - Operator: Is in 
+     - Value: `Your IP Address` (Can be found with https://nordvpn.com/what-is-my-ip)
    - The API key will be stored securely and never displayed again
 
-### 3. Managing Tunnels
+![Creating a Cloudflare API Token](images/readme/installation/Cloudflare_Token.gif)
+
+### 4. Persistent Tunnels
 
 1. Click the + button in the Tunnels section
 2. Enter a name for your tunnel
@@ -53,7 +70,7 @@ Managing Cloudflare tunnels directly from a VS Code extension has never been eas
    - Copy the tunnel token
    - Delete the tunnel
 
-### 4. Quick Tunnels
+### 5. Quick Tunnels
 
 1. Click the + button in the Quick Tunnels section
 2. Configure your local service details:

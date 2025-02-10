@@ -3,6 +3,7 @@ import { CloudflareApiService } from '../services/cloudflareApiService';
 import { ProfileManager } from '../services/profileManager';
 import { ProfilesProvider } from '../views/profilesView';
 import { TunnelTreeDataProvider } from '../views/tunnelTreeView';
+import { Messages } from '../utils/messages';
 
 export function registerProfileCommands(
     context: vscode.ExtensionContext,
@@ -15,8 +16,7 @@ export function registerProfileCommands(
         vscode.commands.registerCommand('tunnelfy.createProfile', async () => {
             const name = await vscode.window.showInputBox({
                 prompt: 'Enter a name for the new profile',
-                placeHolder: 'my-profile',
-                ignoreFocusOut: true
+                placeHolder: 'my-profile'
             });
 
             if (!name) {
@@ -26,8 +26,7 @@ export function registerProfileCommands(
             const apiKey = await vscode.window.showInputBox({
                 prompt: 'Enter your Cloudflare API key',
                 placeHolder: 'your-api-key',
-                password: true,
-                ignoreFocusOut: true
+                password: true
             });
 
             if (!apiKey) {
@@ -42,7 +41,7 @@ export function registerProfileCommands(
                 // Fetch available accounts
                 const accounts = await tempApiService.listAccounts();
                 if (!accounts || accounts.length === 0) {
-                    throw new Error('No Cloudflare accounts found for this API key');
+                    throw new Error(Messages.NO_PROFILES_FOUND);
                 }
 
                 // Let user select an account
@@ -72,9 +71,9 @@ export function registerProfileCommands(
                     tunnelProvider.refresh();
                 }
 
-                vscode.window.showInformationMessage(`Created profile: ${name}`);
+                await Messages.showInfo(Messages.PROFILE_CREATED(name));
             } catch (error) {
-                vscode.window.showErrorMessage(`Failed to create profile: ${error}`);
+                await Messages.showError(Messages.ERROR_CREATE_PROFILE(error));
             }
         })
     );
@@ -99,9 +98,9 @@ export function registerProfileCommands(
                 }
 
                 await profileManager.updateProfileApiKey(item.label, apiKey);
-                vscode.window.showInformationMessage(`Updated API key for profile: ${item.label}`);
+                await Messages.showInfo(Messages.PROFILE_API_KEY_UPDATED(item.label));
             } catch (error) {
-                vscode.window.showErrorMessage(`Failed to update API key: ${error}`);
+                await Messages.showError(Messages.ERROR_UPDATE_API_KEY(error));
             }
         })
     );
@@ -114,9 +113,8 @@ export function registerProfileCommands(
                     throw new Error('No profile selected');
                 }
 
-                const confirm = await vscode.window.showWarningMessage(
+                const confirm = await Messages.showModal(
                     `Are you sure you want to delete profile "${item.label}"?`,
-                    { modal: true },
                     'Delete'
                 );
 
@@ -134,16 +132,16 @@ export function registerProfileCommands(
                         const remainingProfiles = allProfiles.filter(p => p !== item.label);
                         if (remainingProfiles.length > 0) {
                             await profileManager.setActiveProfile(remainingProfiles[0]);
-                            vscode.window.showInformationMessage(`Switched to profile: ${remainingProfiles[0]}`);
+                            await Messages.showInfo(Messages.PROFILE_SWITCHED(remainingProfiles[0]));
                         }
                         // Always refresh tunnel list when active profile is deleted
                         tunnelProvider.refresh();
                     }
 
-                    vscode.window.showInformationMessage(`Profile "${item.label}" deleted successfully`);
+                    await Messages.showInfo(Messages.PROFILE_DELETED(item.label));
                 }
             } catch (error) {
-                vscode.window.showErrorMessage(`Failed to delete profile: ${error}`);
+                await Messages.showError(Messages.ERROR_DELETE_PROFILE(error));
             }
         })
     );
@@ -158,9 +156,9 @@ export function registerProfileCommands(
                 await profileManager.setActiveProfile(item.label);
                 profilesProvider.refresh();
                 tunnelProvider.refresh();
-                vscode.window.showInformationMessage('Active profile updated');
+                await Messages.showInfo(Messages.PROFILE_ACTIVE_UPDATED);
             } catch (error) {
-                vscode.window.showErrorMessage(`Failed to set active profile: ${error}`);
+                await Messages.showError(Messages.ERROR_SET_ACTIVE_PROFILE(error));
             }
         })
     );

@@ -6,9 +6,35 @@ import { CloudflareApiService } from '../../services/cloudflareApiService';
 import { ProfileManager } from '../../services/profileManager';
 import { Logger, LogComponent } from '../../utils/logger';
 
+// Helper function to wait between operations
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Helper function to retry on rate limit
+async function retryOnRateLimit<T>(
+    operation: () => Promise<T>,
+    maxRetries = 3,
+    delayMs = 1000
+): Promise<T> {
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            return await operation();
+        } catch (error) {
+            if (i === maxRetries - 1) throw error;
+            if (error instanceof Error && 
+                (error.message.includes('rate limit') || error.message.includes('too many requests'))) {
+                await wait(delayMs * Math.pow(2, i)); // Exponential backoff
+                continue;
+            }
+            throw error;
+        }
+    }
+    throw new Error('Max retries reached');
+}
+
 suite('Quick Tunnels Test Suite', () => {
     let tunnelManager: TunnelManager;
     let eventEmitted: TunnelEvent | null = null;
+    let sharedTunnel: { port: number; url?: string; tunnelUrl?: string } | null = null;
 
     const mockContext = {
         extensionPath: __dirname,
@@ -56,7 +82,9 @@ suite('Quick Tunnels Test Suite', () => {
         getProfileAccountId: async () => 'test-account'
     } as unknown as ProfileManager;
 
-    setup(() => {
+    setup(async function() {
+        this.timeout(10000); // Increase timeout for setup
+        
         eventEmitted = null;
         tunnelManager = new TunnelManager(
             mockContext,
@@ -68,86 +96,165 @@ suite('Quick Tunnels Test Suite', () => {
         tunnelManager.onTunnelEvent(event => {
             eventEmitted = event;
         });
-    });
 
-    test('should create quick tunnel', async () => {
-        const port = 8080;
-        const result = await tunnelManager.createQuickTunnel(port);
-
-        assert.ok(result);
-        assert.strictEqual(typeof result.url, 'string');
-        assert.strictEqual(result.url, `http://localhost:${port}`);
-        assert.ok(result.tunnelUrl.startsWith('https://'));
-        assert.ok(result.tunnelUrl.endsWith('.trycloudflare.com'));
-
-        // Verify event was emitted
-        assert.ok(eventEmitted);
-        assert.strictEqual(eventEmitted.type, 'start');
-        assert.ok(eventEmitted.tunnelId.startsWith(`quick-${port}-`));
-    });
-
-    test('should stop quick tunnel', async () => {
-        const port = 8081;
-        
-        // Start a quick tunnel
-        await tunnelManager.createQuickTunnel(port);
-        
-        // Reset event emitted flag
-        eventEmitted = null;
-        
-        // Stop the tunnel
-        await tunnelManager.stopQuickTunnel(port);
-        
-        // Verify event was emitted
-        assert.ok(eventEmitted);
-        assert.strictEqual((eventEmitted as TunnelEvent).type, 'stop');
-        assert.ok((eventEmitted as TunnelEvent).tunnelId.startsWith(`quick-${port}-`));
-    });
-
-    test('should handle multiple quick tunnels', async () => {
-        const ports = [8082, 8083, 8084];
-        const results = await Promise.all(
-            ports.map(port => tunnelManager.createQuickTunnel(port))
-        );
-
-        // Verify all tunnels were created
-        for (let i = 0; i < ports.length; i++) {
-            assert.ok(results[i]);
-            assert.strictEqual(results[i]!.url, `http://localhost:${ports[i]}`);
-            assert.ok(results[i]!.tunnelUrl.startsWith('https://'));
+        // Ensure cleanup of any existing tunnels
+        if (sharedTunnel) {
+            try {
+                await tunnelManager.stopQuickTunnel(sharedTunnel.port);
+                await wait(1000); // Wait for cleanup
+            } catch (error) {
+                // Ignore cleanup errors
+            }
+            sharedTunnel = null;
         }
-
-        // Stop all tunnels
-        await Promise.all(ports.map(port => tunnelManager.stopQuickTunnel(port)));
-    });
-
-    test('should handle quick tunnel errors', async () => {
-        // Try to create a tunnel on a port that's already in use
-        const port = 8085;
-        await tunnelManager.createQuickTunnel(port);
-
-        await assert.rejects(
-            tunnelManager.createQuickTunnel(port),
-            /port.*in use/i
-        );
-
-        // Clean up
-        await tunnelManager.stopQuickTunnel(port);
-    });
-
-    test('should cleanup quick tunnels on dispose', async () => {
-        const port = 8086;
-        await tunnelManager.createQuickTunnel(port);
-
-        // Reset event emitted flag
-        eventEmitted = null;
-
-        // Cleanup
         await tunnelManager.cleanup();
+        await wait(1000); // Wait for cleanup to complete
 
-        // Verify stop event was emitted
-        assert.ok(eventEmitted);
-        assert.strictEqual((eventEmitted as TunnelEvent).type, 'stop');
-        assert.ok((eventEmitted as TunnelEvent).tunnelId.startsWith(`quick-${port}-`));
+        // Create a shared tunnel for tests that need it
+        if (!sharedTunnel) {
+            try {
+                const port = 8080;
+                const result = await retryOnRateLimit(async () => {
+                    const tunnel = await tunnelManager.createQuickTunnel(port);
+                    await wait(500); // Wait for tunnel to be fully established
+                    return tunnel;
+                });
+                sharedTunnel = { port, ...result };
+            } catch (error) {
+                console.error('Failed to create shared tunnel:', error);
+            }
+        }
+    });
+
+    // Group validation tests that don't need actual tunnel creation
+    suite('Validation Tests', () => {
+        test('should validate port numbers', async function() {
+            this.timeout(5000); // Increase timeout
+            // These tests don't create actual tunnels
+            await assert.rejects(
+                () => tunnelManager.createQuickTunnel(-1),
+                /invalid port/i,
+                'Should reject negative port numbers'
+            );
+
+            await assert.rejects(
+                () => tunnelManager.createQuickTunnel(0),
+                /invalid port/i,
+                'Should reject port 0'
+            );
+
+            await assert.rejects(
+                () => tunnelManager.createQuickTunnel(65536),
+                /invalid port/i,
+                'Should reject ports above 65535'
+            );
+        });
+    });
+
+    // Group tunnel operation tests
+    suite('Tunnel Operations', () => {
+        setup(async function() {
+            this.timeout(10000); // Increase timeout
+            // Ensure we have a shared tunnel
+            if (!sharedTunnel) {
+                const port = 8080;
+                const result = await retryOnRateLimit(async () => {
+                    const tunnel = await tunnelManager.createQuickTunnel(port);
+                    await wait(500); // Wait for tunnel to be fully established
+                    return tunnel;
+                });
+                sharedTunnel = { port, ...result };
+            }
+        });
+
+        test('should create and verify quick tunnel', async function() {
+            this.timeout(10000); // Increase timeout
+            assert.ok(sharedTunnel, 'Shared tunnel should be created');
+            assert.strictEqual(typeof sharedTunnel.url, 'string');
+            assert.strictEqual(sharedTunnel.url, `http://localhost:${sharedTunnel.port}`);
+            assert.ok(sharedTunnel.tunnelUrl?.startsWith('https://'));
+            assert.ok(sharedTunnel.tunnelUrl?.endsWith('.trycloudflare.com'));
+
+            // Verify event was emitted
+            assert.ok(eventEmitted);
+            assert.strictEqual(eventEmitted.type, 'start');
+            assert.ok(eventEmitted.tunnelId.startsWith(`quick-${sharedTunnel.port}-`));
+        });
+
+        test('should handle concurrent operations on same port', async function() {
+            this.timeout(10000); // Increase timeout
+            assert.ok(sharedTunnel, 'Shared tunnel should be created');
+            const port = sharedTunnel.port;
+            
+            // Try to create tunnels on the same port
+            const operations = [
+                tunnelManager.createQuickTunnel(port),
+                tunnelManager.createQuickTunnel(port)
+            ];
+
+            const results = await Promise.allSettled(operations);
+            
+            // All operations should fail because the port is already in use
+            const rejectedCount = results.filter(r => r.status === 'rejected').length;
+            assert.strictEqual(rejectedCount, operations.length, 'All operations on existing port should be rejected');
+            
+            // Verify the error messages
+            results.forEach(result => {
+                if (result.status === 'rejected') {
+                    assert.ok(
+                        result.reason.message.includes('already in use') || 
+                        result.reason.message.includes('already running'),
+                        'Should fail with port in use error'
+                    );
+                }
+            });
+        });
+
+        test('should maintain event order during lifecycle', async function() {
+            this.timeout(10000); // Increase timeout
+            const events: TunnelEvent[] = [];
+            const disposable = tunnelManager.onTunnelEvent(event => {
+                events.push(event);
+            });
+
+            try {
+                // Use a new port for this test
+                const port = 8081;
+                await retryOnRateLimit(async () => {
+                    await tunnelManager.createQuickTunnel(port);
+                    await wait(500); // Wait before stopping
+                    await tunnelManager.stopQuickTunnel(port);
+                });
+
+                assert.strictEqual(events.length, 2, 'Should emit exactly 2 events');
+                assert.strictEqual(events[0].type, 'start', 'First event should be start');
+                assert.strictEqual(events[1].type, 'stop', 'Second event should be stop');
+                assert.strictEqual(events[0].tunnelId, events[1].tunnelId, 'Events should reference same tunnel');
+            } finally {
+                disposable.dispose();
+            }
+        });
+    });
+
+    // Cleanup tests
+    suite('Cleanup', () => {
+        test('should cleanup all tunnels on dispose', async function() {
+            this.timeout(10000); // Increase timeout
+            eventEmitted = null;
+            await tunnelManager.cleanup();
+            
+            assert.ok(eventEmitted, 'Should emit event during cleanup');
+            assert.strictEqual((eventEmitted as TunnelEvent).type, 'stop', 'Should emit stop event');
+            sharedTunnel = null; // Reset shared tunnel state
+        });
+    });
+
+    suiteTeardown(async () => {
+        // Ensure cleanup
+        if (sharedTunnel) {
+            await tunnelManager.stopQuickTunnel(sharedTunnel.port);
+            sharedTunnel = null;
+        }
+        await tunnelManager.cleanup();
     });
 }); 

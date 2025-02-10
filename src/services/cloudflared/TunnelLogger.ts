@@ -151,20 +151,18 @@ export class TunnelLogger {
         const baseLogFile = path.join(this.logDir, `${tunnelId}.log`);
         
         try {
-            // Close the active stream if it exists
+            // Close the active stream if it exists and wait for it to fully close
             const activeStream = this.activeStreams.get(tunnelId);
             if (activeStream) {
-                activeStream.end();
+                await new Promise<void>((resolve, reject) => {
+                    activeStream.end((err: Error | null) => {
+                        if (err) reject(err);
+                        else resolve();
+                    });
+                });
                 this.activeStreams.delete(tunnelId);
-            }
-
-            // Generate a temporary file name for atomic rotation
-            const tempFile = path.join(this.logDir, `${tunnelId}.${crypto.randomBytes(8).toString('hex')}.tmp`);
-            
-            // Move the oldest log file out if it exists
-            const oldestLog = path.join(this.logDir, `${tunnelId}.${this.maxLogFiles}.log`);
-            if (fs.existsSync(oldestLog)) {
-                await fsPromises.unlink(oldestLog);
+                // Wait a bit to ensure the file handle is fully released
+                await new Promise(resolve => setTimeout(resolve, 100));
             }
 
             // Shift existing log files
@@ -177,22 +175,42 @@ export class TunnelLogger {
                 }
             }
 
-            // Move current log to .1
+            // Move current log to .1 if it exists
             if (fs.existsSync(baseLogFile)) {
-                await fsPromises.rename(baseLogFile, path.join(this.logDir, `${tunnelId}.1.log`));
+                const firstRotatedLog = path.join(this.logDir, `${tunnelId}.1.log`);
+                await fsPromises.rename(baseLogFile, firstRotatedLog);
             }
 
-            // Create new empty log file
-            await fsPromises.writeFile(baseLogFile, '');
+            // Create new empty log file with initial content
+            const timestamp = new Date().toISOString();
+            const initialContent = `[${timestamp}] Log file created for tunnel ${tunnelId}\n`;
+            await fsPromises.writeFile(baseLogFile, initialContent);
 
-            // Create a new stream for the rotated log
-            this.createLogStream(tunnelId);
+            // Create a new stream for the rotated log and wait for it to be ready
+            const newStream = this.createLogStream(tunnelId);
+            await new Promise<void>((resolve) => {
+                newStream.once('open', resolve);
+            });
+
+            // Write an initial rotation message
+            const rotationMessage = `[${timestamp}] Log rotation completed\n`;
+            await new Promise<void>((resolve, reject) => {
+                newStream.write(rotationMessage, (err: Error | null | undefined) => {
+                    if (err) reject(err);
+                    else resolve();
+                });
+            });
         } catch (error) {
             this.baseLogger.error(LogComponent.TUNNEL, `Error during log rotation: ${error}`);
             // Attempt to ensure a valid log file exists even after error
             if (!fs.existsSync(baseLogFile)) {
-                await fsPromises.writeFile(baseLogFile, '');
-                this.createLogStream(tunnelId);
+                const timestamp = new Date().toISOString();
+                const recoveryContent = `[${timestamp}] Log file recovered after rotation error\n`;
+                await fsPromises.writeFile(baseLogFile, recoveryContent);
+                const newStream = this.createLogStream(tunnelId);
+                await new Promise<void>((resolve) => {
+                    newStream.once('open', resolve);
+                });
             }
         }
     }

@@ -35,6 +35,16 @@ suite('TunnelManager Test Suite', () => {
         warn: (component: LogComponent, message: string) => {}
     } as unknown as Logger;
 
+    const mockProfileManager = {
+        getActiveProfile: async () => ({
+            name: 'test-profile',
+            accountId: 'test-account-id',
+            apiKey: 'test-api-key'
+        }),
+        getProfileAccountId: async () => 'test-account-id',
+        getProfileApiKey: async () => 'test-api-key'
+    } as unknown as ProfileManager;
+
     const mockApiService: CloudflareApiService = {
         createTunnel: async (name: string) => ({
             id: 'test-tunnel-id',
@@ -49,33 +59,32 @@ suite('TunnelManager Test Suite', () => {
         listTunnels: async () => [{
             id: 'test-tunnel-id',
             name: 'test-tunnel',
-            connections: []
+            created_at: new Date().toISOString(),
+            account_tag: 'test-account',
+            status: 'active',
+            remote_config: false,
+            metadata: {}
         }],
+        getTunnelInfo: async (tunnelId: string) => ({
+            id: tunnelId,
+            name: 'test-tunnel',
+            created_at: new Date().toISOString(),
+            account_tag: 'test-account',
+            status: 'active',
+            remote_config: false,
+            metadata: {}
+        }),
         getTunnelToken: async () => 'test-token',
-        getTunnelInfo: async () => ({
-            id: 'test-tunnel-id',
-            status: 'active'
-        })
+        getDnsRecords: async () => [],
+        createDnsRecord: async () => {},
+        deleteDnsRecord: async () => {},
+        cleanupDnsRecords: async () => {}
     } as unknown as CloudflareApiService;
-
-    const mockProfileManager: ProfileManager = {
-        getCurrentProfile: () => ({
-            id: 'test-profile',
-            name: 'Test Profile',
-            accountId: 'test-account'
-        })
-    } as unknown as ProfileManager;
 
     setup(() => {
         eventEmitted = null;
-        tunnelManager = new TunnelManager(
-            mockContext,
-            mockLogger,
-            mockApiService,
-            mockProfileManager
-        );
-
-        tunnelManager.onTunnelEvent(event => {
+        tunnelManager = new TunnelManager(mockContext, mockLogger, mockApiService, mockProfileManager);
+        tunnelManager.onTunnelEvent((event) => {
             eventEmitted = event;
         });
     });

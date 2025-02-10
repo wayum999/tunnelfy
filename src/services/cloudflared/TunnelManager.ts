@@ -649,6 +649,43 @@ export class TunnelManager {
     }
 
     /**
+     * Gets all currently running quick tunnels
+     * @returns Array of quick tunnel information
+     */
+    async getQuickTunnels(): Promise<Array<{ port: number; url: string; tunnelUrl: string; name?: string }>> {
+        const quickTunnels: Array<{ port: number; url: string; tunnelUrl: string; name?: string }> = [];
+        
+        for (const [tunnelId, tunnel] of this.runningTunnels.entries()) {
+            if (tunnelId.startsWith('quick-')) {
+                const portMatch = tunnelId.match(/quick-(\d+)-/);
+                if (portMatch) {
+                    const port = parseInt(portMatch[1], 10);
+                    const url = `http://localhost:${port}`;
+                    // Get the tunnel URL from the process output
+                    const logFile = path.join(this.context.globalStoragePath, 'logs', 'tunnels', `${tunnelId}.log`);
+                    try {
+                        if (fs.existsSync(logFile)) {
+                            const logContent = fs.readFileSync(logFile, 'utf8');
+                            const urlMatch = logContent.match(/https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/);
+                            if (urlMatch) {
+                                quickTunnels.push({
+                                    port,
+                                    url,
+                                    tunnelUrl: urlMatch[0]
+                                });
+                            }
+                        }
+                    } catch (error) {
+                        this.logger.error(LogComponent.TUNNEL, `Error reading quick tunnel log: ${error}`);
+                    }
+                }
+            }
+        }
+        
+        return quickTunnels;
+    }
+
+    /**
      * Cleans up all running tunnels
      * Called during extension deactivation
      */

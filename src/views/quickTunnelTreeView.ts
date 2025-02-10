@@ -73,7 +73,6 @@ interface QuickTunnel {
 export class QuickTunnelTreeDataProvider implements vscode.TreeDataProvider<QuickTunnelTreeItem> {
     private _onDidChangeTreeData: vscode.EventEmitter<QuickTunnelTreeItem | undefined | null | void> = new vscode.EventEmitter<QuickTunnelTreeItem | undefined | null | void>();
     readonly onDidChangeTreeData: vscode.Event<QuickTunnelTreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
-    private quickTunnels: Map<number, QuickTunnel> = new Map();
     private readonly logger = Logger.getInstance();
     private refreshInterval: NodeJS.Timeout | null = null;
     private treeView: vscode.TreeView<QuickTunnelTreeItem>;
@@ -131,17 +130,14 @@ export class QuickTunnelTreeDataProvider implements vscode.TreeDataProvider<Quic
 
     async getChildren(): Promise<QuickTunnelTreeItem[]> {
         try {
-            const items: QuickTunnelTreeItem[] = [];
-            for (const [port, tunnel] of this.quickTunnels) {
-                items.push(new QuickTunnelTreeItem(
-                    port,
-                    'running',
-                    tunnel.url,
-                    tunnel.tunnelUrl,
-                    tunnel.name
-                ));
-            }
-            return items;
+            const quickTunnels = await this.tunnelManager.getQuickTunnels();
+            return quickTunnels.map((tunnel: { port: number; url: string; tunnelUrl: string; name?: string }) => new QuickTunnelTreeItem(
+                tunnel.port,
+                'running',
+                tunnel.url,
+                tunnel.tunnelUrl,
+                tunnel.name
+            ));
         } catch (error) {
             this.logger.error(LogComponent.EXTENSION, `Failed to get quick tunnels: ${error}`);
             return [];
@@ -159,16 +155,8 @@ export class QuickTunnelTreeDataProvider implements vscode.TreeDataProvider<Quic
      */
     async addQuickTunnel(port: number, name?: string): Promise<void> {
         try {
-            const result = await this.tunnelManager.createQuickTunnel(port);
-            if (result) {
-                this.quickTunnels.set(port, {
-                    port,
-                    url: `http://localhost:${port}`,
-                    tunnelUrl: result.tunnelUrl,
-                    name
-                });
-                this.refresh();
-            }
+            await this.tunnelManager.createQuickTunnel(port);
+            this.refresh();
         } catch (error) {
             this.logger.error(LogComponent.EXTENSION, `Failed to add quick tunnel: ${error}`);
             throw error;
@@ -182,7 +170,6 @@ export class QuickTunnelTreeDataProvider implements vscode.TreeDataProvider<Quic
     async removeQuickTunnel(port: number): Promise<void> {
         try {
             await this.tunnelManager.stopQuickTunnel(port);
-            this.quickTunnels.delete(port);
             this.refresh();
         } catch (error) {
             this.logger.error(LogComponent.EXTENSION, `Failed to remove quick tunnel: ${error}`);
@@ -194,8 +181,8 @@ export class QuickTunnelTreeDataProvider implements vscode.TreeDataProvider<Quic
      * Gets all active quick tunnels
      * @returns Array of quick tunnel information
      */
-    getQuickTunnels(): QuickTunnel[] {
-        return Array.from(this.quickTunnels.values());
+    getQuickTunnels(): Promise<QuickTunnel[]> {
+        return this.tunnelManager.getQuickTunnels();
     }
 
     dispose(): void {

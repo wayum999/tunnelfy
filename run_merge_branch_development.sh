@@ -34,7 +34,7 @@ git push origin development
 echo "Merge complete!"
 
 # Optional: Switch back to the feature branch
-echo "Switching back to $CURRENT_BRANCH..."
-git checkout "$CURRENT_BRANCH"
+# echo "Switching back to $CURRENT_BRANCH..."
+# git checkout "$CURRENT_BRANCH"
 
 echo "Done."

@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { QuickTunnelTreeDataProvider, QuickTunnelTreeItem } from '../views/quickTunnelTreeView';
+import { Messages } from '../utils/messages';
 
 export function registerQuickTunnelCommands(
     context: vscode.ExtensionContext,
@@ -30,11 +31,9 @@ export function registerQuickTunnelCommands(
             if (port) {
                 try {
                     await quickTunnelProvider.addQuickTunnel(parseInt(port, 10), name);
-                    vscode.window.showInformationMessage(
-                        `Created quick tunnel${name ? ` "${name}"` : ''} on port ${port}`
-                    );
+                    await Messages.showInfo(Messages.QUICK_TUNNEL_CREATED(name, port));
                 } catch (error) {
-                    vscode.window.showErrorMessage(`Failed to create quick tunnel: ${error}`);
+                    await Messages.showError(Messages.ERROR_CREATE_TUNNEL(error));
                 }
             }
         })
@@ -45,11 +44,9 @@ export function registerQuickTunnelCommands(
         vscode.commands.registerCommand('tunnelfy.stopQuickTunnel', async (item: QuickTunnelTreeItem) => {
             try {
                 await quickTunnelProvider.removeQuickTunnel(item.port);
-                vscode.window.showInformationMessage(
-                    `Stopped quick tunnel${item.name ? ` "${item.name}"` : ''} on port ${item.port}`
-                );
+                await Messages.showInfo(Messages.QUICK_TUNNEL_STOPPED(item.name, item.port));
             } catch (error) {
-                vscode.window.showErrorMessage(`Failed to stop quick tunnel: ${error}`);
+                await Messages.showError(Messages.ERROR_STOP_TUNNEL(error));
             }
         })
     );
@@ -60,12 +57,12 @@ export function registerQuickTunnelCommands(
             if (item.tunnelUrl) {
                 try {
                     await vscode.env.clipboard.writeText(item.tunnelUrl);
-                    vscode.window.showInformationMessage('Tunnel URL copied to clipboard');
+                    await Messages.showInfo(Messages.TUNNEL_URL_COPIED);
                 } catch (error) {
-                    vscode.window.showErrorMessage(`Failed to copy tunnel URL: ${error}`);
+                    await Messages.showError(Messages.ERROR_COPY_URL(error));
                 }
             } else {
-                vscode.window.showErrorMessage('No tunnel URL available');
+                await Messages.showError(Messages.NO_TUNNEL_URL);
             }
         })
     );

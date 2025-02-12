@@ -79,11 +79,22 @@ export class TunnelLogger {
         const preserveFocus = details?.preserveFocus;
         this.baseLogger.info(LogComponent.TUNNEL, logMessage.trim(), { preserveFocus });
         
-        const stream = this.activeStreams.get(tunnelId) || this.createLogStream(tunnelId);
-        
         try {
+            let stream = this.activeStreams.get(tunnelId);
+            
+            // If stream exists but is in an error state or ended, create a new one
+            if (stream?.destroyed || stream?.writableEnded) {
+                stream = this.createLogStream(tunnelId);
+            } else if (!stream) {
+                stream = this.createLogStream(tunnelId);
+            }
+
             // Use promisified write to ensure message is written before checking size
             await new Promise<void>((resolve, reject) => {
+                if (!stream.writable) {
+                    reject(new Error('Stream is not writable'));
+                    return;
+                }
                 stream.write(logMessage, (err) => {
                     if (err) reject(err);
                     else resolve();
@@ -92,7 +103,7 @@ export class TunnelLogger {
             
             await this.checkAndRotateLogs(tunnelId);
         } catch (error) {
-            this.baseLogger.error(LogComponent.TUNNEL, `Error writing to log: ${error}`, { preserveFocus: true });
+            this.baseLogger.error(LogComponent.TUNNEL, `Error writing to log: ${error}`);
         }
     }
 

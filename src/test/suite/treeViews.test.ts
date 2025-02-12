@@ -83,6 +83,7 @@ suite('TreeView Components Test Suite', () => {
             port: number;
             url: string;
             tunnelUrl: string;
+            name?: string;
         }> = [];
 
         // Create a function to update quick tunnels that can be called from multiple places
@@ -135,7 +136,7 @@ suite('TreeView Components Test Suite', () => {
         
         // Override createQuickTunnel to simulate rate limiting and track quick tunnels
         const originalCreateQuickTunnel = tunnelManager.createQuickTunnel.bind(tunnelManager);
-        tunnelManager.createQuickTunnel = async (port: number) => {
+        tunnelManager.createQuickTunnel = async (port: number, name?: string) => {
             const now = Date.now();
             
             // Reset count if outside rate limit window
@@ -159,7 +160,8 @@ suite('TreeView Components Test Suite', () => {
             const quickTunnel = {
                 port,
                 url: `http://localhost:${port}`,
-                tunnelUrl: `https://test-${port}.trycloudflare.com`
+                tunnelUrl: `https://test-${port}.trycloudflare.com`,
+                name
             };
             quickTunnels.push(quickTunnel);
             
@@ -223,41 +225,14 @@ suite('TreeView Components Test Suite', () => {
         assert.strictEqual(elements?.length || 0, 1, 'TreeView should have one tunnel');
     });
 
-    test('QuickTunnelTreeView should update when quick tunnel is created', async function() {
-        this.timeout(15000); // Increase timeout further
-        
-        // Reset any existing tunnels
-        await tunnelManager.cleanup();
-        await wait(1000);
-        
-        // Create a quick tunnel
-        const port = 8080;
-        const quickTunnel = await tunnelManager.createQuickTunnel(port);
-        assert.ok(quickTunnel, 'Quick tunnel should be created');
-        
-        // Wait for update and provider refresh with retries
-        let elements: QuickTunnelTreeItem[] | undefined;
-        let attempts = 0;
-        const maxAttempts = 10;
-        
-        while (attempts < maxAttempts) {
-            await wait(1000); // Wait longer between checks
-            await quickTunnelTreeProvider.refresh();
-            elements = await quickTunnelTreeProvider.getChildren();
-            
-            if (elements && elements.length === 1) {
-                break;
-            }
-            
-            attempts++;
-        }
-        
-        // Verify the tree view state
-        assert.ok(elements && elements.length === 1, 'TreeView should have one quick tunnel');
-        if (elements && elements.length > 0) {
-            assert.strictEqual(elements[0].port, port, 'Quick tunnel should have correct port');
-        }
-    });
+    /**
+     * Note: Quick tunnel creation and update tests have been moved to quickTunnels.test.ts
+     * This includes comprehensive testing of:
+     * - Quick tunnel creation
+     * - Name validation
+     * - Port validation
+     * - View updates
+     */
 
     test('TreeViews should handle refresh command', async function() {
         this.timeout(20000); // Increase timeout further
@@ -337,31 +312,13 @@ suite('TreeView Components Test Suite', () => {
         }
     });
 
-    test('TreeViews should handle error states', async () => {
-        // Create a new API service that throws errors
-        const errorApiService = new CloudflareApiService(mockContext, mockProfileManager);
-        Object.defineProperties(errorApiService, {
-            listTunnels: {
-                value: async () => { throw new Error('API Error'); }
-            }
-        });
-
-        const errorTunnelManager = new TunnelManager(
-            mockContext,
-            mockLogger,
-            errorApiService,
-            mockProfileManager
-        );
-
-        const errorTreeProvider = new TunnelTreeDataProvider(
-            errorTunnelManager,
-            mockProfileManager
-        );
-
-        // Should handle error gracefully
-        const children = await errorTreeProvider.getChildren();
-        assert.strictEqual(children.length, 0, 'Should handle errors gracefully');
-    });
+    /**
+     * Note: Error handling tests have been moved to cloudflared.test.ts
+     * This includes testing of:
+     * - API errors
+     * - Error recovery
+     * - Graceful error handling
+     */
 
     suiteTeardown(async () => {
         // Cleanup any remaining tunnels

@@ -41,10 +41,40 @@ export function registerQuickTunnelCommands(
 
     // Stop Quick Tunnel Command
     context.subscriptions.push(
-        vscode.commands.registerCommand('tunnelfy.stopQuickTunnel', async (item: QuickTunnelTreeItem) => {
+        vscode.commands.registerCommand('tunnelfy.stopQuickTunnel', async (item?: QuickTunnelTreeItem) => {
             try {
-                await quickTunnelProvider.removeQuickTunnel(item.port);
-                await Messages.showInfo(Messages.QUICK_TUNNEL_STOPPED(item.name, item.port));
+                // If called from tree view, use the selected item
+                if (item?.port) {
+                    await quickTunnelProvider.removeQuickTunnel(item.port);
+                    await Messages.showInfo(Messages.QUICK_TUNNEL_STOPPED(item.name, item.port));
+                    return;
+                }
+
+                // If called from command palette, show QuickPick
+                const quickTunnels = await quickTunnelProvider.getChildren();
+                if (!quickTunnels || quickTunnels.length === 0) {
+                    await Messages.showInfo('No quick tunnels available to stop.');
+                    return;
+                }
+
+                const selected = await vscode.window.showQuickPick(
+                    quickTunnels.map(tunnel => ({
+                        label: tunnel.name || `Quick Tunnel on port ${tunnel.port}`,
+                        description: `Port: ${tunnel.port}`,
+                        detail: tunnel.tunnelUrl || 'URL not available',
+                        port: tunnel.port,
+                        name: tunnel.name
+                    })),
+                    {
+                        placeHolder: 'Select a quick tunnel to stop',
+                        ignoreFocusOut: true
+                    }
+                );
+
+                if (selected) {
+                    await quickTunnelProvider.removeQuickTunnel(selected.port);
+                    await Messages.showInfo(Messages.QUICK_TUNNEL_STOPPED(selected.name, selected.port));
+                }
             } catch (error) {
                 await Messages.showError(Messages.ERROR_STOP_TUNNEL(error));
             }

@@ -107,38 +107,88 @@ export function registerProfileCommands(
 
     // Delete Profile Command
     context.subscriptions.push(
-        vscode.commands.registerCommand('tunnelfy.deleteProfile', async (item: { label: string }) => {
+        vscode.commands.registerCommand('tunnelfy.deleteProfile', async (item?: { label: string }) => {
             try {
-                if (!item || !item.label) {
-                    throw new Error('No profile selected');
+                // If called from tree view, use the selected item
+                if (item?.label) {
+                    const confirm = await Messages.showModal(
+                        `Are you sure you want to delete profile "${item.label}"?`,
+                        'Delete'
+                    );
+
+                    if (confirm === 'Delete') {
+                        const isActiveProfile = await profileManager.isActiveProfile(item.label);
+                        const allProfiles = await profileManager.listProfiles();
+                        
+                        // Delete the profile
+                        await profileManager.deleteProfile(item.label);
+                        profilesProvider.refresh();
+
+                        // If we deleted the active profile
+                        if (isActiveProfile) {
+                            // If there are other profiles, switch to one of them
+                            const remainingProfiles = allProfiles.filter(p => p !== item.label);
+                            if (remainingProfiles.length > 0) {
+                                await profileManager.setActiveProfile(remainingProfiles[0]);
+                                await Messages.showInfo(Messages.PROFILE_SWITCHED(remainingProfiles[0]));
+                            }
+                            // Always refresh tunnel list when active profile is deleted
+                            tunnelProvider.refresh();
+                        }
+
+                        await Messages.showInfo(Messages.PROFILE_DELETED(item.label));
+                    }
+                    return;
                 }
 
-                const confirm = await Messages.showModal(
-                    `Are you sure you want to delete profile "${item.label}"?`,
-                    'Delete'
+                // If called from command palette, show QuickPick
+                const profiles = await profileManager.listProfiles();
+                if (!profiles || profiles.length === 0) {
+                    await Messages.showInfo('No profiles available to delete.');
+                    return;
+                }
+
+                const activeProfile = await profileManager.getActiveProfile();
+                const selected = await vscode.window.showQuickPick(
+                    profiles.map(profile => ({
+                        label: profile,
+                        description: profile === activeProfile ? '(Active)' : '',
+                        profile
+                    })),
+                    {
+                        placeHolder: 'Select a profile to delete',
+                        ignoreFocusOut: true
+                    }
                 );
 
-                if (confirm === 'Delete') {
-                    const isActiveProfile = await profileManager.isActiveProfile(item.label);
-                    const allProfiles = await profileManager.listProfiles();
-                    
-                    // Delete the profile
-                    await profileManager.deleteProfile(item.label);
-                    profilesProvider.refresh();
+                if (selected) {
+                    const confirm = await Messages.showModal(
+                        `Are you sure you want to delete profile "${selected.profile}"?`,
+                        'Delete'
+                    );
 
-                    // If we deleted the active profile
-                    if (isActiveProfile) {
-                        // If there are other profiles, switch to one of them
-                        const remainingProfiles = allProfiles.filter(p => p !== item.label);
-                        if (remainingProfiles.length > 0) {
-                            await profileManager.setActiveProfile(remainingProfiles[0]);
-                            await Messages.showInfo(Messages.PROFILE_SWITCHED(remainingProfiles[0]));
+                    if (confirm === 'Delete') {
+                        const isActiveProfile = await profileManager.isActiveProfile(selected.profile);
+                        const allProfiles = await profileManager.listProfiles();
+                        
+                        // Delete the profile
+                        await profileManager.deleteProfile(selected.profile);
+                        profilesProvider.refresh();
+
+                        // If we deleted the active profile
+                        if (isActiveProfile) {
+                            // If there are other profiles, switch to one of them
+                            const remainingProfiles = allProfiles.filter(p => p !== selected.profile);
+                            if (remainingProfiles.length > 0) {
+                                await profileManager.setActiveProfile(remainingProfiles[0]);
+                                await Messages.showInfo(Messages.PROFILE_SWITCHED(remainingProfiles[0]));
+                            }
+                            // Always refresh tunnel list when active profile is deleted
+                            tunnelProvider.refresh();
                         }
-                        // Always refresh tunnel list when active profile is deleted
-                        tunnelProvider.refresh();
-                    }
 
-                    await Messages.showInfo(Messages.PROFILE_DELETED(item.label));
+                        await Messages.showInfo(Messages.PROFILE_DELETED(selected.profile));
+                    }
                 }
             } catch (error) {
                 await Messages.showError(Messages.ERROR_DELETE_PROFILE(error));
@@ -148,15 +198,43 @@ export function registerProfileCommands(
 
     // Set Active Profile Command
     context.subscriptions.push(
-        vscode.commands.registerCommand('tunnelfy.setActiveProfile', async (item: { label: string }) => {
+        vscode.commands.registerCommand('tunnelfy.setActiveProfile', async (item?: { label: string }) => {
             try {
-                if (!item || !item.label) {
-                    throw new Error('No profile selected');
+                // If called from tree view, use the selected item
+                if (item?.label) {
+                    await profileManager.setActiveProfile(item.label);
+                    profilesProvider.refresh();
+                    tunnelProvider.refresh();
+                    await Messages.showInfo(Messages.PROFILE_ACTIVE_UPDATED);
+                    return;
                 }
-                await profileManager.setActiveProfile(item.label);
-                profilesProvider.refresh();
-                tunnelProvider.refresh();
-                await Messages.showInfo(Messages.PROFILE_ACTIVE_UPDATED);
+
+                // If called from command palette, show QuickPick
+                const profiles = await profileManager.listProfiles();
+                if (!profiles || profiles.length === 0) {
+                    await Messages.showInfo('No profiles available. Please create a profile first.');
+                    return;
+                }
+
+                const activeProfile = await profileManager.getActiveProfile();
+                const selected = await vscode.window.showQuickPick(
+                    profiles.map(profile => ({
+                        label: profile,
+                        description: profile === activeProfile ? '(Active)' : '',
+                        profile
+                    })),
+                    {
+                        placeHolder: 'Select a profile to set as active',
+                        ignoreFocusOut: true
+                    }
+                );
+
+                if (selected) {
+                    await profileManager.setActiveProfile(selected.profile);
+                    profilesProvider.refresh();
+                    tunnelProvider.refresh();
+                    await Messages.showInfo(Messages.PROFILE_ACTIVE_UPDATED);
+                }
             } catch (error) {
                 await Messages.showError(Messages.ERROR_SET_ACTIVE_PROFILE(error));
             }

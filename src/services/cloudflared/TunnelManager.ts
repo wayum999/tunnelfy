@@ -83,7 +83,8 @@ export class TunnelManager {
     private readonly runningTunnels: Map<string, { 
         process: cp.ChildProcess; 
         pid: number; 
-        logStreams: fs.WriteStream[] 
+        logStreams: fs.WriteStream[];
+        name?: string;
     }> = new Map();
 
     private readonly _onTunnelEvent = new vscode.EventEmitter<TunnelEvent>();
@@ -171,7 +172,8 @@ export class TunnelManager {
             return await this.apiService.listTunnels();
         } catch (error) {
             this.logger.error(LogComponent.TUNNEL, `Failed to list tunnels: ${error}`);
-            throw error;
+            // Return empty array instead of throwing
+            return [];
         }
     }
 
@@ -276,7 +278,8 @@ export class TunnelManager {
             this.runningTunnels.set(tunnelId, {
                 process,
                 pid: process.pid!,
-                logStreams: [logStream]
+                logStreams: [logStream],
+                name: tunnelInfo.name
             });
 
             // Handle process events
@@ -699,13 +702,14 @@ export class TunnelManager {
     /**
      * Creates a quick tunnel for temporary use
      * @param port Local port to tunnel
+     * @param name Optional name for the tunnel
      * @returns Object containing local and tunnel URLs
      * @throws Error if quick tunnel creation fails
      */
-    async createQuickTunnel(port: number): Promise<{ url: string; tunnelUrl: string } | null> {
+    async createQuickTunnel(port: number, name?: string): Promise<{ url: string; tunnelUrl: string; name?: string } | null> {
         try {
-            vscode.window.showInformationMessage(`Starting quick tunnel for port ${port}...`);
-            this.logger.info(LogComponent.TUNNEL, `Starting quick tunnel for port ${port}`);
+            vscode.window.showInformationMessage(`Starting quick tunnel${name ? ` "${name}"` : ''} for port ${port}...`);
+            this.logger.info(LogComponent.TUNNEL, `Starting quick tunnel${name ? ` "${name}"` : ''} for port ${port}`);
 
             // Find cloudflared
             this.logger.debug(LogComponent.TUNNEL, 'Looking for cloudflared executable...');
@@ -754,7 +758,7 @@ export class TunnelManager {
             // Create a promise that resolves when we find the URL
             const urlPromise = new Promise<string>((resolve, reject) => {
                 let outputBuffer = '';
-                let errorBuffer = '';  // Add buffer for error messages
+                let errorBuffer = '';
 
                 // Function to check the entire buffer for a URL
                 const checkBufferForUrl = () => {
@@ -773,16 +777,17 @@ export class TunnelManager {
                         this.runningTunnels.set(quickTunnelId, {
                             process,
                             pid: process.pid,
-                            logStreams: [logStream]
+                            logStreams: [logStream],
+                            name
                         });
 
                         // Then fire events and resolve
                         this._onTunnelEvent.fire({
                             type: 'start',
                             tunnelId: quickTunnelId,
-                            message: `Quick tunnel started for port ${portNum}`
+                            message: `Quick tunnel${name ? ` "${name}"` : ''} started for port ${portNum}`
                         });
-                        vscode.window.showInformationMessage(`Quick tunnel is running at ${tunnelUrl}`);
+                        vscode.window.showInformationMessage(`Quick tunnel${name ? ` "${name}"` : ''} is running at ${tunnelUrl}`);
                         resolve(tunnelUrl);
                         return true;
                     }

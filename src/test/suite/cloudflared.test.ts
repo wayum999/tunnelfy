@@ -5,6 +5,10 @@ import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
 import proxyquire from 'proxyquire';
+import { TunnelManager } from '../../services/cloudflared';
+import { CloudflareApiService } from '../../services/cloudflareApiService';
+import { ProfileManager } from '../../services/profileManager';
+import { Logger, LogComponent } from '../../utils/logger';
 import { waitForExtensionActivation, clearWorkspace, createTestConfiguration, cleanupTestConfiguration } from './testUtils';
 
 // Mock fs module with state management
@@ -19,6 +23,38 @@ let mockFsState: MockFsState = {
     certContent: '',
     files: {}
 };
+
+// Mock objects for API error testing
+const mockContext = {
+    extensionPath: __dirname,
+    subscriptions: [],
+    workspaceState: {
+        get: () => undefined,
+        update: () => Promise.resolve()
+    },
+    globalState: {
+        get: () => undefined,
+        update: () => Promise.resolve()
+    },
+    extensionUri: vscode.Uri.file(__dirname),
+    asAbsolutePath: (relativePath: string) => path.join(__dirname, relativePath),
+    storagePath: path.join(__dirname, 'storage'),
+    globalStoragePath: path.join(__dirname, 'globalStorage'),
+    logPath: path.join(__dirname, 'logs')
+} as unknown as vscode.ExtensionContext;
+
+const mockLogger: Logger = {
+    info: (component: LogComponent, message: string) => {},
+    error: (component: LogComponent, message: string) => {},
+    debug: (component: LogComponent, message: string) => {},
+    warn: (component: LogComponent, message: string) => {}
+} as unknown as Logger;
+
+const mockProfileManager = {
+    getActiveProfile: async () => 'test-profile',
+    getProfileAccountId: async () => 'test-account-id',
+    getProfileApiKey: async () => 'test-api-key'
+} as unknown as ProfileManager;
 
 const mockFs = {
     existsSync: (filePath: string) => {
@@ -219,5 +255,36 @@ suite('CloudflaredService Tests', () => {
         const tunnels = await cloudflaredService.listTunnels();
         assert.ok(Array.isArray(tunnels), 'Should return array of tunnels');
         assert.deepStrictEqual(tunnels, [], 'Should return empty array when no tunnels exist');
+    });
+
+    test('should handle API errors gracefully', async function() {
+        this.timeout(10000);
+        
+        // Create a new API service that throws errors
+        const errorApiService = new CloudflareApiService(mockContext, mockProfileManager);
+        Object.defineProperties(errorApiService, {
+            listTunnels: {
+                value: async () => { throw new Error('API Error'); },
+                configurable: true,
+                enumerable: true,
+                writable: true
+            }
+        });
+
+        const errorTunnelManager = new TunnelManager(
+            mockContext,
+            mockLogger,
+            errorApiService,
+            mockProfileManager
+        );
+
+        try {
+            // Should handle error gracefully
+            const tunnels = await errorTunnelManager.listTunnels();
+            assert.deepStrictEqual(tunnels, [], 'Should return empty array on API error');
+        } catch (error) {
+            // The error should be handled by TunnelManager, not propagated
+            assert.fail(`Should handle API errors gracefully, but got: ${error}`);
+        }
     });
 });

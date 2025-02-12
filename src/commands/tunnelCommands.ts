@@ -30,16 +30,46 @@ export function registerTunnelCommands(
 ) {
     // Copy Token Command
     context.subscriptions.push(
-        vscode.commands.registerCommand('tunnelfy.copyToken', async (item: TunnelTreeItem) => {
+        vscode.commands.registerCommand('tunnelfy.copyToken', async (item?: TunnelTreeItem) => {
             try {
-                if (!item || !item.tunnelId) {
-                    throw new Error('No tunnel selected');
+                // If called from tree view, use the selected item
+                if (item?.tunnelId) {
+                    const token = await apiService.getTunnelToken(item.tunnelId);
+                    if (token) {
+                        const disposable = await tokenService.copyTokenToClipboard(token);
+                        context.subscriptions.push(disposable);
+                        await Messages.showInfo(Messages.TOKEN_COPIED);
+                    }
+                    return;
                 }
-                const token = await apiService.getTunnelToken(item.tunnelId);
-                if (token) {
-                    const disposable = await tokenService.copyTokenToClipboard(token);
-                    context.subscriptions.push(disposable);
-                    await Messages.showInfo(Messages.TOKEN_COPIED);
+
+                // If called from command palette, show QuickPick
+                const allTunnels = await apiService.listTunnels();
+                if (!allTunnels || allTunnels.length === 0) {
+                    await Messages.showInfo('No tunnels available.');
+                    return;
+                }
+
+                const selected = await vscode.window.showQuickPick(
+                    allTunnels.map(tunnel => ({
+                        label: tunnel.name,
+                        description: `ID: ${tunnel.id}`,
+                        detail: tunnel.connections && tunnel.connections.length > 0 ? 'Running' : 'Stopped',
+                        tunnelId: tunnel.id
+                    })),
+                    {
+                        placeHolder: 'Select a tunnel to copy its token',
+                        ignoreFocusOut: true
+                    }
+                );
+
+                if (selected) {
+                    const token = await apiService.getTunnelToken(selected.tunnelId);
+                    if (token) {
+                        const disposable = await tokenService.copyTokenToClipboard(token);
+                        context.subscriptions.push(disposable);
+                        await Messages.showInfo(Messages.TOKEN_COPIED);
+                    }
                 }
             } catch (error) {
                 await Messages.showError(Messages.ERROR_COPY_TOKEN(error));
@@ -69,44 +99,125 @@ export function registerTunnelCommands(
 
     // Delete Tunnel Command
     context.subscriptions.push(
-        vscode.commands.registerCommand('tunnelfy.deleteTunnel', async (item: TunnelTreeItem) => {
-            const confirm = await Messages.showModal(
-                `Are you sure you want to delete tunnel '${item.label}'?`,
-                'Delete'
-            );
+        vscode.commands.registerCommand('tunnelfy.deleteTunnel', async (item?: TunnelTreeItem) => {
+            try {
+                // If called from tree view, use the selected item
+                if (item?.tunnelId) {
+                    const confirm = await Messages.showModal(
+                        `Are you sure you want to delete tunnel '${item.label}'?`,
+                        'Delete'
+                    );
 
-            if (confirm === 'Delete') {
-                try {
-                    await tunnelManager.deleteTunnel(item.tunnelId);
-                    await tunnelProvider.refresh();
-                    await Messages.showInfo(Messages.TUNNEL_DELETED(item.label));
-                } catch (error) {
-                    await Messages.showError(Messages.ERROR_DELETE_TUNNEL(error));
+                    if (confirm === 'Delete') {
+                        await tunnelManager.deleteTunnel(item.tunnelId);
+                        await tunnelProvider.refresh();
+                        await Messages.showInfo(Messages.TUNNEL_DELETED(item.label));
+                    }
+                    return;
                 }
+
+                // If called from command palette, show QuickPick
+                const allTunnels = await apiService.listTunnels();
+                if (!allTunnels || allTunnels.length === 0) {
+                    await Messages.showInfo('No tunnels available to delete.');
+                    return;
+                }
+
+                // Filter out running tunnels as they can't be deleted
+                const deletableTunnels = allTunnels.filter(tunnel => 
+                    !tunnel.connections || tunnel.connections.length === 0
+                );
+
+                if (deletableTunnels.length === 0) {
+                    await Messages.showInfo('No stopped tunnels available to delete. Please stop any running tunnels first.');
+                    return;
+                }
+
+                const selected = await vscode.window.showQuickPick(
+                    deletableTunnels.map(tunnel => ({
+                        label: tunnel.name,
+                        description: `ID: ${tunnel.id}`,
+                        detail: 'Stopped',
+                        tunnelId: tunnel.id
+                    })),
+                    {
+                        placeHolder: 'Select a tunnel to delete',
+                        ignoreFocusOut: true
+                    }
+                );
+
+                if (selected) {
+                    // Show confirmation dialog
+                    const confirm = await Messages.showModal(
+                        `Are you sure you want to delete tunnel '${selected.label}'?`,
+                        'Delete'
+                    );
+
+                    if (confirm === 'Delete') {
+                        await tunnelManager.deleteTunnel(selected.tunnelId);
+                        await tunnelProvider.refresh();
+                        await Messages.showInfo(Messages.TUNNEL_DELETED(selected.label));
+                    }
+                }
+            } catch (error) {
+                await Messages.showError(Messages.ERROR_DELETE_TUNNEL(error));
             }
         })
     );
 
     // Start Tunnel Command
     context.subscriptions.push(
-        vscode.commands.registerCommand('tunnelfy.startTunnel', async (item: TunnelTreeItem) => {
-            const port = await vscode.window.showInputBox({
-                prompt: 'Enter the local port to tunnel',
-                placeHolder: '8080',
-                validateInput: (value) => {
-                    const port = parseInt(value, 10);
-                    if (isNaN(port) || port < 1 || port > 65535) {
-                        return 'Please enter a valid port number (1-65535)';
-                    }
-                    return null;
-                }
-            });
-
-            if (!port) {
-                return;
-            }
-
+        vscode.commands.registerCommand('tunnelfy.startTunnel', async (item?: TunnelTreeItem) => {
             try {
+                // Get all tunnels and filter for stopped ones
+                const allTunnels = await apiService.listTunnels();
+                const stoppedTunnels = allTunnels.filter(tunnel => {
+                    // A tunnel is considered stopped if it has no active connections
+                    return !tunnel.connections || tunnel.connections.length === 0;
+                });
+
+                if (stoppedTunnels.length === 0) {
+                    await Messages.showInfo('No stopped tunnels available to start.');
+                    return;
+                }
+
+                // If called from tree view, use the selected item
+                const tunnelToStart = item ? {
+                    tunnelId: item.tunnelId,
+                    label: item.label
+                } : await vscode.window.showQuickPick(
+                    stoppedTunnels.map(tunnel => ({
+                        label: tunnel.name,
+                        description: `ID: ${tunnel.id}`,
+                        tunnelId: tunnel.id
+                    })),
+                    {
+                        placeHolder: 'Select a tunnel to start',
+                        ignoreFocusOut: true
+                    }
+                );
+
+                if (!tunnelToStart) {
+                    return;
+                }
+
+                // Get port number
+                const port = await vscode.window.showInputBox({
+                    prompt: 'Enter the local port to tunnel',
+                    placeHolder: '8080',
+                    validateInput: (value) => {
+                        const port = parseInt(value, 10);
+                        if (isNaN(port) || port < 1 || port > 65535) {
+                            return 'Please enter a valid port number (1-65535)';
+                        }
+                        return null;
+                    }
+                });
+
+                if (!port) {
+                    return;
+                }
+
                 // Get zones (domains) from Cloudflare
                 const zones = await apiService.listZones();
                 if (!zones || zones.length === 0) {
@@ -187,14 +298,14 @@ export function registerTunnelCommands(
                     await apiService.createCnameRecord(
                         selectedZone.zone.id,
                         subdomain,
-                        item.tunnelId
+                        tunnelToStart.tunnelId
                     );
                 } else {
                     // Using existing CNAME record
                     hostname = selectedRecord.record!.name;
 
                     // Check if the CNAME needs to be updated
-                    const tunnelDomain = `${item.tunnelId}.cfargotunnel.com`;
+                    const tunnelDomain = `${tunnelToStart.tunnelId}.cfargotunnel.com`;
                     if (selectedRecord.record!.content !== tunnelDomain) {
                         const confirm = await Messages.showModal(
                             `The CNAME record "${hostname}" currently points to "${selectedRecord.record!.content}". Would you like to update it?`,
@@ -205,7 +316,7 @@ export function registerTunnelCommands(
                             await apiService.updateCnameRecord(
                                 selectedZone.zone.id,
                                 selectedRecord.record!.id,
-                                item.tunnelId
+                                tunnelToStart.tunnelId
                             );
                         } else {
                             return;
@@ -226,11 +337,11 @@ export function registerTunnelCommands(
                 // Update tunnel configuration
                 const config = {
                     accountId,
-                    tunnelId: item.tunnelId,
-                    tunnelName: item.label,
+                    tunnelId: tunnelToStart.tunnelId,
+                    tunnelName: tunnelToStart.label,
                     credentials: {
                         accountTag: '', // Will be populated from token
-                        tunnelSecret: await apiService.getTunnelToken(item.tunnelId)
+                        tunnelSecret: await apiService.getTunnelToken(tunnelToStart.tunnelId)
                     },
                     ingress: [{
                         hostname,
@@ -240,13 +351,13 @@ export function registerTunnelCommands(
                     }]
                 };
 
-                await tunnelManager.updateTunnelConfig(item.tunnelId, config);
+                await tunnelManager.updateTunnelConfig(tunnelToStart.tunnelId, config);
 
                 // Start the tunnel
-                await tunnelManager.runTunnel(item.tunnelId, parseInt(port, 10));
+                await tunnelManager.runTunnel(tunnelToStart.tunnelId, parseInt(port, 10));
                 await tunnelProvider.refresh();
                 
-                await Messages.showInfo(Messages.TUNNEL_STARTED(item.label, hostname, port));
+                await Messages.showInfo(Messages.TUNNEL_STARTED(tunnelToStart.label, hostname, port));
             } catch (error) {
                 await Messages.showError(Messages.ERROR_START_TUNNEL(error));
             }
@@ -255,11 +366,45 @@ export function registerTunnelCommands(
 
     // Stop Tunnel Command
     context.subscriptions.push(
-        vscode.commands.registerCommand('tunnelfy.stopTunnel', async (item: TunnelTreeItem) => {
+        vscode.commands.registerCommand('tunnelfy.stopTunnel', async (item?: TunnelTreeItem) => {
             try {
-                await tunnelManager.stopTunnel(item.tunnelId);
-                await tunnelProvider.refresh();
-                await Messages.showInfo(Messages.TUNNEL_STOPPED(item.label));
+                // If called from tree view, use the selected item
+                if (item?.tunnelId) {
+                    await tunnelManager.stopTunnel(item.tunnelId);
+                    await tunnelProvider.refresh();
+                    await Messages.showInfo(Messages.TUNNEL_STOPPED(item.label));
+                    return;
+                }
+
+                // If called from command palette, show QuickPick
+                const allTunnels = await apiService.listTunnels();
+                const runningTunnels = allTunnels.filter(tunnel => 
+                    tunnel.connections && tunnel.connections.length > 0
+                );
+
+                if (!runningTunnels || runningTunnels.length === 0) {
+                    await Messages.showInfo('No running tunnels available to stop.');
+                    return;
+                }
+
+                const selected = await vscode.window.showQuickPick(
+                    runningTunnels.map(tunnel => ({
+                        label: tunnel.name,
+                        description: `ID: ${tunnel.id}`,
+                        detail: `${tunnel.connections?.length || 0} active connection(s)`,
+                        tunnelId: tunnel.id
+                    })),
+                    {
+                        placeHolder: 'Select a tunnel to stop',
+                        ignoreFocusOut: true
+                    }
+                );
+
+                if (selected) {
+                    await tunnelManager.stopTunnel(selected.tunnelId);
+                    await tunnelProvider.refresh();
+                    await Messages.showInfo(Messages.TUNNEL_STOPPED(selected.label));
+                }
             } catch (error) {
                 await Messages.showError(Messages.ERROR_STOP_TUNNEL(error));
             }

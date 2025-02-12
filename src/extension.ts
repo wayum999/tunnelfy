@@ -78,29 +78,23 @@ export async function activate(context: vscode.ExtensionContext) {
         context.subscriptions.push(tunnelsView);
         context.subscriptions.push(quickTunnelsView);
 
+        // Register all command handlers
+        registerProfileCommands(context, profileManager, profilesProvider, tunnelProvider);
+        registerTunnelCommands(context, tunnelManager, apiService, tokenService, profileManager, tunnelProvider);
+        registerQuickTunnelCommands(context, quickTunnelProvider);
+
         // Register refresh commands
         context.subscriptions.push(
             vscode.commands.registerCommand('tunnelfy.refreshProfiles', () => {
                 profilesProvider.refresh();
-            })
-        );
-
-        context.subscriptions.push(
+            }),
             vscode.commands.registerCommand('tunnelfy.refreshTunnels', () => {
                 tunnelProvider.refresh();
-            })
-        );
-
-        context.subscriptions.push(
+            }),
             vscode.commands.registerCommand('tunnelfy.refreshQuickTunnels', () => {
                 quickTunnelProvider.refresh();
             })
         );
-
-        // Register all commands
-        registerProfileCommands(context, profileManager, profilesProvider, tunnelProvider);
-        registerTunnelCommands(context, tunnelManager, apiService, tokenService, profileManager, tunnelProvider);
-        registerQuickTunnelCommands(context, quickTunnelProvider);
 
         // Register cleanup on extension deactivation
         context.subscriptions.push({

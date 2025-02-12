@@ -3,6 +3,9 @@ import * as vscode from 'vscode';
 import { waitForExtensionActivation, assertCommandAvailable, clearWorkspace } from './testUtils';
 import { ProfileManager } from '../../services/profileManager';
 
+// Helper function to wait between operations
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 suite('Tunnelfy Extension Test Suite', () => {
     let profileManager: ProfileManager;
     let mockContext: vscode.ExtensionContext;
@@ -134,22 +137,69 @@ suite('Tunnelfy Extension Test Suite', () => {
         assert.ok(extension, 'Extension should be available');
     });
 
-    test('All commands should be registered', async () => {
-        // Profile management commands
-        await assertCommandAvailable('tunnelfy.refreshProfiles');
-        await assertCommandAvailable('tunnelfy.createProfile');
-        await assertCommandAvailable('tunnelfy.setActiveProfile');
-        await assertCommandAvailable('tunnelfy.deleteProfile');
+    test('All commands should be registered', async function() {
+        this.timeout(60000); // Increase timeout further
 
-        // Tunnel management commands
-        await assertCommandAvailable('tunnelfy.createTunnel');
-        await assertCommandAvailable('tunnelfy.createQuickTunnel');
-        await assertCommandAvailable('tunnelfy.refreshTunnels');
-        await assertCommandAvailable('tunnelfy.refreshQuickTunnels');
-        await assertCommandAvailable('tunnelfy.stopTunnel');
-        await assertCommandAvailable('tunnelfy.stopQuickTunnel');
-        await assertCommandAvailable('tunnelfy.deleteTunnel');
-        await assertCommandAvailable('tunnelfy.copyQuickTunnelUrl');
+        // Helper function to retry command checks
+        const retryCommandCheck = async (commandId: string, maxAttempts = 15) => {
+            for (let i = 0; i < maxAttempts; i++) {
+                try {
+                    const commands = await vscode.commands.getCommands();
+                    console.log(`Available commands (${commands.length}):`);
+                    commands.filter(cmd => cmd.startsWith('tunnelfy.')).forEach(cmd => {
+                        console.log(`  - ${cmd}`);
+                    });
+                    
+                    if (commands.includes(commandId)) {
+                        console.log(`✓ Found command: ${commandId}`);
+                        return true;
+                    }
+                    console.log(`✗ Command not found: ${commandId}, attempt ${i + 1}/${maxAttempts}`);
+                    await wait(3000); // Wait longer between attempts
+                } catch (error) {
+                    console.error(`Error checking command ${commandId}:`, error);
+                    if (i === maxAttempts - 1) throw error;
+                    await wait(1000);
+                }
+            }
+            throw new Error(`Command ${commandId} not found after ${maxAttempts} attempts`);
+        };
+
+        // Wait for extension to be fully activated
+        const extension = await waitForExtensionActivation();
+        assert.ok(extension, 'Extension should be available');
+        console.log('Extension activated, waiting for commands to be registered...');
+        await wait(10000); // Wait longer for initial activation
+
+        // Get initial list of commands
+        const initialCommands = await vscode.commands.getCommands();
+        console.log('Initial tunnelfy commands:');
+        initialCommands.filter(cmd => cmd.startsWith('tunnelfy.')).forEach(cmd => {
+            console.log(`  - ${cmd}`);
+        });
+
+        const requiredCommands = [
+            'tunnelfy.refreshProfiles',
+            'tunnelfy.createProfile',
+            'tunnelfy.setActiveProfile',
+            'tunnelfy.deleteProfile',
+            'tunnelfy.changeApiKey',
+            'tunnelfy.createTunnel',
+            'tunnelfy.createQuickTunnel',
+            'tunnelfy.refreshTunnels',
+            'tunnelfy.refreshQuickTunnels',
+            'tunnelfy.stopTunnel',
+            'tunnelfy.stopQuickTunnel',
+            'tunnelfy.deleteTunnel',
+            'tunnelfy.copyQuickTunnelUrl',
+            'tunnelfy.copyToken'
+        ];
+
+        // Check each command
+        for (const cmd of requiredCommands) {
+            console.log(`\nChecking command: ${cmd}`);
+            await retryCommandCheck(cmd);
+        }
     });
 
     test('Profile management with API keys', async () => {

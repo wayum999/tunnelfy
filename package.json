@@ -183,13 +183,6 @@
         "description": "Change the API key for an existing profile"
       },
       {
-        "command": "tunnelfy.editProfile",
-        "title": "Edit Profile",
-        "category": "Tunnelfy",
-        "icon": "$(edit)",
-        "description": "Edit an existing Cloudflare profile"
-      },
-      {
         "command": "tunnelfy.deleteProfile",
         "title": "Delete Profile",
         "category": "Tunnelfy",
@@ -218,11 +211,46 @@
         "description": "Create a new permanent tunnel"
       },
       {
+        "command": "tunnelfy.startTunnel",
+        "title": "Start Tunnel",
+        "category": "Tunnelfy",
+        "icon": "$(play)",
+        "description": "Start a tunnel"
+      },
+      {
+        "command": "tunnelfy.deleteTunnel",
+        "title": "Delete Tunnel",
+        "category": "Tunnelfy",
+        "icon": "$(trash)",
+        "description": "Delete a tunnel"
+      },
+      {
+        "command": "tunnelfy.stopTunnel",
+        "title": "Stop Tunnel",
+        "category": "Tunnelfy",
+        "icon": "$(stop)",
+        "description": "Stop a running tunnel"
+      },
+      {
         "command": "tunnelfy.createQuickTunnel",
         "title": "Create Quick Tunnel",
         "category": "Tunnelfy",
         "icon": "$(add)",
         "description": "Create a new quick tunnel"
+      },
+      {
+        "command": "tunnelfy.stopQuickTunnel",
+        "title": "Stop Quick Tunnel",
+        "category": "Tunnelfy",
+        "icon": "$(stop)",
+        "description": "Stop a running quick tunnel"
+      },
+      {
+        "command": "tunnelfy.copyQuickTunnelUrl",
+        "title": "Copy Quick Tunnel URL",
+        "category": "Tunnelfy",
+        "icon": "$(copy)",
+        "description": "Copy the quick tunnel URL to clipboard"
       },
       {
         "command": "tunnelfy.refreshTunnels",
@@ -244,41 +272,6 @@
         "category": "Tunnelfy",
         "icon": "$(refresh)",
         "description": "Refresh the list of quick tunnels"
-      },
-      {
-        "command": "tunnelfy.stopQuickTunnel",
-        "title": "Stop Quick Tunnel",
-        "category": "Tunnelfy",
-        "icon": "$(stop)",
-        "description": "Stop a running quick tunnel"
-      },
-      {
-        "command": "tunnelfy.copyQuickTunnelUrl",
-        "title": "Copy Quick Tunnel URL",
-        "category": "Tunnelfy",
-        "icon": "$(copy)",
-        "description": "Copy the quick tunnel URL to clipboard"
-      },
-      {
-        "command": "tunnelfy.startTunnel",
-        "title": "Start Tunnel",
-        "category": "Tunnelfy",
-        "icon": "$(play)",
-        "description": "Start a tunnel"
-      },
-      {
-        "command": "tunnelfy.stopTunnel",
-        "title": "Stop Tunnel",
-        "category": "Tunnelfy",
-        "icon": "$(stop)",
-        "description": "Stop a running tunnel"
-      },
-      {
-        "command": "tunnelfy.deleteTunnel",
-        "title": "Delete Tunnel",
-        "category": "Tunnelfy",
-        "icon": "$(trash)",
-        "description": "Delete a tunnel"
       }
     ]
   },

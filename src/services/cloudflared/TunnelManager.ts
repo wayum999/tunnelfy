@@ -8,6 +8,7 @@ import { ProfileManager } from '../profileManager';
 import { TunnelLogger } from './TunnelLogger';
 import { TunnelConfig } from './TunnelConfig';
 import * as util from 'util';
+import { Messages } from '../../utils/messages';
 
 /**
  * Interface representing a Cloudflare tunnel's data structure
@@ -60,6 +61,32 @@ export interface TunnelEvent {
     tunnelId: string;
     message?: string;
     data?: any;
+}
+
+/**
+ * Error thrown when cloudflared is not found
+ */
+export class CloudflaredNotFoundError extends Error {
+    constructor(platform: string) {
+        let installInstructions: string;
+
+        switch (platform) {
+            case 'darwin':
+                installInstructions = Messages.CLOUDFLARED_INSTALL_DARWIN;
+                break;
+            case 'win32':
+                installInstructions = Messages.CLOUDFLARED_INSTALL_WIN32;
+                break;
+            case 'linux':
+                installInstructions = Messages.CLOUDFLARED_INSTALL_LINUX;
+                break;
+            default:
+                installInstructions = Messages.CLOUDFLARED_INSTALL_DEFAULT;
+        }
+
+        super(installInstructions);
+        this.name = 'CloudflaredNotFoundError';
+    }
 }
 
 /**
@@ -180,7 +207,7 @@ export class TunnelManager {
     /**
      * Locates the cloudflared executable
      * @returns Path to the cloudflared executable
-     * @throws Error if cloudflared is not found
+     * @throws CloudflaredNotFoundError if cloudflared is not found
      * @private
      */
     private async findCloudflaredPath(): Promise<string> {
@@ -194,12 +221,34 @@ export class TunnelManager {
             return storagePath;
         }
 
-        // Check in PATH
+        // Check platform-specific common installation paths
+        const commonPaths: string[] = [];
+        if (isWindows) {
+            commonPaths.push(
+                path.join(process.env.ProgramFiles || '', 'Cloudflared', cloudflaredName),
+                path.join(process.env['ProgramFiles(x86)'] || '', 'Cloudflared', cloudflaredName)
+            );
+        } else {
+            commonPaths.push(
+                '/usr/local/bin/cloudflared',
+                '/usr/bin/cloudflared',
+                '/opt/homebrew/bin/cloudflared'  // Common Homebrew path on Apple Silicon
+            );
+        }
+
+        // Check common paths
+        for (const commonPath of commonPaths) {
+            if (fs.existsSync(commonPath)) {
+                return commonPath;
+            }
+        }
+
+        // Check in PATH as last resort
         const which = require('which');
         try {
             return await which(cloudflaredName);
         } catch {
-            throw new Error('cloudflared not found. Please install it first.');
+            throw new CloudflaredNotFoundError(platform);
         }
     }
 
@@ -708,21 +757,36 @@ export class TunnelManager {
      */
     async createQuickTunnel(port: number, name?: string): Promise<{ url: string; tunnelUrl: string; name?: string } | null> {
         try {
-            vscode.window.showInformationMessage(`Starting quick tunnel${name ? ` "${name}"` : ''} for port ${port}...`);
-            this.logger.info(LogComponent.TUNNEL, `Starting quick tunnel${name ? ` "${name}"` : ''} for port ${port}`);
+            await Messages.showInfo(Messages.QUICK_TUNNEL_CREATED(name, port));
+            this.logger.info(LogComponent.TUNNEL, Messages.QUICK_TUNNEL_CREATED(name, port));
 
             // Find cloudflared
             this.logger.debug(LogComponent.TUNNEL, 'Looking for cloudflared executable...');
-            const cloudflaredPath = await this.findCloudflaredPath();
-            this.logger.debug(LogComponent.TUNNEL, `Found cloudflared at: ${cloudflaredPath}`);
-            
+            let cloudflaredPath: string;
+            try {
+                cloudflaredPath = await this.findCloudflaredPath();
+                this.logger.debug(LogComponent.TUNNEL, `Found cloudflared at: ${cloudflaredPath}`);
+            } catch (error) {
+                if (error instanceof CloudflaredNotFoundError) {
+                    const response = await Messages.showModal(
+                        Messages.CLOUDFLARED_NOT_FOUND,
+                        Messages.CLOUDFLARED_INSTALL_ACTION
+                    );
+
+                    if (response === Messages.CLOUDFLARED_INSTALL_ACTION) {
+                        await vscode.env.openExternal(vscode.Uri.parse(Messages.CLOUDFLARED_INSTALL_DOCS));
+                    }
+                }
+                throw error;
+            }
+
             // Test cloudflared version
             try {
                 const { stdout } = await util.promisify(cp.exec)(`${cloudflaredPath} --version`);
                 this.logger.debug(LogComponent.TUNNEL, `Cloudflared version: ${stdout}`);
             } catch (error) {
                 this.logger.error(LogComponent.TUNNEL, `Failed to get cloudflared version: ${error}`);
-                throw new Error('Failed to verify cloudflared installation');
+                throw new Error(Messages.CLOUDFLARED_VERSION_ERROR);
             }
 
             // Ensure port is a number and properly formatted

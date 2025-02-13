@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { QuickTunnelTreeDataProvider, QuickTunnelTreeItem } from '../views/quickTunnelTreeView';
 import { Messages } from '../utils/messages';
+import { CloudflaredNotFoundError } from '../services/cloudflared';
 
 export function registerQuickTunnelCommands(
     context: vscode.ExtensionContext,
@@ -9,6 +10,26 @@ export function registerQuickTunnelCommands(
     // Create Quick Tunnel Command
     context.subscriptions.push(
         vscode.commands.registerCommand('tunnelfy.createQuickTunnel', async () => {
+            try {
+                // Check for cloudflared first
+                await quickTunnelProvider.tunnelManager.findCloudflaredPath();
+            } catch (error: any) {
+                if (error instanceof CloudflaredNotFoundError) {
+                    const response = await Messages.showModal(
+                        Messages.CLOUDFLARED_NOT_FOUND,
+                        Messages.CLOUDFLARED_INSTALL_ACTION
+                    );
+
+                    if (response === Messages.CLOUDFLARED_INSTALL_ACTION) {
+                        await vscode.env.openExternal(vscode.Uri.parse(Messages.CLOUDFLARED_INSTALL_DOCS));
+                    }
+                    return; // Exit early if cloudflared is not found
+                }
+                // If it's some other error, show it to the user
+                await Messages.showError(Messages.ERROR_CREATE_TUNNEL(error));
+                return;
+            }
+
             // Get tunnel name (optional)
             const name = await vscode.window.showInputBox({
                 prompt: 'Enter a name for the quick tunnel (optional)',

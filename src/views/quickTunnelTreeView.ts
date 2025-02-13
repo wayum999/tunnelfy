@@ -78,7 +78,7 @@ export class QuickTunnelTreeDataProvider implements vscode.TreeDataProvider<Quic
     private treeView: vscode.TreeView<QuickTunnelTreeItem>;
 
     constructor(
-        private readonly tunnelManager: TunnelManager
+        public readonly tunnelManager: TunnelManager
     ) {
         // Create the tree view
         this.treeView = vscode.window.createTreeView('tunnelfy-quick-tunnels', {

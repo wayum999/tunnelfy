@@ -23,7 +23,7 @@ Managing Cloudflare tunnels directly from a VS Code extension has never been eas
 ## Prerequisites
 
 1. VS Code (v1.85.0 or higher)
-2. A Cloudflare account with API key access
+2. A Cloudflare account with API key access 
 3. Cloudflare Tunnel CLI (`cloudflared`) installed
 
 ## Getting Started
@@ -121,6 +121,18 @@ Several commands are accessible via the Command Palette (Ctrl+Shift+P / Cmd+Shif
    - Check if you've reached your account's tunnel limit
    - Ensure you have a stable internet connection
 
+4. **Quick Tunnel Issues**
+   - Verify cloudflared is installed and accessible
+   - Check if the port is already in use
+   - Look for rate limiting messages in the output
+   - Ensure you have a stable internet connection
+
+5. **Development Environment Issues**
+   - Run `npm install` to ensure all dependencies are installed
+   - Clear the VS Code extension development host: `rm -rf .vscode-test`
+   - Check the extension logs in the Output panel
+   - Verify cloudflared installation and permissions
+
 ## Security
 
 - API keys are stored securely using VS Code's built-in secret storage
@@ -130,7 +142,55 @@ Several commands are accessible via the Command Palette (Ctrl+Shift+P / Cmd+Shif
 
 ## Contributing
 
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+We welcome contributions! Here's how you can help:
+
+1. **Fork the Repository**
+   - Create a fork of the repository
+   - Clone your fork locally
+
+2. **Set Up Development Environment**
+   ```bash
+   # Install dependencies
+   npm install
+   npm install -g yo generator-code
+
+   # Install recommended VS Code extensions
+   code --install-extension dbaeumer.vscode-eslint
+   code --install-extension esbenp.prettier-vscode
+   ```
+
+3. **Create a Feature Branch**
+   ```bash
+   git checkout -b feature/your-feature
+   ```
+
+4. **Make Your Changes**
+   - Write code following our style guidelines
+   - Add tests for new functionality
+   - Update documentation as needed
+
+5. **Test Your Changes**
+   ```bash
+   # Run the test suite
+   npm test
+
+   # Run ESLint
+   npm run lint
+   ```
+
+6. **Merge to Development**
+   ```bash
+   # Use our merge script
+   ./scripts/merge-to-development.sh
+   ```
+
+7. **Create a Pull Request**
+   - Push your changes to your fork
+   - Create a pull request to our development branch
+   - Follow the pull request template
+   - Wait for review and address any feedback
+
+For more detailed information about development, please see our [Development Guide](_DEV/DEVELOPMENT_README.md).
 
 ## License
 

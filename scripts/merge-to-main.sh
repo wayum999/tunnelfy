@@ -57,6 +57,9 @@ echo -e "${YELLOW}Creating and pushing release tag $RELEASE_TAG...${NC}"
 git tag -a "$RELEASE_TAG" -m "Release $RELEASE_TAG"
 git push origin "$RELEASE_TAG"
 
+# Run publish script
+sh scripts/publish.sh
+
 # Switch back to development branch
 git checkout development
 

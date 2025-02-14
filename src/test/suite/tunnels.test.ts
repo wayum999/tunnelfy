@@ -141,6 +141,9 @@ suite('Tunnel Management Tests', () => {
         });
         
         try {
+            // Unregister any existing command first
+            await vscode.commands.executeCommand('workbench.action.commands.unregisterCommand', 'tunnelfy.createTunnel');
+            
             // Register the command
             const disposable = vscode.commands.registerCommand('tunnelfy.createTunnel', async () => {
                 const name = await vscode.window.showInputBox({

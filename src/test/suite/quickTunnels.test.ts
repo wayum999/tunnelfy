@@ -348,12 +348,11 @@ suite('Quick Tunnels Test Suite', () => {
             // Create first tunnel
             console.log('Creating first tunnel...');
             const firstTunnel = await tunnelManager.createQuickTunnel(port);
+            await wait(1000); // Wait for tunnel to be fully established
+            
             assert.ok(firstTunnel, 'First tunnel should be created');
             assert.ok(runningPorts.has(port), 'Port should be marked as in use');
             console.log('First tunnel created successfully');
-
-            // Wait for tunnel to be fully established
-            await wait(2000);
 
             // Try to create second tunnel on same port
             console.log('Attempting to create second tunnel on same port...');
@@ -397,16 +396,24 @@ suite('Quick Tunnels Test Suite', () => {
                 // Use a new port for this test
                 const port = 8081;
                 await retryOnRateLimit(async () => {
+                    // Create the tunnel
                     await tunnelManager.createQuickTunnel(port);
-                    await wait(5000); // Wait longer before stopping
+                    await wait(2000); // Wait for start event
+
+                    // Stop the tunnel
                     await tunnelManager.stopQuickTunnel(port);
-                    await wait(5000); // Wait after stopping
+                    await wait(2000); // Wait for stop event
                 }, 5, 10000);
 
-                assert.strictEqual(events.length, 2, 'Should emit exactly 2 events');
-                assert.strictEqual(events[0].type, 'start', 'First event should be start');
-                assert.strictEqual(events[1].type, 'stop', 'Second event should be stop');
-                assert.strictEqual(events[0].tunnelId, events[1].tunnelId, 'Events should reference same tunnel');
+                // Filter out any unrelated events
+                const relevantEvents = events.filter(event => 
+                    event.tunnelId.includes(`quick-${port}-`)
+                );
+
+                assert.strictEqual(relevantEvents.length, 2, 'Should emit exactly 2 events');
+                assert.strictEqual(relevantEvents[0].type, 'start', 'First event should be start');
+                assert.strictEqual(relevantEvents[1].type, 'stop', 'Second event should be stop');
+                assert.strictEqual(relevantEvents[0].tunnelId, relevantEvents[1].tunnelId, 'Events should reference same tunnel');
             } finally {
                 disposable.dispose();
             }

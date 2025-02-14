@@ -7,12 +7,12 @@ source "$(dirname "$0")/git-utils.sh"
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
 # Prompt for release tag
-echo -e "${YELLOW}Enter the release tag (e.g., v1.0.0):${NC}"
+echo -e "${YELLOW}Enter the release tag (e.g., 0.0.3):${NC}"
 read RELEASE_TAG
 
-# Validate release tag format (vX.X.X)
-if ! [[ $RELEASE_TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    echo -e "${RED}Invalid release tag format. Must be in the format vX.X.X (e.g., v1.0.0)${NC}"
+# Validate release tag format (X.X.X)
+if ! [[ $RELEASE_TAG =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo -e "${RED}Invalid release tag format. Must be in the format X.X.X (e.g., 0.0.3)${NC}"
     exit 1
 fi
 

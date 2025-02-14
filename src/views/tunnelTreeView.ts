@@ -14,13 +14,18 @@ export class TunnelTreeItem extends vscode.TreeItem {
     constructor(
         public readonly label: string,
         public readonly tunnelId: string,
-        public readonly status: 'running' | 'stopped'
+        public readonly status: 'running' | 'stopped',
+        public readonly port?: number
     ) {
         super(label, vscode.TreeItemCollapsibleState.None);
 
         this.contextValue = `tunnel-${status}`;
-        this.description = tunnelId;
-        this.tooltip = `${label} (${tunnelId})`;
+        this.description = port && status === 'running' ? 
+            `${tunnelId} (Port ${port})` : 
+            tunnelId;
+        this.tooltip = port && status === 'running' ? 
+            `${label} (${tunnelId}) - Port ${port}` : 
+            `${label} (${tunnelId})`;
 
         // Set icon based on status
         if (status === 'running') {
@@ -110,11 +115,31 @@ export class TunnelTreeDataProvider implements vscode.TreeDataProvider<TunnelTre
             const tunnels = await this.tunnelManager.listTunnels();
             
             // Create tree items for each tunnel
-            this.currentItems = tunnels.map(tunnel => new TunnelTreeItem(
-                tunnel.name,
-                tunnel.id,
-                tunnel.connections && tunnel.connections.length > 0 ? 'running' : 'stopped'
-            ));
+            this.currentItems = await Promise.all(tunnels.map(async tunnel => {
+                let port: number | undefined;
+                
+                // If tunnel is running, try to get its port from the config
+                if (tunnel.connections && tunnel.connections.length > 0) {
+                    try {
+                        const config = await this.tunnelManager.getTunnelConfig(tunnel.id);
+                        if (config && config.ingress && config.ingress[0] && config.ingress[0].service) {
+                            const match = config.ingress[0].service.match(/localhost:(\d+)/);
+                            if (match) {
+                                port = parseInt(match[1], 10);
+                            }
+                        }
+                    } catch (error) {
+                        this.logger.debug(LogComponent.EXTENSION, `Could not get port for tunnel ${tunnel.id}: ${error}`);
+                    }
+                }
+
+                return new TunnelTreeItem(
+                    tunnel.name,
+                    tunnel.id,
+                    tunnel.connections && tunnel.connections.length > 0 ? 'running' : 'stopped',
+                    port
+                );
+            }));
 
             return this.currentItems;
         } catch (error) {

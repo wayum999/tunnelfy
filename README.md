@@ -2,6 +2,8 @@
 
 Managing Cloudflare tunnels directly from a VS Code extension has never been easier. Streamline your development workflow by creating and managing permanent and quick tunnels without leaving your IDE.
 
+![Tunnelfy Cloudflare Overview](images/readme/overview/Tunnelfy_Cloudflare_Overview.gif)
+
 ## Features
 
 ### Profile Management
@@ -37,9 +39,13 @@ Managing Cloudflare tunnels directly from a VS Code extension has never been eas
 
 ### 2. Install Cloudflare Tunnel CLI (`cloudflared`)
 
+![Creating a Cloudflare API Token](images/readme/installation/Cloudflare_Token.gif)
+
 1. Follow the instructions in the [Installing Cloudflare Tunnel CLI (`cloudflared`)](#installing-cloudflare-tunnel-cli-cloudflared) section
 
 ### 3. Create a Profile
+
+![Creating Cloudflare Profiles](images/readme/profiles/Tunnelfy_Cloudflare_Profiles.gif)
 
 1. Click the cloud icon in the activity bar
 2. Click the + button in the Profiles section
@@ -58,9 +64,9 @@ Managing Cloudflare tunnels directly from a VS Code extension has never been eas
      - Value: `Your IP Address` (Can be found with https://nordvpn.com/what-is-my-ip)
    - The API key will be stored securely and never displayed again
 
-![Creating a Cloudflare API Token](images/readme/installation/Cloudflare_Token.gif)
-
 ### 4. Persistent Tunnels
+
+![Creating Persistent Tunnels](images/readme/tunnels/Tunnelfy_Cloudflare_Tunnels.gif)
 
 1. Click the + button in the Tunnels section
 2. Enter a name for your tunnel
@@ -71,6 +77,8 @@ Managing Cloudflare tunnels directly from a VS Code extension has never been eas
    - Delete the tunnel
 
 ### 5. Quick Tunnels
+
+![Creating Quick Tunnels](images/readme/quicktunnels/Tunnelfy_Cloudflare_QuickTunnels.gif)
 
 1. Click the + button in the Quick Tunnels section
 2. Configure your local service details:

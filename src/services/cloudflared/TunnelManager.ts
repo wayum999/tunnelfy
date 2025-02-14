@@ -943,4 +943,18 @@ export class TunnelManager {
         }
         // No need to log anything if tunnel not found - it's already stopped
     }
+
+    /**
+     * Gets the configuration for a specific tunnel
+     * @param tunnelId ID of the tunnel to get configuration for
+     * @returns The tunnel configuration if found
+     */
+    async getTunnelConfig(tunnelId: string): Promise<any> {
+        try {
+            return await this.tunnelConfig.loadTunnelConfig(tunnelId);
+        } catch (error) {
+            this.logger.error(LogComponent.TUNNEL, `Failed to get tunnel config: ${error}`);
+            throw error;
+        }
+    }
 } 

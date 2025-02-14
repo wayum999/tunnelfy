@@ -10,6 +10,16 @@ import { TunnelConfig } from './TunnelConfig';
 import * as util from 'util';
 
 /**
+ * Custom error class for when cloudflared is not found
+ */
+export class CloudflaredNotFoundError extends Error {
+    constructor(message: string = 'cloudflared not found. Please install it first.') {
+        super(message);
+        this.name = 'CloudflaredNotFoundError';
+    }
+}
+
+/**
  * Interface representing a Cloudflare tunnel's data structure
  */
 export interface CloudflareTunnel {
@@ -208,7 +218,7 @@ export class TunnelManager {
         try {
             return await which(cloudflaredName);
         } catch {
-            throw new Error('cloudflared not found. Please install it first.');
+            throw new CloudflaredNotFoundError();
         }
     }
 

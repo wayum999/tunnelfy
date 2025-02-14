@@ -58,7 +58,8 @@ git tag -a "$RELEASE_TAG" -m "Release $RELEASE_TAG"
 git push origin "$RELEASE_TAG"
 
 # Run publish script
-sh scripts/publish.sh
+echo -e "${YELLOW}Publishing to VS Code Marketplace...${NC}"
+vsce publish
 
 # Switch back to development branch
 git checkout development

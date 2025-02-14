@@ -941,5 +941,6 @@ export class TunnelManager {
         if (quickTunnelId) {
             await this.stopTunnel(quickTunnelId);
         }
+        // No need to log anything if tunnel not found - it's already stopped
     }
 } 

@@ -33,6 +33,16 @@ export class Messages {
     static readonly QUICK_TUNNEL_PORT_IN_USE = (port: string | number) => 
         `Port ${port} is already in use. Please choose a different port.`;
 
+    // Cloudflared Messages
+    static readonly CLOUDFLARED_NOT_FOUND = 'cloudflared is required but not found on your system.';
+    static readonly CLOUDFLARED_INSTALL_ACTION = 'Installation Instructions';
+    static readonly CLOUDFLARED_INSTALL_DARWIN = 'To install, run: `brew install cloudflare/cloudflare/cloudflared`';
+    static readonly CLOUDFLARED_INSTALL_WIN32 = 'Download the installer from: https://github.com/cloudflare/cloudflared/releases';
+    static readonly CLOUDFLARED_INSTALL_LINUX = 'Install using your package manager or download from: https://github.com/cloudflare/cloudflared/releases';
+    static readonly CLOUDFLARED_INSTALL_DEFAULT = 'Download from: https://github.com/cloudflare/cloudflared/releases';
+    static readonly CLOUDFLARED_INSTALL_DOCS = 'https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/installation';
+    static readonly CLOUDFLARED_VERSION_ERROR = 'Failed to verify cloudflared installation';
+
     // Token Messages
     static readonly TOKEN_COPIED = 'Token copied to clipboard (will be cleared in 30 seconds)';
     static readonly TOKEN_SECURITY_WARNING = 

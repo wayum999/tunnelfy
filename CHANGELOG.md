@@ -14,5 +14,11 @@ All notable changes to the "tunnelfy" extension will be documented in this file.
 
 ## [0.0.3]
 
-- UPDAED: Continued work on testing suite.
+Major update to how the extension functions, using the Cloudflare API to handle interaction with account data and tunnel management.
+
+- UPDATED: Continued work on testing suite.
 - UPDATED: README Changelog linkage to the CHANGELOG.md file.
+- FIXED: Multiple bugs with the extension and tunnel management.
+- ADDED: Cloudflare API key storage and management.
+- ADDED: Cloudflared API functionality.
+- UPDATED: Modularized codebase for better readability and maintainability.

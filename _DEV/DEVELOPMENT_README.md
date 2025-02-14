@@ -183,6 +183,36 @@ The extension implements a comprehensive security system for handling sensitive 
    npm run test      # Run tests
    ```
 
+4. **Script Organization**
+   The project uses a set of standardized scripts for git operations:
+   ```
+   scripts/
+   ├── git-utils.sh            # Shared git utilities and functions
+   ├── merge-to-development.sh # Merge current branch to development
+   ├── merge-to-main.sh       # Merge current branch to main
+   └── publish.sh             # Publish to VS Code Marketplace
+   ```
+
+   Key features of the scripts:
+   - Consistent error handling and color output
+   - Shared utility functions
+   - Test enforcement before merges
+   - Automatic rollback on failures
+   - Branch protection
+   - Clear user feedback
+
+   Usage:
+   ```bash
+   # Merge to development
+   ./scripts/merge-to-development.sh
+
+   # Merge to main
+   ./scripts/merge-to-main.sh
+
+   # Publish extension
+   ./scripts/publish.sh
+   ```
+
 ### Making Changes
 
 1. **Adding New Features**
@@ -267,6 +297,9 @@ The Tunnelfy extension uses the VS Code Extension Testing framework along with M
 src/test/
 ├── suite/                 # Test suite files
 │   ├── extension.test.ts  # Main test file for extension
+│   ├── tunnels.test.ts   # Tunnel management tests
+│   ├── cloudflared.test.ts # Cloudflared service tests
+│   ├── quickTunnels.test.ts # Quick tunnel tests
 │   └── index.ts          # Test suite runner configuration
 ├── runTest.ts            # Test runner entry point
 └── tsconfig.json         # TypeScript config for tests
@@ -554,6 +587,30 @@ cloudflare-vscode/
        // Implementation
      })
    );
+   ```
+
+### Git Workflow
+
+1. **Feature Development**
+   ```bash
+   # Create feature branch
+   git checkout -b feature/your-feature
+
+   # Make changes and commit
+   git add .
+   git commit -m "feat: your feature description"
+
+   # Merge to development
+   ./scripts/merge-to-development.sh
+   ```
+
+2. **Release Process**
+   ```bash
+   # Merge to main
+   ./scripts/merge-to-main.sh
+
+   # Publish extension
+   ./scripts/publish.sh
    ```
 
 ### Adding New Logging Component

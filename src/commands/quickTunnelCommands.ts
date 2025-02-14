@@ -9,32 +9,77 @@ export function registerQuickTunnelCommands(
     // Create Quick Tunnel Command
     context.subscriptions.push(
         vscode.commands.registerCommand('tunnelfy.createQuickTunnel', async () => {
-            // Get tunnel name (optional)
-            const name = await vscode.window.showInputBox({
-                prompt: 'Enter a name for the quick tunnel (optional)',
-                placeHolder: 'my-quick-tunnel'
-            });
-
-            // Get port number
-            const port = await vscode.window.showInputBox({
-                prompt: 'Enter the local port to create a quick tunnel',
-                placeHolder: '8080',
-                validateInput: (value) => {
-                    const port = parseInt(value, 10);
-                    if (isNaN(port) || port < 1 || port > 65535) {
-                        return 'Please enter a valid port number (1-65535)';
+            try {
+                // Get tunnel name (optional)
+                const name = await vscode.window.showInputBox({
+                    prompt: 'Enter a name for the quick tunnel (optional)',
+                    placeHolder: 'my-quick-tunnel',
+                    validateInput: (value) => {
+                        if (value && value.trim().length === 0) {
+                            return 'Name cannot be empty if provided';
+                        }
+                        return null;
                     }
-                    return null;
-                }
-            });
+                });
 
-            if (port) {
-                try {
-                    await quickTunnelProvider.addQuickTunnel(parseInt(port, 10), name);
-                    await Messages.showInfo(Messages.QUICK_TUNNEL_CREATED(name, port));
-                } catch (error) {
-                    await Messages.showError(Messages.ERROR_CREATE_TUNNEL(error));
+                // Get port number
+                const port = await vscode.window.showInputBox({
+                    prompt: 'Enter the local port to create a quick tunnel',
+                    placeHolder: '8080',
+                    validateInput: (value) => {
+                        const port = parseInt(value, 10);
+                        if (isNaN(port) || port < 1 || port > 65535) {
+                            return 'Please enter a valid port number (1-65535)';
+                        }
+                        return null;
+                    }
+                });
+
+                if (port) {
+                    try {
+                        // Only pass the name if it's not empty
+                        const tunnelName = name?.trim() || undefined;
+                        await quickTunnelProvider.addQuickTunnel(parseInt(port, 10), tunnelName);
+                    } catch (error: any) {
+                        if (error.message?.includes('cloudflared not found')) {
+                            const platform = process.platform;
+                            let installInstructions = '';
+                            
+                            switch (platform) {
+                                case 'darwin':
+                                    installInstructions = Messages.CLOUDFLARED_INSTALL_DARWIN;
+                                    break;
+                                case 'win32':
+                                    installInstructions = Messages.CLOUDFLARED_INSTALL_WIN32;
+                                    break;
+                                case 'linux':
+                                    installInstructions = Messages.CLOUDFLARED_INSTALL_LINUX;
+                                    break;
+                                default:
+                                    installInstructions = Messages.CLOUDFLARED_INSTALL_DEFAULT;
+                            }
+
+                            const CLOUDFLARED_INSTALL_URL = 'https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/create-local-tunnel/';
+                            
+                            const response = await vscode.window.showErrorMessage(
+                                Messages.CLOUDFLARED_NOT_FOUND,
+                                { 
+                                    modal: true, 
+                                    detail: installInstructions 
+                                },
+                                Messages.CLOUDFLARED_INSTALL_ACTION
+                            );
+
+                            if (response === Messages.CLOUDFLARED_INSTALL_ACTION) {
+                                await vscode.env.openExternal(vscode.Uri.parse(CLOUDFLARED_INSTALL_URL));
+                            }
+                            return;
+                        }
+                        await Messages.showError(Messages.ERROR_CREATE_TUNNEL(error));
+                    }
                 }
+            } catch (error) {
+                await Messages.showError(Messages.ERROR_CREATE_TUNNEL(error));
             }
         })
     );

@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { TunnelManager, TunnelEvent } from '../services/cloudflared';
 import { Logger, LogComponent } from '../utils/logger';
+import { Messages } from '../utils/messages';
 
 /**
  * Represents a quick tunnel item in the tree view
@@ -14,11 +15,13 @@ export class QuickTunnelTreeItem extends vscode.TreeItem {
         public readonly tunnelUrl?: string,
         public readonly name?: string
     ) {
-        super(name || `Port ${port}`);
+        // Use name as label if provided, otherwise use port
+        const label = name && name.trim() ? name.trim() : `Port ${port}`;
+        super(label);
 
         // Create a detailed tooltip with markdown formatting
         this.tooltip = new vscode.MarkdownString();
-        this.tooltip.appendMarkdown(`**${name || `Port ${port}`}**\n\n`);
+        this.tooltip.appendMarkdown(`**${label}**\n\n`);
         if (url) {
             this.tooltip.appendMarkdown(`**Local URL**: [${url}](${url})\n\n`);
         }
@@ -37,8 +40,8 @@ export class QuickTunnelTreeItem extends vscode.TreeItem {
             }
         }
         
-        // Show port in description along with hostname
-        this.description = `${hostname} (Port ${port})`;
+        // Show hostname and port in description
+        this.description = hostname ? `${hostname} (Port ${port})` : `(Port ${port})`;
         
         // Set icon based on status
         if (status === 'active' || status === 'running') {
@@ -78,7 +81,7 @@ export class QuickTunnelTreeDataProvider implements vscode.TreeDataProvider<Quic
     private treeView: vscode.TreeView<QuickTunnelTreeItem>;
 
     constructor(
-        private readonly tunnelManager: TunnelManager
+        public readonly tunnelManager: TunnelManager
     ) {
         // Create the tree view
         this.treeView = vscode.window.createTreeView('tunnelfy-quick-tunnels', {
@@ -131,13 +134,17 @@ export class QuickTunnelTreeDataProvider implements vscode.TreeDataProvider<Quic
     async getChildren(): Promise<QuickTunnelTreeItem[]> {
         try {
             const quickTunnels = await this.tunnelManager.getQuickTunnels();
-            return quickTunnels.map((tunnel: { port: number; url: string; tunnelUrl: string; name?: string }) => new QuickTunnelTreeItem(
-                tunnel.port,
-                'running',
-                tunnel.url,
-                tunnel.tunnelUrl,
-                tunnel.name
-            ));
+            return quickTunnels.map(tunnel => {
+                // Ensure name is properly trimmed and not empty
+                const tunnelName = tunnel.name?.trim() || undefined;
+                return new QuickTunnelTreeItem(
+                    tunnel.port,
+                    'running',
+                    tunnel.url,
+                    tunnel.tunnelUrl,
+                    tunnelName
+                );
+            });
         } catch (error) {
             this.logger.error(LogComponent.EXTENSION, `Failed to get quick tunnels: ${error}`);
             return [];
@@ -155,7 +162,53 @@ export class QuickTunnelTreeDataProvider implements vscode.TreeDataProvider<Quic
      */
     async addQuickTunnel(port: number, name?: string): Promise<void> {
         try {
-            await this.tunnelManager.createQuickTunnel(port);
+            // Check for cloudflared installation first
+            try {
+                await this.tunnelManager.checkCloudflared();
+            } catch (error: unknown) {
+                const platform = process.platform;
+                let installInstructions = '';
+                
+                switch (platform) {
+                    case 'darwin':
+                        installInstructions = Messages.CLOUDFLARED_INSTALL_DARWIN;
+                        break;
+                    case 'win32':
+                        installInstructions = Messages.CLOUDFLARED_INSTALL_WIN32;
+                        break;
+                    case 'linux':
+                        installInstructions = Messages.CLOUDFLARED_INSTALL_LINUX;
+                        break;
+                    default:
+                        installInstructions = Messages.CLOUDFLARED_INSTALL_DEFAULT;
+                }
+
+                const CLOUDFLARED_INSTALL_URL = 'https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/create-local-tunnel/';
+                
+                const response = await vscode.window.showErrorMessage(
+                    Messages.CLOUDFLARED_NOT_FOUND,
+                    { 
+                        modal: true, 
+                        detail: installInstructions 
+                    },
+                    Messages.CLOUDFLARED_INSTALL_ACTION
+                );
+
+                if (response === Messages.CLOUDFLARED_INSTALL_ACTION) {
+                    await vscode.env.openExternal(vscode.Uri.parse(CLOUDFLARED_INSTALL_URL));
+                }
+                
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                this.logger.warn(
+                    LogComponent.EXTENSION, 
+                    `Cloudflared not found during quick tunnel creation: ${errorMessage}`, 
+                    { preserveFocus: true }
+                );
+                return;
+            }
+
+            // Create the tunnel if cloudflared is installed
+            await this.tunnelManager.createQuickTunnel(port, name);
             this.refresh();
         } catch (error) {
             this.logger.error(LogComponent.EXTENSION, `Failed to add quick tunnel: ${error}`);

@@ -16,7 +16,8 @@ export function registerProfileCommands(
         vscode.commands.registerCommand('tunnelfy.createProfile', async () => {
             const name = await vscode.window.showInputBox({
                 prompt: 'Enter a name for the new profile',
-                placeHolder: 'my-profile'
+                placeHolder: 'my-profile',
+                ignoreFocusOut: true
             });
 
             if (!name) {
@@ -26,7 +27,8 @@ export function registerProfileCommands(
             const apiKey = await vscode.window.showInputBox({
                 prompt: 'Enter your Cloudflare API key',
                 placeHolder: 'your-api-key',
-                password: true
+                password: true,
+                ignoreFocusOut: true
             });
 
             if (!apiKey) {
@@ -90,7 +92,7 @@ export function registerProfileCommands(
                     prompt: `Enter new API key for profile "${item.label}"`,
                     placeHolder: 'your-api-key',
                     password: true,
-                    ignoreFocusOut: true
+                    ignoreFocusOut: true  // Keep the input box open when focus is lost
                 });
 
                 if (!apiKey) {

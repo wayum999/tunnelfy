@@ -120,3 +120,6 @@ _DEV/cloudflared_CLI_SAMPLE_RESPONSES
 _DEV/TODO_LIST.md
 _DEV/BUGS.md
 _DEV/Tunnelfy_Test_Failure_Analysis.md
+run_merge_branch_development.sh
+run_publish.sh
+_DEV/FAILED_TESTS.md

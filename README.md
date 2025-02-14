@@ -2,6 +2,8 @@
 
 Managing Cloudflare tunnels directly from a VS Code extension has never been easier. Streamline your development workflow by creating and managing permanent and quick tunnels without leaving your IDE.
 
+![Tunnelfy Cloudflare Overview](images/readme/overview/Tunnelfy_Cloudflare_Overview.gif)
+
 ## Features
 
 ### Profile Management
@@ -23,7 +25,7 @@ Managing Cloudflare tunnels directly from a VS Code extension has never been eas
 ## Prerequisites
 
 1. VS Code (v1.85.0 or higher)
-2. A Cloudflare account with API key access
+2. A Cloudflare account with API key access 
 3. Cloudflare Tunnel CLI (`cloudflared`) installed
 
 ## Getting Started
@@ -37,9 +39,13 @@ Managing Cloudflare tunnels directly from a VS Code extension has never been eas
 
 ### 2. Install Cloudflare Tunnel CLI (`cloudflared`)
 
+![Creating a Cloudflare API Token](images/readme/installation/Cloudflare_Token.gif)
+
 1. Follow the instructions in the [Installing Cloudflare Tunnel CLI (`cloudflared`)](#installing-cloudflare-tunnel-cli-cloudflared) section
 
 ### 3. Create a Profile
+
+![Creating Cloudflare Profiles](images/readme/profiles/Tunnelfy_Cloudflare_Profiles.gif)
 
 1. Click the cloud icon in the activity bar
 2. Click the + button in the Profiles section
@@ -58,9 +64,9 @@ Managing Cloudflare tunnels directly from a VS Code extension has never been eas
      - Value: `Your IP Address` (Can be found with https://nordvpn.com/what-is-my-ip)
    - The API key will be stored securely and never displayed again
 
-![Creating a Cloudflare API Token](images/readme/installation/Cloudflare_Token.gif)
-
 ### 4. Persistent Tunnels
+
+![Creating Persistent Tunnels](images/readme/tunnels/Tunnelfy_Cloudflare_Tunnels.gif)
 
 1. Click the + button in the Tunnels section
 2. Enter a name for your tunnel
@@ -71,6 +77,8 @@ Managing Cloudflare tunnels directly from a VS Code extension has never been eas
    - Delete the tunnel
 
 ### 5. Quick Tunnels
+
+![Creating Quick Tunnels](images/readme/quicktunnels/Tunnelfy_Cloudflare_QuickTunnels.gif)
 
 1. Click the + button in the Quick Tunnels section
 2. Configure your local service details:
@@ -121,6 +129,18 @@ Several commands are accessible via the Command Palette (Ctrl+Shift+P / Cmd+Shif
    - Check if you've reached your account's tunnel limit
    - Ensure you have a stable internet connection
 
+4. **Quick Tunnel Issues**
+   - Verify cloudflared is installed and accessible
+   - Check if the port is already in use
+   - Look for rate limiting messages in the output
+   - Ensure you have a stable internet connection
+
+5. **Development Environment Issues**
+   - Run `npm install` to ensure all dependencies are installed
+   - Clear the VS Code extension development host: `rm -rf .vscode-test`
+   - Check the extension logs in the Output panel
+   - Verify cloudflared installation and permissions
+
 ## Security
 
 - API keys are stored securely using VS Code's built-in secret storage
@@ -130,7 +150,55 @@ Several commands are accessible via the Command Palette (Ctrl+Shift+P / Cmd+Shif
 
 ## Contributing
 
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+We welcome contributions! Here's how you can help:
+
+1. **Fork the Repository**
+   - Create a fork of the repository
+   - Clone your fork locally
+
+2. **Set Up Development Environment**
+   ```bash
+   # Install dependencies
+   npm install
+   npm install -g yo generator-code
+
+   # Install recommended VS Code extensions
+   code --install-extension dbaeumer.vscode-eslint
+   code --install-extension esbenp.prettier-vscode
+   ```
+
+3. **Create a Feature Branch**
+   ```bash
+   git checkout -b feature/your-feature
+   ```
+
+4. **Make Your Changes**
+   - Write code following our style guidelines
+   - Add tests for new functionality
+   - Update documentation as needed
+
+5. **Test Your Changes**
+   ```bash
+   # Run the test suite
+   npm test
+
+   # Run ESLint
+   npm run lint
+   ```
+
+6. **Merge to Development**
+   ```bash
+   # Use our merge script
+   ./scripts/merge-to-development.sh
+   ```
+
+7. **Create a Pull Request**
+   - Push your changes to your fork
+   - Create a pull request to our development branch
+   - Follow the pull request template
+   - Wait for review and address any feedback
+
+For more detailed information about development, please see our [Development Guide](_DEV/DEVELOPMENT_README.md).
 
 ## License
 

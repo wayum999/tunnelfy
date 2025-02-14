@@ -10,6 +10,16 @@ import { TunnelConfig } from './TunnelConfig';
 import * as util from 'util';
 
 /**
+ * Custom error class for when cloudflared is not found
+ */
+export class CloudflaredNotFoundError extends Error {
+    constructor(message: string = 'cloudflared not found. Please install it first.') {
+        super(message);
+        this.name = 'CloudflaredNotFoundError';
+    }
+}
+
+/**
  * Interface representing a Cloudflare tunnel's data structure
  */
 export interface CloudflareTunnel {
@@ -178,6 +188,15 @@ export class TunnelManager {
     }
 
     /**
+     * Checks if cloudflared is installed and available
+     * @returns Path to cloudflared executable
+     * @throws Error if cloudflared is not found
+     */
+    async checkCloudflared(): Promise<string> {
+        return this.findCloudflaredPath();
+    }
+
+    /**
      * Locates the cloudflared executable
      * @returns Path to the cloudflared executable
      * @throws Error if cloudflared is not found
@@ -199,7 +218,7 @@ export class TunnelManager {
         try {
             return await which(cloudflaredName);
         } catch {
-            throw new Error('cloudflared not found. Please install it first.');
+            throw new CloudflaredNotFoundError();
         }
     }
 
@@ -674,7 +693,8 @@ export class TunnelManager {
                                 quickTunnels.push({
                                     port,
                                     url,
-                                    tunnelUrl: urlMatch[0]
+                                    tunnelUrl: urlMatch[0],
+                                    name: tunnel.name
                                 });
                             }
                         }
@@ -877,7 +897,7 @@ export class TunnelManager {
                         this.logger.error(LogComponent.TUNNEL, 'Error output:', errorBuffer);
                     }
                     reject(new Error('Timed out waiting for quick tunnel URL'));
-                }, 5000); // 5 seconds timeout
+                }, 15000); // 15 seconds timeout
 
                 // Check the buffer periodically in case we missed the URL in the event handlers
                 const interval = setInterval(() => {
@@ -920,6 +940,21 @@ export class TunnelManager {
 
         if (quickTunnelId) {
             await this.stopTunnel(quickTunnelId);
+        }
+        // No need to log anything if tunnel not found - it's already stopped
+    }
+
+    /**
+     * Gets the configuration for a specific tunnel
+     * @param tunnelId ID of the tunnel to get configuration for
+     * @returns The tunnel configuration if found
+     */
+    async getTunnelConfig(tunnelId: string): Promise<any> {
+        try {
+            return await this.tunnelConfig.loadTunnelConfig(tunnelId);
+        } catch (error) {
+            this.logger.error(LogComponent.TUNNEL, `Failed to get tunnel config: ${error}`);
+            throw error;
         }
     }
 } 

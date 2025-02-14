@@ -6,6 +6,22 @@ source "$(dirname "$0")/git-utils.sh"
 # Get current branch name
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
+# Prompt for release tag
+echo -e "${YELLOW}Enter the release tag (e.g., v1.0.0):${NC}"
+read RELEASE_TAG
+
+# Validate release tag format (vX.X.X)
+if ! [[ $RELEASE_TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo -e "${RED}Invalid release tag format. Must be in the format vX.X.X (e.g., v1.0.0)${NC}"
+    exit 1
+fi
+
+# Check if tag already exists
+if git rev-parse "$RELEASE_TAG" >/dev/null 2>&1; then
+    echo -e "${RED}Tag $RELEASE_TAG already exists${NC}"
+    exit 1
+fi
+
 # Perform checks
 check_current_branch "main" || exit 1
 check_uncommitted_changes || exit 1
@@ -25,9 +41,6 @@ if ! git merge origin/main; then
     exit 1
 fi
 
-# Run tests after merging main
-run_tests || exit 1
-
 # Perform the merge to main
 merge_branch "$CURRENT_BRANCH" "main" || exit 1
 
@@ -39,7 +52,12 @@ run_tests || {
     exit 1
 }
 
-# Switch back to feature branch
-git checkout "$CURRENT_BRANCH"
+# Create and push the release tag
+echo -e "${YELLOW}Creating and pushing release tag $RELEASE_TAG...${NC}"
+git tag -a "$RELEASE_TAG" -m "Release $RELEASE_TAG"
+git push origin "$RELEASE_TAG"
 
-echo -e "${GREEN}Successfully merged $CURRENT_BRANCH into main!${NC}" 
+# Switch back to development branch
+git checkout development
+
+echo -e "${GREEN}Successfully merged $CURRENT_BRANCH into main and created tag $RELEASE_TAG!${NC}" 

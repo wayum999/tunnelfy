@@ -178,6 +178,15 @@ export class TunnelManager {
     }
 
     /**
+     * Checks if cloudflared is installed and available
+     * @returns Path to cloudflared executable
+     * @throws Error if cloudflared is not found
+     */
+    async checkCloudflared(): Promise<string> {
+        return this.findCloudflaredPath();
+    }
+
+    /**
      * Locates the cloudflared executable
      * @returns Path to the cloudflared executable
      * @throws Error if cloudflared is not found
@@ -674,7 +683,8 @@ export class TunnelManager {
                                 quickTunnels.push({
                                     port,
                                     url,
-                                    tunnelUrl: urlMatch[0]
+                                    tunnelUrl: urlMatch[0],
+                                    name: tunnel.name
                                 });
                             }
                         }
@@ -877,7 +887,7 @@ export class TunnelManager {
                         this.logger.error(LogComponent.TUNNEL, 'Error output:', errorBuffer);
                     }
                     reject(new Error('Timed out waiting for quick tunnel URL'));
-                }, 5000); // 5 seconds timeout
+                }, 15000); // 15 seconds timeout
 
                 // Check the buffer periodically in case we missed the URL in the event handlers
                 const interval = setInterval(() => {

@@ -14,6 +14,8 @@
  */
 
 import * as vscode from 'vscode';
+import * as cp from 'child_process';
+import { promisify } from 'util';
 import { CloudflareApiService } from './services/cloudflareApiService';
 import { TokenService } from './services/tokenService';
 import { ProfileManager } from './services/profileManager';
@@ -23,6 +25,7 @@ import { QuickTunnelTreeDataProvider } from './views/quickTunnelTreeView';
 import { Logger, LogComponent } from './utils/logger';
 import { TunnelManager } from './services/cloudflared';
 import { registerProfileCommands, registerTunnelCommands, registerQuickTunnelCommands } from './commands';
+import { Messages } from './utils/messages';
 
 /**
  * Extension Activation Event
@@ -46,6 +49,52 @@ export async function activate(context: vscode.ExtensionContext) {
         const apiService = new CloudflareApiService(context, profileManager);
         const tokenService = new TokenService(context);
         const tunnelManager = new TunnelManager(context, logger, apiService, profileManager);
+
+        // Check for cloudflared installation
+        try {
+            const execAsync = promisify(cp.exec);
+            const { stdout } = await execAsync('cloudflared --version');
+            logger.debug(LogComponent.EXTENSION, `Cloudflared version: ${stdout.trim()}`);
+        } catch (error: unknown) {
+            const platform = process.platform;
+            let installInstructions = '';
+            
+            switch (platform) {
+                case 'darwin':
+                    installInstructions = Messages.CLOUDFLARED_INSTALL_DARWIN;
+                    break;
+                case 'win32':
+                    installInstructions = Messages.CLOUDFLARED_INSTALL_WIN32;
+                    break;
+                case 'linux':
+                    installInstructions = Messages.CLOUDFLARED_INSTALL_LINUX;
+                    break;
+                default:
+                    installInstructions = Messages.CLOUDFLARED_INSTALL_DEFAULT;
+            }
+
+            const CLOUDFLARED_INSTALL_URL = 'https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/create-local-tunnel/';
+            
+            const response = await vscode.window.showErrorMessage(
+                Messages.CLOUDFLARED_NOT_FOUND,
+                { 
+                    modal: true, 
+                    detail: installInstructions 
+                },
+                Messages.CLOUDFLARED_INSTALL_ACTION
+            );
+
+            if (response === Messages.CLOUDFLARED_INSTALL_ACTION) {
+                await vscode.env.openExternal(vscode.Uri.parse(CLOUDFLARED_INSTALL_URL));
+            }
+            
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            logger.warn(
+                LogComponent.EXTENSION, 
+                `Cloudflared not found during activation: ${errorMessage}`, 
+                { preserveFocus: true }
+            );
+        }
 
         // Initialize UI providers
         const profilesProvider = new ProfilesProvider(profileManager);

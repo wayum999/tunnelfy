@@ -1,34 +1,21 @@
 import * as path from 'path';
-import * as process from 'process';
-import * as fs from 'fs';
 import { runTests } from '@vscode/test-electron';
 
 async function main() {
     try {
-        // Use the symbolic link path
-        const testRoot = '/tmp/vsc-test';
-        const extensionDevelopmentPath = path.join(testRoot, 'ext');
-        const extensionTestsPath = path.join(extensionDevelopmentPath, 'out/test/suite/index');
-        
-        // Set up test environment paths
-        const testDataDir = path.join(testRoot, 'data');
-        const testExtDir = path.join(testRoot, 'extensions');
-        
-        // Create required directories
-        fs.mkdirSync(testDataDir, { recursive: true });
-        fs.mkdirSync(testExtDir, { recursive: true });
+        // The folder containing the Extension Manifest package.json
+        const extensionDevelopmentPath = path.resolve(__dirname, '../../');
 
-        // Run the integration test
+        // The path to test runner
+        const extensionTestsPath = path.resolve(__dirname, '../../out/test/suite');
+
+        // Download VS Code, unzip it and run the integration test
         await runTests({
             extensionDevelopmentPath,
             extensionTestsPath,
             launchArgs: [
-                '--disable-extensions',
-                `--user-data-dir=${testDataDir}`,
-                `--extensions-dir=${testExtDir}`,
-                '--disable-telemetry',
-                '--skip-welcome',
-                '--skip-release-notes'
+                '--disable-workspace-trust', // Disable workspace trust dialog
+                '--force-disable-user-env'   // Use clean environment
             ]
         });
     } catch (err) {

@@ -1,9 +1,10 @@
 # VS Code Extension specific
 out/
-dist/
 *.vsix
+.vscode-test-web/
+.vscode-test/
 
-# Dependencies - handle nested directories
+# Dependencies
 node_modules/
 .pnpm-store/
 
@@ -11,11 +12,10 @@ node_modules/
 *.tsbuildinfo
 **/*.tsbuildinfo
 
-# Build output
-build/
-lib/
-**/out/**
-**/dist/**
+# Source maps and compiled JavaScript in source directory
+**/src/**/*.js.map
+**/src/**/*.js
+!esbuild.js
 
 # Environment and secrets
 .env
@@ -29,20 +29,19 @@ lib/
 *.swo
 .DS_Store
 **/.DS_Store
-.vscode-test/
-.vscode-test-web/
-.vscode
-*/.vscode
-
+.vscode/*
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+!.vscode/settings.json
 
 # Logs
+logs/
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 lerna-debug.log*
-logs/
-
-*.log
 
 # Test coverage
 coverage/
@@ -62,6 +61,26 @@ coverage/
 
 # Yarn Integrity file
 .yarn-integrity
+
+# dotenv environment variable files
+.env
+.env.test
+.env*.local
+
+# parcel-bundler cache (https://parceljs.org/)
+.cache
+.parcel-cache
+
+# Next.js build output
+.next
+
+# Nuxt.js build / generate output
+.nuxt
+dist/
+
+# Temporary folders
+tmp/
+temp/
 
 # Cloudflare specific
 .cloudflared/
@@ -87,4 +106,20 @@ _DEV/cloudflare-tunnel-vscode-EXAMPLE
 run_merge_branch_main.sh
 install_vscode.sh
 
-_DEV/
+
+_DEV/LOGO_MASTER.pxd
+_DEV/LOGO_WEBSITE.pxd
+_DEV/PRODUCT_HUNT_BANNER.pxd
+_DEV/DEVELOPMENT_PLAN.md
+_DEV/DEVELOPMENT_REVIEW.md
+_DEV/vscode-extension-examples-for-reference
+_DEV/cloudflare_API_schemas
+_DEV/cloudflare_API_sample_responses
+.cursor
+_DEV/cloudflared_CLI_SAMPLE_RESPONSES
+_DEV/TODO_LIST.md
+_DEV/BUGS.md
+_DEV/Tunnelfy_Test_Failure_Analysis.md
+run_merge_branch_development.sh
+run_publish.sh
+_DEV/FAILED_TESTS.md

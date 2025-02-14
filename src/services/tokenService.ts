@@ -18,6 +18,7 @@ import * as vscode from 'vscode';
 import * as crypto from 'crypto';
 import { Logger, LogComponent } from '../utils/logger';
 import { TokenAuditService } from './tokenAuditService';
+import { Messages } from '../utils/messages';
 
 export class TokenService {
     // Prefix used for storing tokens in VS Code's secure storage
@@ -27,9 +28,9 @@ export class TokenService {
     // Encryption algorithm used for in-memory token encryption
     private static readonly ENCRYPTION_ALGORITHM = 'aes-256-gcm';
     // Maximum allowed consecutive failed token access attempts
-    private static readonly MAX_FAILED_ATTEMPTS = 5;
+    private static readonly MAX_FAILED_ATTEMPTS = 3;
     // Lockout duration after reaching maximum failed attempts
-    private static readonly LOCKOUT_DURATION_MS = 300000; // 5 minutes
+    private static readonly FAILED_ATTEMPTS_TIMEOUT_MS = 300000; // 5 minutes
 
     private readonly logger: Logger;
     // A randomly generated key for in-memory encryption of tokens
@@ -37,6 +38,8 @@ export class TokenService {
     private readonly auditService: TokenAuditService;
     // Map to store encrypted tokens in memory along with their IV and authTag
     private encryptedTokens = new Map<string, { encrypted: Buffer; iv: Buffer; authTag: Buffer }>();
+    private failedAttempts: number = 0;
+    private lastFailedAttempt: number = 0;
 
     /**
      * Constructor initializes the TokenService with a VS Code extension context and sets up the encryption key
@@ -84,13 +87,24 @@ export class TokenService {
     }
 
     /**
-     * Check if token access should be allowed based on recent failed attempts
-     * Throws an error if maximum failed attempts have been reached.
+     * Check if we should allow another attempt based on failed attempts history
+     * @throws Error if too many failed attempts
      */
     private async checkFailedAttempts(): Promise<void> {
-        const recentFailures = await this.auditService.getFailedAttempts();
-        if (recentFailures.length >= TokenService.MAX_FAILED_ATTEMPTS) {
-            throw new Error('Too many failed attempts. Please try again later.');
+        const now = Date.now();
+        
+        // Reset failed attempts if enough time has passed
+        if (now - this.lastFailedAttempt > TokenService.FAILED_ATTEMPTS_TIMEOUT_MS) {
+            this.failedAttempts = 0;
+            this.lastFailedAttempt = 0;
+            return;
+        }
+
+        if (this.failedAttempts >= TokenService.MAX_FAILED_ATTEMPTS) {
+            const remainingTime = Math.ceil(
+                (TokenService.FAILED_ATTEMPTS_TIMEOUT_MS - (now - this.lastFailedAttempt)) / 60000
+            );
+            throw new Error(`Too many failed attempts. Please try again in ${remainingTime} minutes.`);
         }
     }
 
@@ -239,15 +253,14 @@ export class TokenService {
             await this.checkFailedAttempts();
             
             // Show security warning
-            const response = await vscode.window.showWarningMessage(
-                'The tunnel token will be copied to your clipboard and automatically cleared after 30 seconds. ' +
-                'Make sure to use it before then.',
+            const response = await Messages.showWarning(
+                Messages.TOKEN_SECURITY_WARNING,
                 'Continue',
                 'Cancel'
             );
 
             if (response !== 'Continue') {
-                throw new Error('Token copy cancelled by user');
+                throw new Error(Messages.TOKEN_COPY_CANCELLED);
             }
 
             // Copy to clipboard

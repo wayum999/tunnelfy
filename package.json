@@ -2,7 +2,7 @@
   "name": "tunnelfy",
   "displayName": "Tunnelfy",
   "description": "Manage Cloudflare tunnels from this VS Code extension. Streamline your development workflow by controlling your perisistent and quick tunnels without leaving the IDE.",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "publisher": "Willbot",
   "icon": "images/icon.png",
   "galleryBanner": {
@@ -32,6 +32,23 @@
           "icon": "$(cloud)"
         }
       ]
+    },
+    "configuration": {
+      "title": "Tunnelfy",
+      "properties": {
+        "tunnelfy.autoRefreshEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable automatic refresh of tunnel status"
+        },
+        "tunnelfy.autoRefreshInterval": {
+          "type": "number",
+          "default": 30,
+          "minimum": 5,
+          "maximum": 300,
+          "description": "Interval in seconds between automatic refreshes (min: 5s, max: 300s)"
+        }
+      }
     },
     "viewsWelcome": [
       {
@@ -69,28 +86,6 @@
         }
       ]
     },
-    "configuration": {
-      "title": "Tunnelfy",
-      "properties": {
-        "tunnelfy.autoRefreshEnabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable automatic refresh of tunnel status"
-        },
-        "tunnelfy.autoRefreshInterval": {
-          "type": "number",
-          "default": 30,
-          "minimum": 5,
-          "maximum": 300,
-          "description": "Interval in seconds between automatic refreshes (min: 5s, max: 300s)"
-        },
-        "tunnelfy.checkCloudflaredOnStartup": {
-          "type": "boolean",
-          "default": true,
-          "description": "Check if cloudflared is installed when the extension starts"
-        }
-      }
-    },
     "menus": {
       "view/title": [
         {
@@ -99,30 +94,40 @@
           "group": "navigation@1"
         },
         {
-          "command": "tunnelfy.refreshTunnels",
-          "when": "view == tunnelfy-tunnels",
-          "group": "navigation"
+          "command": "tunnelfy.refreshProfiles",
+          "when": "view == tunnelfy-profiles",
+          "group": "navigation@2"
         },
         {
-          "command": "tunnelfy.createQuickTunnel",
-          "when": "view == tunnelfy-quick-tunnels",
-          "group": "navigation"
+          "command": "tunnelfy.refreshTunnels",
+          "when": "view == tunnelfy-tunnels",
+          "group": "navigation@1"
         },
         {
           "command": "tunnelfy.createTunnel",
           "when": "view == tunnelfy-tunnels",
-          "group": "navigation"
+          "group": "navigation@2"
+        },
+        {
+          "command": "tunnelfy.createQuickTunnel",
+          "when": "view == tunnelfy-quick-tunnels",
+          "group": "navigation@1"
+        },
+        {
+          "command": "tunnelfy.refreshQuickTunnels",
+          "when": "view == tunnelfy-quick-tunnels",
+          "group": "navigation@2"
         }
       ],
       "view/item/context": [
         {
-          "command": "tunnelfy.switchProfile",
-          "when": "view == tunnelfy-profiles && viewItem == profile-inactive",
+          "command": "tunnelfy.changeApiKey",
+          "when": "view == tunnelfy-profiles && (viewItem == profile-active || viewItem == profile-inactive)",
           "group": "inline@1"
         },
         {
-          "command": "tunnelfy.renameProfile",
-          "when": "view == tunnelfy-profiles && (viewItem == profile-active || viewItem == profile-inactive)",
+          "command": "tunnelfy.setActiveProfile",
+          "when": "view == tunnelfy-profiles && viewItem == profile-inactive",
           "group": "inline@2"
         },
         {
@@ -131,13 +136,13 @@
           "group": "inline@3"
         },
         {
-          "command": "tunnelfy.playTunnel",
+          "command": "tunnelfy.startTunnel",
           "when": "view == tunnelfy-tunnels && viewItem == tunnel-stopped",
           "group": "inline@1"
         },
         {
           "command": "tunnelfy.stopTunnel",
-          "when": "viewItem == tunnel-running",
+          "when": "view == tunnelfy-tunnels && viewItem == tunnel-running",
           "group": "inline@1"
         },
         {
@@ -146,24 +151,19 @@
           "group": "inline@2"
         },
         {
-          "command": "tunnelfy.tunnelInfo",
-          "when": "view == tunnelfy-tunnels",
-          "group": "inline@3"
-        },
-        {
           "command": "tunnelfy.deleteTunnel",
           "when": "view == tunnelfy-tunnels && viewItem == tunnel-stopped",
-          "group": "inline@5"
-        },
-        {
-          "command": "tunnelfy.stopQuickTunnel",
-          "when": "view == tunnelfy-quick-tunnels && viewItem == quickTunnel",
-          "group": "inline"
+          "group": "inline@3"
         },
         {
           "command": "tunnelfy.copyQuickTunnelUrl",
           "when": "view == tunnelfy-quick-tunnels && viewItem == quickTunnel",
-          "group": "inline"
+          "group": "inline@1"
+        },
+        {
+          "command": "tunnelfy.stopQuickTunnel",
+          "when": "view == tunnelfy-quick-tunnels && viewItem == quickTunnel",
+          "group": "inline@2"
         }
       ]
     },
@@ -173,42 +173,14 @@
         "title": "Create Profile",
         "category": "Tunnelfy",
         "icon": "$(add)",
-        "description": "Create a new Cloudflare profile"
+        "description": "Create a new Cloudflare profile with an API key"
       },
       {
-        "command": "tunnelfy.switchProfile",
-        "title": "Switch Profile",
+        "command": "tunnelfy.changeApiKey",
+        "title": "Change API Key",
         "category": "Tunnelfy",
-        "icon": "$(arrow-right)",
-        "description": "Switch between Cloudflare profiles"
-      },
-      {
-        "command": "tunnelfy.createTunnel",
-        "title": "Create Tunnel",
-        "category": "Tunnelfy",
-        "icon": "$(add)",
-        "description": "Create a new permanent tunnel"
-      },
-      {
-        "command": "tunnelfy.createQuickTunnel",
-        "title": "Create Quick Tunnel",
-        "category": "Tunnelfy",
-        "icon": "$(add)",
-        "description": "Create a new quick tunnel"
-      },
-      {
-        "command": "tunnelfy.refreshTunnels",
-        "title": "Refresh Tunnels",
-        "category": "Tunnelfy",
-        "icon": "$(refresh)",
-        "description": "Refresh the list of tunnels"
-      },
-      {
-        "command": "tunnelfy.stopQuickTunnel",
-        "title": "Stop Quick Tunnel",
-        "category": "Tunnelfy",
-        "icon": "$(stop)",
-        "description": "Stop a running quick tunnel"
+        "icon": "$(key)",
+        "description": "Change the API key for an existing profile"
       },
       {
         "command": "tunnelfy.deleteProfile",
@@ -218,39 +190,32 @@
         "description": "Delete a Cloudflare profile"
       },
       {
-        "command": "tunnelfy.renameProfile",
-        "title": "Rename Profile",
+        "command": "tunnelfy.setActiveProfile",
+        "title": "Set Active Profile",
         "category": "Tunnelfy",
-        "icon": "$(edit)",
-        "description": "Rename a Cloudflare profile"
-      },
-      {
-        "command": "tunnelfy.playTunnel",
-        "title": "Start Tunnel",
-        "category": "Tunnelfy",
-        "icon": "$(play)",
-        "description": "Start a tunnel"
-      },
-      {
-        "command": "tunnelfy.stopTunnel",
-        "title": "Stop Tunnel",
-        "category": "Tunnelfy",
-        "icon": "$(stop)",
-        "description": "Stop a running tunnel"
+        "icon": "$(check)",
+        "description": "Set a profile as active"
       },
       {
         "command": "tunnelfy.copyToken",
-        "title": "Copy Tunnel Token",
+        "title": "Copy Token",
         "category": "Tunnelfy",
         "icon": "$(copy)",
         "description": "Copy tunnel token to clipboard"
       },
       {
-        "command": "tunnelfy.tunnelInfo",
-        "title": "View Tunnel Info",
+        "command": "tunnelfy.createTunnel",
+        "title": "Create Tunnel",
         "category": "Tunnelfy",
-        "icon": "$(info)",
-        "description": "View detailed tunnel information"
+        "icon": "$(add)",
+        "description": "Create a new permanent tunnel"
+      },
+      {
+        "command": "tunnelfy.startTunnel",
+        "title": "Start Tunnel",
+        "category": "Tunnelfy",
+        "icon": "$(play)",
+        "description": "Start a tunnel"
       },
       {
         "command": "tunnelfy.deleteTunnel",
@@ -260,41 +225,86 @@
         "description": "Delete a tunnel"
       },
       {
+        "command": "tunnelfy.stopTunnel",
+        "title": "Stop Tunnel",
+        "category": "Tunnelfy",
+        "icon": "$(stop)",
+        "description": "Stop a running tunnel"
+      },
+      {
+        "command": "tunnelfy.createQuickTunnel",
+        "title": "Create Quick Tunnel",
+        "category": "Tunnelfy",
+        "icon": "$(add)",
+        "description": "Create a new quick tunnel"
+      },
+      {
+        "command": "tunnelfy.stopQuickTunnel",
+        "title": "Stop Quick Tunnel",
+        "category": "Tunnelfy",
+        "icon": "$(stop)",
+        "description": "Stop a running quick tunnel"
+      },
+      {
         "command": "tunnelfy.copyQuickTunnelUrl",
         "title": "Copy Quick Tunnel URL",
         "category": "Tunnelfy",
         "icon": "$(copy)",
-        "description": "Copy quick tunnel URL to clipboard"
+        "description": "Copy the quick tunnel URL to clipboard"
+      },
+      {
+        "command": "tunnelfy.refreshTunnels",
+        "title": "Refresh Tunnels",
+        "category": "Tunnelfy",
+        "icon": "$(refresh)",
+        "description": "Refresh the list of tunnels"
+      },
+      {
+        "command": "tunnelfy.refreshProfiles",
+        "title": "Refresh Profiles",
+        "category": "Tunnelfy",
+        "icon": "$(refresh)",
+        "description": "Refresh the list of profiles"
+      },
+      {
+        "command": "tunnelfy.refreshQuickTunnels",
+        "title": "Refresh Quick Tunnels",
+        "category": "Tunnelfy",
+        "icon": "$(refresh)",
+        "description": "Refresh the list of quick tunnels"
       }
     ]
   },
   "scripts": {
-    "vscode:prepublish": "npm run package",
+    "vscode:prepublish": "npm run compile",
     "compile": "node esbuild.js",
     "watch": "node esbuild.js --watch",
-    "package": "node esbuild.js --production",
+    "pretest": "npm run clean-tests && npm run compile && npm run compile-tests",
+    "clean-tests": "rimraf out/test",
     "compile-tests": "tsc -p ./src/test/tsconfig.json",
-    "watch-tests": "tsc -p ./src/test/tsconfig.json -w",
-    "pretest": "npm run compile && npm run compile-tests",
+    "test": "vscode-test",
     "lint": "eslint src --ext ts",
-    "test": "mocha --require ts-node/register './src/test/suite/extension.test.ts' --timeout 60000",
-    "test:unit": "mocha --require ts-node/register './src/test/unit/**/*.test.ts'",
-    "test:integration": "mocha --require ts-node/register './src/test/integration/**/*.test.ts'"
+    "package": "vsce package",
+    "publish": "vsce publish"
   },
   "devDependencies": {
     "@types/chai": "^5.0.1",
     "@types/glob": "^8.1.0",
-    "@types/mocha": "^10.0.6",
+    "@types/mocha": "^10.0.10",
     "@types/node": "18.x",
+    "@types/proxyquire": "^1.3.31",
     "@types/sinon": "^17.0.3",
     "@types/vscode": "^1.85.0",
     "@typescript-eslint/parser": "^6.15.0",
-    "@vscode/test-electron": "^2.3.8",
+    "@vscode/test-cli": "^0.0.10",
+    "@vscode/test-electron": "^2.4.1",
     "chai": "^5.1.2",
     "esbuild": "^0.19.12",
     "eslint": "^8.56.0",
-    "glob": "^10.3.10",
-    "mocha": "^10.2.0",
+    "glob": "^10.4.5",
+    "mocha": "^10.8.2",
+    "proxyquire": "^2.1.3",
+    "rimraf": "^6.0.1",
     "sinon": "^19.0.2",
     "ts-node": "^10.9.2",
     "typescript": "^5.3.3"

@@ -1,17 +1,27 @@
 import * as vscode from 'vscode';
-import { CloudflaredService } from '../services/cloudflaredService';
+import { TunnelManager, TunnelEvent } from '../services/cloudflared';
 import { Logger, LogComponent } from '../utils/logger';
+import { Messages } from '../utils/messages';
 
+/**
+ * Represents a quick tunnel item in the tree view
+ * Displays tunnel information and provides context menu actions
+ */
 export class QuickTunnelTreeItem extends vscode.TreeItem {
     constructor(
         public readonly port: number,
         public readonly status: string,
         public readonly url?: string,
-        public readonly tunnelUrl?: string
+        public readonly tunnelUrl?: string,
+        public readonly name?: string
     ) {
-        super(`Port ${port}`);
+        // Use name as label if provided, otherwise use port
+        const label = name && name.trim() ? name.trim() : `Port ${port}`;
+        super(label);
+
+        // Create a detailed tooltip with markdown formatting
         this.tooltip = new vscode.MarkdownString();
-        this.tooltip.appendMarkdown(`**Port ${port}**\n\n`);
+        this.tooltip.appendMarkdown(`**${label}**\n\n`);
         if (url) {
             this.tooltip.appendMarkdown(`**Local URL**: [${url}](${url})\n\n`);
         }
@@ -20,18 +30,18 @@ export class QuickTunnelTreeItem extends vscode.TreeItem {
         }
         this.tooltip.appendMarkdown(`**Status**: ${status}`);
         
-        // Extract hostname from tunnelUrl
+        // Extract hostname from tunnelUrl for the description
         let hostname = '';
         if (tunnelUrl) {
             try {
                 hostname = new URL(tunnelUrl).hostname;
             } catch (e) {
-                // If URL parsing fails, just use the tunnelUrl
                 hostname = tunnelUrl;
             }
         }
         
-        this.description = hostname;
+        // Show hostname and port in description
+        this.description = hostname ? `${hostname} (Port ${port})` : `(Port ${port})`;
         
         // Set icon based on status
         if (status === 'active' || status === 'running') {
@@ -40,153 +50,198 @@ export class QuickTunnelTreeItem extends vscode.TreeItem {
             this.iconPath = new vscode.ThemeIcon('circle-outline', new vscode.ThemeColor('descriptionForeground'));
         }
 
+        // Set context value for command enablement
         this.contextValue = 'quickTunnel';
-        
-        // Add command to handle clicking on the item
+
+        // Add command for copying tunnel URL on click
         this.command = {
-            command: 'tunnelfy.tunnelInfo',
-            title: 'Show Tunnel Info',
+            command: 'tunnelfy.copyQuickTunnelUrl',
+            title: 'Copy Tunnel URL',
             arguments: [this]
         };
     }
 }
 
+interface QuickTunnel {
+    port: number;
+    url: string;
+    tunnelUrl: string;
+    name?: string;
+}
+
+/**
+ * Provides the tree view for quick tunnels
+ * Manages the display and state of temporary tunnels
+ */
 export class QuickTunnelTreeDataProvider implements vscode.TreeDataProvider<QuickTunnelTreeItem> {
     private _onDidChangeTreeData: vscode.EventEmitter<QuickTunnelTreeItem | undefined | null | void> = new vscode.EventEmitter<QuickTunnelTreeItem | undefined | null | void>();
     readonly onDidChangeTreeData: vscode.Event<QuickTunnelTreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
-    private readonly logger: Logger;
-    private currentItems: QuickTunnelTreeItem[] = [];
-    private activeQuickTunnels: Map<number, { url: string; tunnelUrl: string }> = new Map();
-    private cloudflaredInstalled: boolean | null = null;
+    private readonly logger = Logger.getInstance();
     private refreshInterval: NodeJS.Timeout | null = null;
+    private treeView: vscode.TreeView<QuickTunnelTreeItem>;
 
     constructor(
-        private cloudflaredService: CloudflaredService,
-        initialCloudflaredStatus: boolean = true
+        public readonly tunnelManager: TunnelManager
     ) {
-        this.logger = Logger.getInstance();
-        this.logger.debug(LogComponent.TUNNEL, 'QuickTunnelTreeDataProvider initialized');
-        
-        // Set initial cloudflared status
-        this.cloudflaredInstalled = initialCloudflaredStatus;
+        // Create the tree view
+        this.treeView = vscode.window.createTreeView('tunnelfy-quick-tunnels', {
+            treeDataProvider: this,
+            showCollapseAll: false,
+            canSelectMany: false
+        });
 
-        // Start refresh cycle if enabled
         this.setupAutoRefresh();
 
-        // Listen for configuration changes
-        vscode.workspace.onDidChangeConfiguration(e => {
-            if (e.affectsConfiguration('tunnelfy.autoRefreshEnabled') || 
-                e.affectsConfiguration('tunnelfy.autoRefreshInterval')) {
-                this.setupAutoRefresh();
+        // Subscribe to tunnel events
+        this.tunnelManager.onTunnelEvent((event: TunnelEvent) => {
+            this.logger.debug(LogComponent.EXTENSION, `Quick tunnel event received: ${event.type} - ${event.tunnelId}`);
+            if (event.type === 'start' || event.type === 'stop') {
+                this.refresh();
             }
         });
     }
 
-    /**
-     * Sets up or updates the auto-refresh cycle based on current settings
-     */
-    public setupAutoRefresh(): void {
-        const config = vscode.workspace.getConfiguration('tunnelfy');
-        const autoRefreshEnabled = config.get('autoRefreshEnabled', true);
-        const intervalSeconds = config.get('autoRefreshInterval', 30);
-
+    private setupAutoRefresh(): void {
         // Clear existing interval if any
         if (this.refreshInterval) {
             clearInterval(this.refreshInterval);
             this.refreshInterval = null;
         }
 
-        // Set up new interval if enabled
-        if (autoRefreshEnabled) {
-            this.refreshInterval = setInterval(() => {
-                this.refresh();
-            }, intervalSeconds * 1000) as unknown as NodeJS.Timeout;
-            this.logger.debug(LogComponent.TUNNEL, `Auto-refresh enabled with ${intervalSeconds}s interval`);
-        } else {
-            this.logger.debug(LogComponent.TUNNEL, 'Auto-refresh disabled');
+        // Check if auto-refresh is enabled
+        const config = vscode.workspace.getConfiguration('tunnelfy');
+        const autoRefreshEnabled = config.get<boolean>('autoRefreshEnabled', true);
+        if (!autoRefreshEnabled) {
+            this.logger.debug(LogComponent.TUNNEL, 'Auto-refresh disabled by configuration');
+            return;
         }
-    }
 
-    /**
-     * Check if cloudflared is installed and cache the result
-     */
-    private async checkCloudflaredInstallation(): Promise<void> {
-        this.cloudflaredInstalled = await this.cloudflaredService.checkInstallation();
-    }
-
-    async refresh(): Promise<void> {
-        try {
-            // Only check installation status if we haven't checked before and checks are enabled
-            const checkOnStartup = vscode.workspace.getConfiguration('tunnelfy').get('checkCloudflaredOnStartup', true);
-            if (this.cloudflaredInstalled === null && checkOnStartup) {
-                await this.checkCloudflaredInstallation();
-            }
-
-            // Clear view if cloudflared is not installed
-            if (this.cloudflaredInstalled === false) {
-                this.currentItems = [];
-                this._onDidChangeTreeData.fire();
-                return;
-            }
-
-            // Convert active quick tunnels to tree items
-            this.currentItems = Array.from(this.activeQuickTunnels.entries()).map(([port, tunnel]) => 
-                new QuickTunnelTreeItem(
-                    port,
-                    'active',
-                    tunnel.url,
-                    tunnel.tunnelUrl
-                )
-            );
-            this._onDidChangeTreeData.fire();
-        } catch (error) {
-            this.logger.error(LogComponent.TUNNEL, 'Failed to refresh quick tunnels', error as Error);
-            vscode.window.showErrorMessage('Failed to refresh quick tunnels');
-        }
-    }
-
-    startRefreshCycle(): void {
-        // Set up auto-refresh every 30 seconds
-        setInterval(() => {
+        // Get refresh interval
+        const intervalSeconds = Math.max(5, Math.min(300, config.get<number>('autoRefreshInterval', 30)));
+        
+        // Set up new interval
+        this.refreshInterval = setInterval(() => {
             this.refresh();
-        }, 30000);
+        }, intervalSeconds * 1000);
 
-        // Start initial refresh
-        this.refresh().catch(error => {
-            this.logger.error(LogComponent.TUNNEL, 'Failed to load initial quick tunnels:', error);
-        });
-    }
-
-    async addQuickTunnel(port: number): Promise<void> {
-        const result = await this.cloudflaredService.createQuickTunnel(port);
-        if (result) {
-            this.activeQuickTunnels.set(port, result);
-            await this.refresh();
-        }
-    }
-
-    async removeQuickTunnel(port: number): Promise<void> {
-        await this.cloudflaredService.stopQuickTunnel(port);
-        this.activeQuickTunnels.delete(port);
-        await this.refresh();
+        this.logger.debug(LogComponent.TUNNEL, `Auto-refresh set up with interval: ${intervalSeconds}s`);
     }
 
     getTreeItem(element: QuickTunnelTreeItem): vscode.TreeItem {
         return element;
     }
 
-    getChildren(element?: QuickTunnelTreeItem): Thenable<QuickTunnelTreeItem[]> {
-        if (element) {
-            return Promise.resolve([]);
+    async getChildren(): Promise<QuickTunnelTreeItem[]> {
+        try {
+            const quickTunnels = await this.tunnelManager.getQuickTunnels();
+            return quickTunnels.map(tunnel => {
+                // Ensure name is properly trimmed and not empty
+                const tunnelName = tunnel.name?.trim() || undefined;
+                return new QuickTunnelTreeItem(
+                    tunnel.port,
+                    'running',
+                    tunnel.url,
+                    tunnel.tunnelUrl,
+                    tunnelName
+                );
+            });
+        } catch (error) {
+            this.logger.error(LogComponent.EXTENSION, `Failed to get quick tunnels: ${error}`);
+            return [];
         }
-        return Promise.resolve(this.currentItems);
     }
 
-    getParent(_element: QuickTunnelTreeItem): vscode.ProviderResult<QuickTunnelTreeItem> {
-        return null;
+    refresh(): void {
+        this._onDidChangeTreeData.fire();
     }
 
-    async getQuickTunnels(): Promise<QuickTunnelTreeItem[]> {
-        return this.currentItems;
+    /**
+     * Creates a new quick tunnel
+     * @param port Port number to tunnel
+     * @param name Optional name for the tunnel
+     */
+    async addQuickTunnel(port: number, name?: string): Promise<void> {
+        try {
+            // Check for cloudflared installation first
+            try {
+                await this.tunnelManager.checkCloudflared();
+            } catch (error: unknown) {
+                const platform = process.platform;
+                let installInstructions = '';
+                
+                switch (platform) {
+                    case 'darwin':
+                        installInstructions = Messages.CLOUDFLARED_INSTALL_DARWIN;
+                        break;
+                    case 'win32':
+                        installInstructions = Messages.CLOUDFLARED_INSTALL_WIN32;
+                        break;
+                    case 'linux':
+                        installInstructions = Messages.CLOUDFLARED_INSTALL_LINUX;
+                        break;
+                    default:
+                        installInstructions = Messages.CLOUDFLARED_INSTALL_DEFAULT;
+                }
+
+                const CLOUDFLARED_INSTALL_URL = 'https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/create-local-tunnel/';
+                
+                const response = await vscode.window.showErrorMessage(
+                    Messages.CLOUDFLARED_NOT_FOUND,
+                    { 
+                        modal: true, 
+                        detail: installInstructions 
+                    },
+                    Messages.CLOUDFLARED_INSTALL_ACTION
+                );
+
+                if (response === Messages.CLOUDFLARED_INSTALL_ACTION) {
+                    await vscode.env.openExternal(vscode.Uri.parse(CLOUDFLARED_INSTALL_URL));
+                }
+                
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                this.logger.warn(
+                    LogComponent.EXTENSION, 
+                    `Cloudflared not found during quick tunnel creation: ${errorMessage}`, 
+                    { preserveFocus: true }
+                );
+                return;
+            }
+
+            // Create the tunnel if cloudflared is installed
+            await this.tunnelManager.createQuickTunnel(port, name);
+            this.refresh();
+        } catch (error) {
+            this.logger.error(LogComponent.EXTENSION, `Failed to add quick tunnel: ${error}`);
+            throw error;
+        }
+    }
+
+    /**
+     * Stops and removes a quick tunnel
+     * @param port Port number of the tunnel to remove
+     */
+    async removeQuickTunnel(port: number): Promise<void> {
+        try {
+            await this.tunnelManager.stopQuickTunnel(port);
+            this.refresh();
+        } catch (error) {
+            this.logger.error(LogComponent.EXTENSION, `Failed to remove quick tunnel: ${error}`);
+            throw error;
+        }
+    }
+
+    /**
+     * Gets all active quick tunnels
+     * @returns Array of quick tunnel information
+     */
+    getQuickTunnels(): Promise<QuickTunnel[]> {
+        return this.tunnelManager.getQuickTunnels();
+    }
+
+    dispose(): void {
+        if (this.refreshInterval) {
+            clearInterval(this.refreshInterval);
+        }
+        this.treeView.dispose();
     }
 }

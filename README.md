@@ -2,12 +2,16 @@
 
 Managing Cloudflare tunnels directly from a VS Code extension has never been easier. Streamline your development workflow by creating and managing permanent and quick tunnels without leaving your IDE.
 
+![Tunnelfy Cloudflare Overview](images/readme/overview/Tunnelfy_Cloudflare_Overview.gif)
+
 ## Features
 
 ### Profile Management
 
-- Manage multiple Cloudflare profiles
-- Maintain the same local secure storage of profile credentials
+- Manage multiple Cloudflare profiles with API keys
+- Securely store API keys using VS Code's built-in secret storage
+- Switch between profiles easily
+- Each profile maintains its own configuration and tunnels
 
 ### Tunnel Monitoring and Control
 
@@ -21,7 +25,8 @@ Managing Cloudflare tunnels directly from a VS Code extension has never been eas
 ## Prerequisites
 
 1. VS Code (v1.85.0 or higher)
-2. [Cloudflared CLI tool installed and authenticated](#installing-cloudflare-tunnel-cloudflared-on-linux-windows-and-macos)
+2. A Cloudflare account with API key access 
+3. Cloudflare Tunnel CLI (`cloudflared`) installed
 
 ## Getting Started
 
@@ -32,14 +37,36 @@ Managing Cloudflare tunnels directly from a VS Code extension has never been eas
 3. Search for "Tunnelfy"
 4. Click Install
 
-### 2. Create a Profile
+### 2. Install Cloudflare Tunnel CLI (`cloudflared`)
+
+![Creating a Cloudflare API Token](images/readme/installation/Cloudflare_Token.gif)
+
+1. Follow the instructions in the [Installing Cloudflare Tunnel CLI (`cloudflared`)](#installing-cloudflare-tunnel-cli-cloudflared) section
+
+### 3. Create a Profile
+
+![Creating Cloudflare Profiles](images/readme/profiles/Tunnelfy_Cloudflare_Profiles.gif)
 
 1. Click the cloud icon in the activity bar
 2. Click the + button in the Profiles section
-3. Follow the prompts to set up your profile
-Note: By default, a profile named "Default Profile" is created. You can edit its name by clicking on the pencil icon when hovering over it.
+3. Enter a name for your profile
+4. Enter your Cloudflare API key. You can create one by:
+   1. Navigating to the Cloudflare Dashboard
+   2. Clicking on the "My Profile" icon
+   3. Clicking on "API Tokens"
+   4. Clicking on "Create Token"
+   5. Selecting the following permissions:
+     - Account: Account Settings: Read 
+     - Account: Cloudflare Tunnel: Edit
+     - Zone: DNS: Edit
+   6. Client IP Address Filtering (OPTIONAL but recommended):
+     - Operator: Is in 
+     - Value: `Your IP Address` (Can be found with https://nordvpn.com/what-is-my-ip)
+   - The API key will be stored securely and never displayed again
 
-### 3. Managing Tunnels
+### 4. Persistent Tunnels
+
+![Creating Persistent Tunnels](images/readme/tunnels/Tunnelfy_Cloudflare_Tunnels.gif)
 
 1. Click the + button in the Tunnels section
 2. Enter a name for your tunnel
@@ -49,7 +76,9 @@ Note: By default, a profile named "Default Profile" is created. You can edit its
    - Copy the tunnel token
    - Delete the tunnel
 
-### 4. Quick Tunnels
+### 5. Quick Tunnels
+
+![Creating Quick Tunnels](images/readme/quicktunnels/Tunnelfy_Cloudflare_QuickTunnels.gif)
 
 1. Click the + button in the Quick Tunnels section
 2. Configure your local service details:
@@ -63,8 +92,7 @@ Note: By default, a profile named "Default Profile" is created. You can edit its
 Several commands are accessible via the Command Palette (Ctrl+Shift+P / Cmd+Shift+P):
 
 ### Profile Management
-- `Tunnelfy: Create Profile` - Create a new Cloudflare profile
-- `Tunnelfy: Rename Profile` - Rename a profile
+- `Tunnelfy: Create Profile` - Create a new Cloudflare profile with an API key
 - `Tunnelfy: Switch Profile` - Switch between Cloudflare profiles
 - `Tunnelfy: Delete Profile` - Delete a Cloudflare profile
 
@@ -82,63 +110,99 @@ Several commands are accessible via the Command Palette (Ctrl+Shift+P / Cmd+Shif
 - `Tunnelfy: Copy Quick Tunnel URL` - Copy the URL of a quick tunnel
 - `Tunnelfy: Stop Quick Tunnel` - Stop a quick tunnel
 
-
 ## Troubleshooting
 
 ### Common Issues
 
-1. **Authentication Selection Missing After Cloudflare Login**
+1. **Invalid API Key**
+   - Make sure your API key has the correct permissions (Cloudflare Tunnel:Edit)
+   - Verify the API key is still active in your Cloudflare dashboard
+   - Try creating a new API key if issues persist
 
-   **Problem:** When setting up a profile, the authentication selection may be missing after logging in to Cloudflare.
-
-   **Solution 1:** Stay logged into Cloudflare and reattempt to create the profile. When the browser opens, you should be given a choice of which domain to associate the authentication. 
-
-   **Solution 2:** Access the authentication link in the output of the extension. When you reopen it, you will find the listing of domains to choose from.
-
-   **IMPORTANT NOTE:** You can only choose one domain to tie to the authentication. Regardless of your choice, you will be able to manage all tunnels in the account. The domain you choose simply allows you to modify DNS records for that domain and you can only choose one. DNS records can be modified manually for all others.
-2. **Port and/or Hostname Entry Not Working**
-
-   **Problem:** The port and/or hostname you enter when starting a persistent tunnel is not being respected.
-
-   **Solution:** If you set up your tunnel in the Cloudflare dashboard, the hostname and the url/port you set up will be honored. The URL and hostname you set in the extension will only be respected with tunnels you have created through the extension / the cloudflared CLI.
-
-3. **Profile Creation Failed**
-   - Ensure `cloudflared` is installed and in your PATH
-   - Verify you're logged in with `cloudflared tunnel login`
-
-4. **Tunnel Status Not Updating**
-   - Click the refresh button in the Tunnels view
-   - Ensure your profile is properly configured
+2. **Profile Switching Issues**
+   - Ensure the API key for the profile is still valid
    - Check your internet connection
+   - Try deleting and recreating the profile if issues persist
 
-5. **Quick Tunnel Won't Start**
-   - Verify the port isn't already in use
-   - Check if your local service is running
-   - Ensure you have proper permissions
+3. **Tunnel Creation Fails**
+   - Verify your API key has sufficient permissions
+   - Check if you've reached your account's tunnel limit
+   - Ensure you have a stable internet connection
 
-## Changelog
+4. **Quick Tunnel Issues**
+   - Verify cloudflared is installed and accessible
+   - Check if the port is already in use
+   - Look for rate limiting messages in the output
+   - Ensure you have a stable internet connection
 
-### Version 0.0.1
+5. **Development Environment Issues**
+   - Run `npm install` to ensure all dependencies are installed
+   - Clear the VS Code extension development host: `rm -rf .vscode-test`
+   - Check the extension logs in the Output panel
+   - Verify cloudflared installation and permissions
 
-- Initial Release
+## Security
 
-## Roadmap
-
-- Integration with the Cloudflare API as an alternative method of tunnel management using an API key.
+- API keys are stored securely using VS Code's built-in secret storage
+- Keys are never displayed after initial entry
+- Each profile maintains its own isolated API key
+- No sensitive data is stored in plain text
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+We welcome contributions! Here's how you can help:
 
-1. Fork the repository
-2. Create your feature branch
-3. Commit your changes
-4. Push to the branch
-5. Open a Pull Request
+1. **Fork the Repository**
+   - Create a fork of the repository
+   - Clone your fork locally
+
+2. **Set Up Development Environment**
+   ```bash
+   # Install dependencies
+   npm install
+   npm install -g yo generator-code
+
+   # Install recommended VS Code extensions
+   code --install-extension dbaeumer.vscode-eslint
+   code --install-extension esbenp.prettier-vscode
+   ```
+
+3. **Create a Feature Branch**
+   ```bash
+   git checkout -b feature/your-feature
+   ```
+
+4. **Make Your Changes**
+   - Write code following our style guidelines
+   - Add tests for new functionality
+   - Update documentation as needed
+
+5. **Test Your Changes**
+   ```bash
+   # Run the test suite
+   npm test
+
+   # Run ESLint
+   npm run lint
+   ```
+
+6. **Merge to Development**
+   ```bash
+   # Use our merge script
+   ./scripts/merge-to-development.sh
+   ```
+
+7. **Create a Pull Request**
+   - Push your changes to your fork
+   - Create a pull request to our development branch
+   - Follow the pull request template
+   - Wait for review and address any feedback
+
+For more detailed information about development, please see our [Development Guide](_DEV/DEVELOPMENT_README.md).
 
 ## License
 
-[MIT License](LICENSE)
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Support
 

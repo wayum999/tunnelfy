@@ -90,8 +90,16 @@ export function registerQuickTunnelCommands(
             try {
                 // If called from tree view, use the selected item
                 if (item?.port) {
-                    await quickTunnelProvider.removeQuickTunnel(item.port);
-                    await Messages.showInfo(Messages.QUICK_TUNNEL_STOPPED(item.name, item.port));
+                    // Show confirmation dialog
+                    const confirm = await Messages.showModal(
+                        `Are you sure you want to stop the quick tunnel${item.name ? ` "${item.name}"` : ''} on port ${item.port}?`,
+                        'Stop'
+                    );
+
+                    if (confirm === 'Stop') {
+                        await quickTunnelProvider.removeQuickTunnel(item.port);
+                        await Messages.showInfo(Messages.QUICK_TUNNEL_STOPPED(item.name, item.port));
+                    }
                     return;
                 }
 
@@ -117,8 +125,16 @@ export function registerQuickTunnelCommands(
                 );
 
                 if (selected) {
-                    await quickTunnelProvider.removeQuickTunnel(selected.port);
-                    await Messages.showInfo(Messages.QUICK_TUNNEL_STOPPED(selected.name, selected.port));
+                    // Show confirmation dialog
+                    const confirm = await Messages.showModal(
+                        `Are you sure you want to stop the quick tunnel${selected.name ? ` "${selected.name}"` : ''} on port ${selected.port}?`,
+                        'Stop'
+                    );
+
+                    if (confirm === 'Stop') {
+                        await quickTunnelProvider.removeQuickTunnel(selected.port);
+                        await Messages.showInfo(Messages.QUICK_TUNNEL_STOPPED(selected.name, selected.port));
+                    }
                 }
             } catch (error) {
                 await Messages.showError(Messages.ERROR_STOP_TUNNEL(error));

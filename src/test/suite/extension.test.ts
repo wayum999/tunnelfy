@@ -138,7 +138,7 @@ suite('Tunnelfy Extension Test Suite', () => {
     });
 
     test('All commands should be registered', async function() {
-        this.timeout(60000); // Increase timeout further
+        this.timeout(50000); // Increase timeout further
 
         // Helper function to retry command checks
         const retryCommandCheck = async (commandId: string, maxAttempts = 15) => {

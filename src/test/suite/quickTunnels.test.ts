@@ -282,14 +282,14 @@ suite('Quick Tunnels Test Suite', () => {
                                 throw error;
                             }
                         }
-                        await wait(20000); // Wait longer between attempts
+                        await wait(10000); // Wait longer between attempts
                     }
                 }
             }
         });
 
         test('should create and verify quick tunnel', async function() {
-            this.timeout(30000); // Increase timeout
+            this.timeout(20000); // Increase timeout
             if (!sharedTunnel) {
                 this.skip(); // Skip if we couldn't create the shared tunnel
             }

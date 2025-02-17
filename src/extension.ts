@@ -75,10 +75,10 @@ export async function activate(context: vscode.ExtensionContext) {
                     installInstructions = Messages.CLOUDFLARED_INSTALL_DEFAULT;
             }
 
-            const CLOUDFLARED_INSTALL_URL = 'https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/create-local-tunnel/';
+            const CLOUDFLARED_INSTALL_URL = Messages.CLOUDFLARED_INSTALL_DOCS;
             
             const response = await vscode.window.showErrorMessage(
-                Messages.CLOUDFLARED_NOT_FOUND,
+                Messages.CLOUDFLARED_NOT_FOUND.message,
                 { 
                     modal: true, 
                     detail: installInstructions 

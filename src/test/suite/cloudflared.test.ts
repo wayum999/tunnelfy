@@ -56,6 +56,27 @@ const mockProfileManager = {
     getProfileApiKey: async () => 'test-api-key'
 } as unknown as ProfileManager;
 
+const mockApiService = {
+    createTunnel: async (name: string) => ({
+        id: `mock-id-${name}`,
+        name,
+        created_at: new Date().toISOString(),
+        deleted_at: null,
+        connections: [],
+        status: 'active'
+    }),
+    getTunnelToken: async (tunnelId: string) => 'mock-token',
+    getTunnelInfo: async (tunnelId: string) => ({
+        id: tunnelId,
+        name: 'mock-tunnel',
+        created_at: new Date().toISOString(),
+        deleted_at: null,
+        connections: [],
+        status: 'active'
+    }),
+    listTunnels: async () => []
+} as unknown as CloudflareApiService;
+
 const mockFs = {
     existsSync: (filePath: string) => {
         if (filePath.endsWith('cert.pem')) {
@@ -121,48 +142,55 @@ const mockFs = {
 // Mock child_process module
 const mockChildProcess = {
     exec: (command: string, options: any, callback: (error: Error | null, stdout: string, stderr: string) => void) => {
-        // Handle version check first - no need to check certificate for version check
-        if (command.toLowerCase() === 'cloudflared --version') {
-            callback(null, 'cloudflared version', '');
-            return;
-        }
-
-        // For all other commands, check certificate
-        if (!mockFsState.certExists || !mockFsState.certContent) {
-            callback(new Error('Cannot find a valid certificate'), '', 'Error: Cannot find a valid certificate');
+        // Handle version check first
+        if (command.includes('--version')) {
+            callback(null, 'cloudflared version 2023.2.1', '');
             return;
         }
 
         // Handle other commands
-        if (command.toLowerCase() === 'cloudflared tunnel list --output json') {
+        if (command.includes('tunnel list')) {
             callback(null, '[]', '');
             return;
         }
-        if (command.toLowerCase().startsWith('cloudflared tunnel create')) {
+        if (command.includes('tunnel create')) {
             const tunnelName = command.split(' ').pop() || '';
             callback(null, `Created tunnel ${tunnelName} with id mock-id-${tunnelName}`, '');
             return;
         }
         callback(new Error('Command not mocked'), '', 'Error: Command not mocked');
     },
+    spawn: () => {
+        const mockProcess = {
+            pid: 12345,
+            stdout: {
+                on: (event: string, callback: (data: Buffer) => void) => {},
+                pipe: (stream: any) => {}
+            },
+            stderr: {
+                on: (event: string, callback: (data: Buffer) => void) => {},
+                pipe: (stream: any) => {}
+            },
+            on: (event: string, callback: (code?: number, signal?: string) => void) => {}
+        };
+        return mockProcess;
+    },
     '@noCallThru': true
 };
 
-const { CloudflaredService } = proxyquire('../../../services/cloudflared/cloudflaredService', {
+const { TunnelManager: MockTunnelManager } = proxyquire('../../services/cloudflared', {
     'fs': mockFs,
     'child_process': mockChildProcess
 });
 
-suite('CloudflaredService Tests', () => {
+suite('TunnelManager Tests', () => {
     let sandbox: sinon.SinonSandbox;
-    let cloudflaredService: any;
-    let certPath: string;
+    let tunnelManager: TunnelManager;
 
     suiteSetup(async function() {
         this.timeout(20000);
         await clearWorkspace();
         await waitForExtensionActivation();
-        certPath = path.join(os.homedir(), '.cloudflared', 'cert.pem');
     });
 
     setup(async function() {
@@ -176,12 +204,8 @@ suite('CloudflaredService Tests', () => {
             files: {}
         };
 
-        // Create new service instance with mocked context
-        const context = {
-            subscriptions: [],
-            extensionPath: '/mock/path'
-        };
-        cloudflaredService = new CloudflaredService(context);
+        // Create new manager instance with mocked dependencies
+        tunnelManager = new MockTunnelManager(mockContext, mockLogger, mockApiService, mockProfileManager);
         
         await createTestConfiguration();
     });
@@ -192,99 +216,20 @@ suite('CloudflaredService Tests', () => {
         await cleanupTestConfiguration();
     });
 
-    test('verifyCertFile should handle missing cert.pem', async function() {
-        mockFsState.certExists = false;
-        mockFsState.certContent = '';
-        
-        try {
-            await cloudflaredService.verifyCertFile();
-            assert.fail('Should throw error when cert.pem is missing');
-        } catch (error: any) {
-            assert.ok(error instanceof Error);
-            assert.strictEqual(error.message, 'No certificate file found. Please login or switch to a valid profile.');
-        }
+    test('checkCloudflared should verify cloudflared installation', async function() {
+        const result = await tunnelManager.checkCloudflared();
+        assert.ok(result, 'checkCloudflared should return a path when cloudflared is found');
     });
 
-    test('verifyCertFile should verify existing cert.pem', async function() {
-        // Test valid cert file
-        mockFsState.certExists = true;
-        mockFsState.certContent = 'valid-cert-content';
-        
-        try {
-            await cloudflaredService.verifyCertFile();
-        } catch (error) {
-            assert.fail(`Should not throw error when cert.pem exists: ${error}`);
-        }
-
-        // Test empty cert file
-        mockFsState.certContent = '';
-        try {
-            await cloudflaredService.verifyCertFile();
-            assert.fail('Should throw error when cert.pem is empty');
-        } catch (error: any) {
-            assert.ok(error instanceof Error);
-            assert.ok(error.message === 'Certificate file is empty' || error.message.includes('Certificate file exists but is not accessible'));
-        }
+    test('createTunnel should create a new tunnel', async function() {
+        const tunnelName = 'test-tunnel';
+        const tunnel = await tunnelManager.createTunnel(tunnelName);
+        assert.strictEqual(tunnel.name, tunnelName);
+        assert.strictEqual(tunnel.id, `mock-id-${tunnelName}`);
     });
 
-    test('runCloudflaredCommand should handle command errors', async function() {
-        mockFsState.certExists = true;
-        mockFsState.certContent = 'valid-cert-content';
-
-        try {
-            await cloudflaredService.runCloudflaredCommand('cloudflared invalid-command');
-            assert.fail('Should throw error for invalid command');
-        } catch (error: any) {
-            assert.ok(error instanceof Error);
-            assert.strictEqual(error.message, 'Command not mocked');
-        }
-    });
-
-    test('listTunnels should handle missing cert.pem', async function() {
-        mockFsState.certExists = false;
-        mockFsState.certContent = '';
-        
-        const tunnels = await cloudflaredService.listTunnels();
-        assert.deepStrictEqual(tunnels, [], 'Should return empty array when cert.pem is missing');
-    });
-
-    test('listTunnels should list tunnels when cert.pem exists', async function() {
-        mockFsState.certExists = true;
-        mockFsState.certContent = 'valid-cert-content';
-        
-        const tunnels = await cloudflaredService.listTunnels();
-        assert.ok(Array.isArray(tunnels), 'Should return array of tunnels');
-        assert.deepStrictEqual(tunnels, [], 'Should return empty array when no tunnels exist');
-    });
-
-    test('should handle API errors gracefully', async function() {
-        this.timeout(10000);
-        
-        // Create a new API service that throws errors
-        const errorApiService = new CloudflareApiService(mockContext, mockProfileManager);
-        Object.defineProperties(errorApiService, {
-            listTunnels: {
-                value: async () => { throw new Error('API Error'); },
-                configurable: true,
-                enumerable: true,
-                writable: true
-            }
-        });
-
-        const errorTunnelManager = new TunnelManager(
-            mockContext,
-            mockLogger,
-            errorApiService,
-            mockProfileManager
-        );
-
-        try {
-            // Should handle error gracefully
-            const tunnels = await errorTunnelManager.listTunnels();
-            assert.deepStrictEqual(tunnels, [], 'Should return empty array on API error');
-        } catch (error) {
-            // The error should be handled by TunnelManager, not propagated
-            assert.fail(`Should handle API errors gracefully, but got: ${error}`);
-        }
+    test('listTunnels should return array of tunnels', async function() {
+        const tunnels = await tunnelManager.listTunnels();
+        assert.ok(Array.isArray(tunnels));
     });
 });

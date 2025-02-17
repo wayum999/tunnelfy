@@ -16,7 +16,7 @@
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
 import { promisify } from 'util';
-import { CloudflareApiService } from './services/cloudflareApiService';
+import { CloudflareApiService } from './services/cloudflareApi';
 import { TokenService } from './services/tokenService';
 import { ProfileManager } from './services/profileManager';
 import { ProfilesProvider } from './views/profilesView';
@@ -24,7 +24,9 @@ import { TunnelTreeDataProvider } from './views/tunnelTreeView';
 import { QuickTunnelTreeDataProvider } from './views/quickTunnelTreeView';
 import { Logger, LogComponent } from './utils/logger';
 import { TunnelManager } from './services/cloudflared';
-import { registerProfileCommands, registerTunnelCommands, registerQuickTunnelCommands } from './commands';
+import { registerProfileCommands } from './commands/profileCommands';
+import { registerTunnelCommands } from './commands/tunnelCommands';
+import { registerQuickTunnelCommands } from './commands/quickTunnelCommands';
 import { Messages } from './utils/messages';
 
 /**

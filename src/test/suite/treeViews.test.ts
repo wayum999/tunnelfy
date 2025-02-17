@@ -1,9 +1,10 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
+import * as sinon from 'sinon';
 import { TunnelTreeDataProvider, TunnelTreeItem } from '../../views/tunnelTreeView';
 import { QuickTunnelTreeDataProvider, QuickTunnelTreeItem } from '../../views/quickTunnelTreeView';
 import { TunnelManager } from '../../services/cloudflared';
-import { CloudflareApiService } from '../../services/cloudflareApiService';
+import { CloudflareApiService } from '../../services/cloudflareApi';
 import { ProfileManager } from '../../services/profileManager';
 import { Logger, LogComponent } from '../../utils/logger';
 

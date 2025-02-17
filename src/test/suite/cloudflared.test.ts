@@ -6,7 +6,7 @@ import * as os from 'os';
 import * as fs from 'fs';
 import proxyquire from 'proxyquire';
 import { TunnelManager } from '../../services/cloudflared';
-import { CloudflareApiService } from '../../services/cloudflareApiService';
+import { CloudflareApiService } from '../../services/cloudflareApi';
 import { ProfileManager } from '../../services/profileManager';
 import { Logger, LogComponent } from '../../utils/logger';
 import { waitForExtensionActivation, clearWorkspace, createTestConfiguration, cleanupTestConfiguration } from './testUtils';

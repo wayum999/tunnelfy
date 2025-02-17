@@ -3,7 +3,7 @@ import * as cp from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Logger, LogComponent } from '../../utils/logger';
-import { CloudflareApiService } from '../cloudflareApiService';
+import { CloudflareApiService } from '../cloudflareApi';
 import { ProfileManager } from '../profileManager';
 import { TunnelLogger } from './TunnelLogger';
 import { TunnelConfig } from './TunnelConfig';

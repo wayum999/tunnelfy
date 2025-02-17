@@ -90,7 +90,7 @@ tunnel.db
 
 # Package manager locks in subdirectories
 **/package-lock.json
-!./package-lock.json 
+!package-lock.json 
 
 # _DEV
 _DEV/api_test/

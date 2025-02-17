@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { TunnelManager } from '../services/cloudflared';
-import { CloudflareApiService } from '../services/cloudflareApiService';
+import { CloudflareApiService } from '../services/cloudflareApi';
 import { TokenService } from '../services/tokenService';
 import { TunnelTreeItem } from '../views/tunnelTreeView';
 import { ProfileManager } from '../services/profileManager';

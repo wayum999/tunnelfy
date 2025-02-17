@@ -1,8 +1,9 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { TunnelManager } from '../../services/cloudflared/TunnelManager';
-import { CloudflareApiService } from '../../services/cloudflareApiService';
+import * as sinon from 'sinon';
+import { TunnelManager } from '../../services/cloudflared';
+import { CloudflareApiService } from '../../services/cloudflareApi';
 import { ProfileManager } from '../../services/profileManager';
 import { Logger, LogComponent } from '../../utils/logger';
 

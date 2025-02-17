@@ -2,10 +2,11 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { TunnelManager, TunnelEvent, TunnelEventType } from '../../services/cloudflared';
-import { CloudflareApiService } from '../../services/cloudflareApiService';
+import { CloudflareApiService } from '../../services/cloudflareApi';
 import { ProfileManager } from '../../services/profileManager';
 import { Logger, LogComponent } from '../../utils/logger';
 import { EventEmitter } from 'events';
+import * as sinon from 'sinon';
 
 // Helper function to wait between operations
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));

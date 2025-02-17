@@ -6,35 +6,49 @@ import * as vscode from 'vscode';
  */
 export class Messages {
     // Profile Messages
-    static readonly PROFILE_CREATED = (name: string) => `Created profile: ${name}`;
+    static readonly PROFILE_CREATED = (name: string) => `Profile "${name}" created successfully`;
     static readonly PROFILE_DELETED = (name: string) => `Profile "${name}" deleted successfully`;
-    static readonly PROFILE_API_KEY_UPDATED = (name: string) => `Updated API key for profile: ${name}`;
-    static readonly PROFILE_SWITCHED = (name: string) => `Switched to profile: ${name}`;
-    static readonly PROFILE_ACTIVE_UPDATED = 'Active profile updated';
+    static readonly PROFILE_API_KEY_UPDATED = (name: string) => `API key updated for profile "${name}"`;
+    static readonly PROFILE_SWITCHED = (name: string) => `Switched to profile "${name}"`;
+    static readonly PROFILE_ACTIVE_UPDATED = 'Active profile updated successfully';
     static readonly NO_PROFILES_FOUND = 'No Cloudflare accounts found for this API key';
 
     // Tunnel Messages
-    static readonly TUNNEL_CREATED = (name: string) => `Created tunnel: ${name}`;
-    static readonly TUNNEL_DELETED = (name: string) => `Deleted tunnel: ${name}`;
+    static readonly TUNNEL_CREATED = (name: string) => `Tunnel "${name}" created successfully`;
+    static readonly TUNNEL_DELETED = (name: string) => `Tunnel "${name}" deleted successfully`;
     static readonly TUNNEL_STARTED = (name: string, hostname: string, port: string | number) => 
-        `Started TUNNEL: ${name} with HOSTNAME: ${hostname} for PORT: ${port}`;
-    static readonly TUNNEL_STOPPED = (name: string) => `TUNNEL: ${name} stopped.`;
+        `Tunnel "${name}" started successfully\nHostname: ${hostname}\nPort: ${port}`;
+    static readonly TUNNEL_STOPPED = (name: string) => `Tunnel "${name}" stopped successfully`;
     static readonly TUNNEL_URL_COPIED = 'Tunnel URL copied to clipboard';
     static readonly NO_TUNNEL_URL = 'No tunnel URL available';
 
     // Quick Tunnel Messages
+    static readonly QUICK_TUNNEL_STARTING = (name?: string, port?: string | number) => 
+        `Starting quick tunnel${name ? ` "${name}"` : ''} on port ${port}...`;
     static readonly QUICK_TUNNEL_CREATED = (name?: string, port?: string | number) => 
-        `Created quick tunnel${name ? ` "${name}"` : ''} on port ${port}`;
-    static readonly QUICK_TUNNEL_RUNNING = (url: string) => `Quick tunnel is running at ${url}`;
+        `Quick tunnel${name ? ` "${name}"` : ''} created successfully on port ${port}`;
+    static readonly QUICK_TUNNEL_RUNNING = (url: string, name?: string) => 
+        `Quick tunnel${name ? ` "${name}"` : ''} is running at ${url}`;
     static readonly QUICK_TUNNEL_STOPPED = (name?: string, port?: string | number) => 
-        `Stopped quick tunnel${name ? ` "${name}"` : ''} on port ${port}`;
-    static readonly QUICK_TUNNEL_RATE_LIMIT = 
-        'Rate limit exceeded for quick tunnels. Please wait a few minutes before trying again.';
-    static readonly QUICK_TUNNEL_PORT_IN_USE = (port: string | number) => 
-        `Port ${port} is already in use. Please choose a different port.`;
+        `Quick tunnel${name ? ` "${name}"` : ''} on port ${port} stopped successfully`;
+    static readonly QUICK_TUNNEL_RATE_LIMIT = {
+        message: 'Rate limit exceeded for quick tunnels',
+        detail: 'Please wait a few minutes before trying again. Cloudflare limits the number of quick tunnels you can create in a short time period.'
+    };
+    static readonly QUICK_TUNNEL_PORT_IN_USE = (port: string | number) => ({
+        message: `Port ${port} is already in use`,
+        detail: 'Another application or tunnel might be using this port. Please choose a different port.'
+    });
+    static readonly QUICK_TUNNEL_CONNECTION_ERROR = {
+        message: 'Failed to connect to Cloudflare',
+        detail: 'Please check your internet connection and try again.'
+    };
 
     // Cloudflared Messages
-    static readonly CLOUDFLARED_NOT_FOUND = 'cloudflared is required but not found on your system.';
+    static readonly CLOUDFLARED_NOT_FOUND = {
+        message: 'cloudflared is required but not found on your system',
+        detail: 'Please install cloudflared to use tunnel features'
+    };
     static readonly CLOUDFLARED_INSTALL_ACTION = 'Installation Instructions';
     static readonly CLOUDFLARED_INSTALL_DARWIN = 'To install, run: `brew install cloudflare/cloudflare/cloudflared`';
     static readonly CLOUDFLARED_INSTALL_WIN32 = 'Download the installer from: https://github.com/cloudflare/cloudflared/releases';
@@ -51,16 +65,50 @@ export class Messages {
     static readonly TOKEN_COPY_CANCELLED = 'Token copy cancelled by user';
 
     // Error Messages
-    static readonly ERROR_CREATE_PROFILE = (error: any) => `Failed to create profile: ${error}`;
-    static readonly ERROR_UPDATE_API_KEY = (error: any) => `Failed to update API key: ${error}`;
-    static readonly ERROR_DELETE_PROFILE = (error: any) => `Failed to delete profile: ${error}`;
-    static readonly ERROR_SET_ACTIVE_PROFILE = (error: any) => `Failed to set active profile: ${error}`;
-    static readonly ERROR_CREATE_TUNNEL = (error: any) => `Failed to create tunnel: ${error}`;
-    static readonly ERROR_DELETE_TUNNEL = (error: any) => `Failed to delete tunnel: ${error}`;
-    static readonly ERROR_START_TUNNEL = (error: any) => `Failed to start tunnel: ${error}`;
-    static readonly ERROR_STOP_TUNNEL = (error: any) => `Failed to stop tunnel: ${error}`;
-    static readonly ERROR_COPY_TOKEN = (error: any) => `Failed to copy token: ${error}`;
-    static readonly ERROR_COPY_URL = (error: any) => `Failed to copy tunnel URL: ${error}`;
+    static readonly ERROR_CREATE_PROFILE = (error: any) => ({
+        message: 'Failed to create profile',
+        detail: String(error)
+    });
+    static readonly ERROR_UPDATE_API_KEY = (error: any) => ({
+        message: 'Failed to update API key',
+        detail: String(error)
+    });
+    static readonly ERROR_DELETE_PROFILE = (error: any) => ({
+        message: 'Failed to delete profile',
+        detail: String(error)
+    });
+    static readonly ERROR_SET_ACTIVE_PROFILE = (error: any) => ({
+        message: 'Failed to set active profile',
+        detail: String(error)
+    });
+    static readonly ERROR_CREATE_TUNNEL = (error: any) => ({
+        message: 'Failed to create tunnel',
+        detail: String(error)
+    });
+    static readonly ERROR_DELETE_TUNNEL = (error: any) => ({
+        message: 'Failed to delete tunnel',
+        detail: String(error)
+    });
+    static readonly ERROR_START_TUNNEL = (error: any) => ({
+        message: 'Failed to start tunnel',
+        detail: String(error)
+    });
+    static readonly ERROR_STOP_TUNNEL = (error: any) => ({
+        message: 'Failed to stop tunnel',
+        detail: String(error)
+    });
+    static readonly ERROR_COPY_TOKEN = (error: any) => ({
+        message: 'Failed to copy token',
+        detail: String(error)
+    });
+    static readonly ERROR_COPY_URL = (error: any) => ({
+        message: 'Failed to copy tunnel URL',
+        detail: String(error)
+    });
+    static readonly ERROR_GENERIC = (error: any) => ({
+        message: 'An error occurred',
+        detail: String(error)
+    });
 
     // Helper methods for showing messages
     static async showInfo(message: string): Promise<void> {
@@ -71,15 +119,31 @@ export class Messages {
         return await vscode.window.showWarningMessage(message, ...items);
     }
 
-    static async showError(message: string, details?: string): Promise<void> {
-        if (details) {
-            await vscode.window.showErrorMessage(message, { detail: details });
-        } else {
-            await vscode.window.showErrorMessage(message);
+    static async showError(
+        messageObj: { message: string; detail?: string } | string, 
+        ...items: string[]
+    ): Promise<string | undefined> {
+        if (typeof messageObj === 'string') {
+            return await vscode.window.showErrorMessage(messageObj, ...items);
         }
+        return await vscode.window.showErrorMessage(
+            messageObj.message,
+            { detail: messageObj.detail },
+            ...items
+        );
     }
 
-    static async showModal(message: string, ...items: string[]): Promise<string | undefined> {
-        return await vscode.window.showWarningMessage(message, { modal: true }, ...items);
+    static async showModal(
+        messageObj: { message: string; detail?: string } | string,
+        ...items: string[]
+    ): Promise<string | undefined> {
+        if (typeof messageObj === 'string') {
+            return await vscode.window.showWarningMessage(messageObj, { modal: true }, ...items);
+        }
+        return await vscode.window.showWarningMessage(
+            messageObj.message,
+            { modal: true, detail: messageObj.detail },
+            ...items
+        );
     }
 } 

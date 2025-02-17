@@ -82,14 +82,10 @@ export function registerQuickTunnelCommands(
                             installInstructions = Messages.CLOUDFLARED_INSTALL_DEFAULT;
                     }
 
-                    const CLOUDFLARED_INSTALL_URL = 'https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/create-local-tunnel/';
+                    const CLOUDFLARED_INSTALL_URL = Messages.CLOUDFLARED_INSTALL_DOCS;
                     
-                    const response = await vscode.window.showErrorMessage(
+                    const response = await Messages.showModal(
                         Messages.CLOUDFLARED_NOT_FOUND,
-                        { 
-                            modal: true, 
-                            detail: installInstructions 
-                        },
                         Messages.CLOUDFLARED_INSTALL_ACTION
                     );
 
@@ -98,7 +94,7 @@ export function registerQuickTunnelCommands(
                     }
                 } else {
                     logger.error(LogComponent.COMMAND, `Failed to create quick tunnel: ${errorMessage}`, error);
-                    await Messages.showError(Messages.ERROR_CREATE_TUNNEL(errorMessage));
+                    Messages.showError(Messages.ERROR_GENERIC(errorMessage));
                 }
             }
         })

@@ -8,6 +8,7 @@ import { ProfileManager } from '../profileManager';
 import { TunnelLogger } from './TunnelLogger';
 import { TunnelConfig } from './TunnelConfig';
 import * as util from 'util';
+import { Messages } from '../../utils/messages';
 
 /**
  * Custom error class for when cloudflared is not found
@@ -728,7 +729,7 @@ export class TunnelManager {
      */
     async createQuickTunnel(port: number, name?: string): Promise<{ url: string; tunnelUrl: string; name?: string } | null> {
         try {
-            vscode.window.showInformationMessage(`Starting quick tunnel${name ? ` "${name}"` : ''} for port ${port}...`);
+            Messages.showInfo(Messages.QUICK_TUNNEL_STARTING(name, port));
             this.logger.info(LogComponent.TUNNEL, `Starting quick tunnel${name ? ` "${name}"` : ''} for port ${port}`);
 
             // Find cloudflared
@@ -807,7 +808,7 @@ export class TunnelManager {
                             tunnelId: quickTunnelId,
                             message: `Quick tunnel${name ? ` "${name}"` : ''} started for port ${portNum}`
                         });
-                        vscode.window.showInformationMessage(`Quick tunnel${name ? ` "${name}"` : ''} is running at ${tunnelUrl}`);
+                        Messages.showInfo(Messages.QUICK_TUNNEL_RUNNING(tunnelUrl, name));
                         resolve(tunnelUrl);
                         return true;
                     }
@@ -851,30 +852,21 @@ export class TunnelManager {
                             
                             // Check for specific error types
                             if (errorBuffer.includes('429 Too Many Requests')) {
-                                vscode.window.showErrorMessage(
-                                    'Rate limit exceeded for quick tunnels. Please wait a few minutes before trying again.',
-                                    { detail: 'Cloudflare limits the number of quick tunnels you can create in a short time period.' }
-                                );
+                                Messages.showError(Messages.QUICK_TUNNEL_RATE_LIMIT);
                                 reject(new Error('Rate limit exceeded for quick tunnels'));
                                 return;
                             }
                             
                             // Check for port already in use
                             if (errorBuffer.includes('bind: address already in use')) {
-                                vscode.window.showErrorMessage(
-                                    `Port ${portNum} is already in use. Please choose a different port.`,
-                                    { detail: 'Another application or tunnel might be using this port.' }
-                                );
+                                Messages.showError(Messages.QUICK_TUNNEL_PORT_IN_USE(portNum));
                                 reject(new Error(`Port ${portNum} is already in use`));
                                 return;
                             }
 
                             // Check for connection errors
                             if (errorBuffer.includes('connection refused') || errorBuffer.includes('cannot connect to')) {
-                                vscode.window.showErrorMessage(
-                                    'Failed to connect to Cloudflare. Please check your internet connection.',
-                                    { detail: 'Make sure you have a stable internet connection and try again.' }
-                                );
+                                Messages.showError(Messages.QUICK_TUNNEL_CONNECTION_ERROR);
                                 reject(new Error('Failed to connect to Cloudflare'));
                                 return;
                             }
@@ -882,10 +874,7 @@ export class TunnelManager {
                         
                         // Generic error with the full error message
                         const errorMessage = errorBuffer ? errorBuffer.trim() : 'Unknown error occurred';
-                        vscode.window.showErrorMessage(
-                            'Failed to create quick tunnel',
-                            { detail: errorMessage }
-                        );
+                        Messages.showError(Messages.ERROR_GENERIC(errorMessage));
                         reject(new Error(`Quick tunnel process exited with code ${code}${errorBuffer ? `: ${errorBuffer.trim()}` : ''}`));
                     }
                 });

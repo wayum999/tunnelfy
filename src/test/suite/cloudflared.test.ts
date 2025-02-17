@@ -148,7 +148,7 @@ const mockChildProcess = {
     '@noCallThru': true
 };
 
-const { CloudflaredService } = proxyquire('../../../services/cloudflaredService', {
+const { CloudflaredService } = proxyquire('../../../services/cloudflared/cloudflaredService', {
     'fs': mockFs,
     'child_process': mockChildProcess
 });

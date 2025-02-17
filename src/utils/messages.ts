@@ -146,4 +146,9 @@ export class Messages {
             ...items
         );
     }
+
+    // Helper to extract message string from message object or string
+    private static getMessageString(messageObj: { message: string; detail?: string } | string): string {
+        return typeof messageObj === 'string' ? messageObj : messageObj.message;
+    }
 } 

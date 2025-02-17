@@ -84,8 +84,12 @@ export function registerQuickTunnelCommands(
 
                     const CLOUDFLARED_INSTALL_URL = Messages.CLOUDFLARED_INSTALL_DOCS;
                     
-                    const response = await Messages.showModal(
-                        Messages.CLOUDFLARED_NOT_FOUND,
+                    const response = await vscode.window.showErrorMessage(
+                        Messages.CLOUDFLARED_NOT_FOUND.message,
+                        { 
+                            modal: true, 
+                            detail: Messages.CLOUDFLARED_NOT_FOUND.detail 
+                        },
                         Messages.CLOUDFLARED_INSTALL_ACTION
                     );
 

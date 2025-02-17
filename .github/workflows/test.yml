@@ -26,12 +26,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run tests
-        run: npm test
-        env:
-          DISPLAY: ":99.0"
-
       - name: Setup xvfb for VS Code tests
         run: |
+          sudo apt-get install -y xvfb
           /usr/bin/Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
           sleep 3
+
+      - name: Run tests
+        run: xvfb-run -a npm test
+        env:
+          DISPLAY: ":99.0"

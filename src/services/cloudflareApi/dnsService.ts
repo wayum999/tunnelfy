@@ -64,7 +64,7 @@ export class DnsService extends BaseCloudflareService {
                     name: name,
                     content: `${tunnelId}.cfargotunnel.com`,
                     proxied: true,
-                    ttl: 1
+                    ttl: 120
                 }
             );
             return {
@@ -94,7 +94,7 @@ export class DnsService extends BaseCloudflareService {
                     type: 'CNAME',
                     content: `${tunnelId}.cfargotunnel.com`,
                     proxied: true,
-                    ttl: 1
+                    ttl: 120
                 }
             );
             return {

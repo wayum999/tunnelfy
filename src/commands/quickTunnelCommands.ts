@@ -1,11 +1,14 @@
 import * as vscode from 'vscode';
 import { QuickTunnelTreeDataProvider, QuickTunnelTreeItem } from '../views/quickTunnelTreeView';
 import { Messages } from '../utils/messages';
+import { Logger, LogComponent } from '../utils/logger';
 
 export function registerQuickTunnelCommands(
     context: vscode.ExtensionContext,
     quickTunnelProvider: QuickTunnelTreeDataProvider
 ) {
+    const logger = Logger.getInstance();
+
     // Create Quick Tunnel Command
     context.subscriptions.push(
         vscode.commands.registerCommand('tunnelfy.createQuickTunnel', async () => {
@@ -55,11 +58,13 @@ export function registerQuickTunnelCommands(
                 // Only proceed with tunnel creation if we have both inputs
                 // Only pass the name if it's not empty
                 const tunnelName = name?.trim() || undefined;
+                logger.info(LogComponent.COMMAND, `Creating quick tunnel${tunnelName ? ` "${tunnelName}"` : ''} on port ${portNumber}`);
                 await quickTunnelProvider.addQuickTunnel(portNumber, tunnelName);
             } catch (error: unknown) {
                 const errorMessage = error instanceof Error ? error.message : String(error);
                 
                 if (errorMessage.includes('cloudflared not found')) {
+                    logger.error(LogComponent.COMMAND, 'Failed to create quick tunnel: cloudflared not found', error);
                     const platform = process.platform;
                     let installInstructions = '';
                     
@@ -92,6 +97,7 @@ export function registerQuickTunnelCommands(
                         await vscode.env.openExternal(vscode.Uri.parse(CLOUDFLARED_INSTALL_URL));
                     }
                 } else {
+                    logger.error(LogComponent.COMMAND, `Failed to create quick tunnel: ${errorMessage}`, error);
                     await Messages.showError(Messages.ERROR_CREATE_TUNNEL(errorMessage));
                 }
             }
@@ -151,6 +157,7 @@ export function registerQuickTunnelCommands(
                     }
                 }
             } catch (error) {
+                logger.error(LogComponent.COMMAND, 'Failed to stop quick tunnel', error);
                 await Messages.showError(Messages.ERROR_STOP_TUNNEL(error));
             }
         })
@@ -162,11 +169,14 @@ export function registerQuickTunnelCommands(
             if (item.tunnelUrl) {
                 try {
                     await vscode.env.clipboard.writeText(item.tunnelUrl);
+                    logger.info(LogComponent.COMMAND, `Copied tunnel URL: ${item.tunnelUrl}`);
                     await Messages.showInfo(Messages.TUNNEL_URL_COPIED);
                 } catch (error) {
+                    logger.error(LogComponent.COMMAND, 'Failed to copy tunnel URL', error);
                     await Messages.showError(Messages.ERROR_COPY_URL(error));
                 }
             } else {
+                logger.warn(LogComponent.COMMAND, 'Attempted to copy tunnel URL but none was available');
                 await Messages.showError(Messages.NO_TUNNEL_URL);
             }
         })

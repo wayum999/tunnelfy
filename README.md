@@ -186,13 +186,7 @@ We welcome contributions! Here's how you can help:
    npm run lint
    ```
 
-6. **Merge to Development**
-   ```bash
-   # Use our merge script
-   ./scripts/merge-to-development.sh
-   ```
-
-7. **Create a Pull Request**
+6. **Create a Pull Request**
    - Push your changes to your fork
    - Create a pull request to our development branch
    - Follow the pull request template

@@ -22,6 +22,23 @@ export class DockerComposeGenerator {
      */
     async generateComposeFile(tunnelId: string, tunnelName: string, port: number): Promise<string> {
         try {
+            // Show confirmation dialog
+            const generateButton: vscode.MessageItem = { title: 'Generate' };
+            const cancelButton: vscode.MessageItem = { title: 'Cancel' };
+            
+            const confirmation = await vscode.window.showInformationMessage(
+                `This will generate Docker Compose files for tunnel "${tunnelName}". The following files will be created:\n` +
+                `- docker-compose.${tunnelName}.yml\n` +
+                `- cloudflare.${tunnelName}.env (contains sensitive token)`,
+                { modal: true },
+                generateButton,
+                cancelButton
+            );
+
+            if (confirmation?.title !== 'Generate') {
+                return '';
+            }
+
             // Get the tunnel token
             const token = await this.apiService.getTunnelToken(tunnelId);
             if (!token) {
@@ -41,9 +58,33 @@ export class DockerComposeGenerator {
                 const envFileName = `cloudflare.${tunnelName}.env`;
                 const composePath = path.join(workspaceFolder.uri.fsPath, composeFileName);
                 const envPath = path.join(workspaceFolder.uri.fsPath, envFileName);
+
+                // Check if files already exist
+                if (fs.existsSync(composePath) || fs.existsSync(envPath)) {
+                    const overwriteButton: vscode.MessageItem = { title: 'Overwrite' };
+                    const cancelOverwriteButton: vscode.MessageItem = { title: 'Cancel' };
+                    
+                    const overwrite = await vscode.window.showWarningMessage(
+                        'One or both files already exist. Do you want to overwrite them?',
+                        { modal: true },
+                        overwriteButton,
+                        cancelOverwriteButton
+                    );
+                    if (overwrite?.title !== 'Overwrite') {
+                        return '';
+                    }
+                }
                 
                 fs.writeFileSync(composePath, composeContent);
                 fs.writeFileSync(envPath, envContent);
+
+                // Open both files in the editor
+                const composeUri = vscode.Uri.file(composePath);
+                const envUri = vscode.Uri.file(envPath);
+                
+                await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(composeUri));
+                await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(envUri), { viewColumn: vscode.ViewColumn.Beside });
+                
                 return composePath;
             } else {
                 // If no workspace, create untitled files

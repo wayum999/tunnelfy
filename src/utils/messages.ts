@@ -123,6 +123,16 @@ export class Messages {
             ? 'Docker Compose and environment files generated in new editors'
             : `Docker Compose and environment files generated at ${path.dirname(filePath)}`;
 
+    static readonly SYSTEM_SERVICE_GENERATED = (filePath: string) => 
+        filePath === 'New untitled files' 
+            ? 'System service and environment files generated in new editors'
+            : `System service and environment files generated at ${path.dirname(filePath)}`;
+
+    static readonly ERROR_GENERATE_SYSTEM_SERVICE = (error: any) => ({
+        message: 'Failed to generate system service file',
+        detail: String(error)
+    });
+
     // Helper methods for showing messages
     static async showInfo(message: string): Promise<void> {
         await vscode.window.showInformationMessage(message);

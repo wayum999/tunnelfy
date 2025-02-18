@@ -28,6 +28,7 @@ import { registerProfileCommands } from './commands/profileCommands';
 import { registerTunnelCommands } from './commands/tunnelCommands';
 import { registerQuickTunnelCommands } from './commands/quickTunnelCommands';
 import { Messages } from './utils/messages';
+import { SystemServiceGenerator } from './services/systemServiceGenerator';
 
 /**
  * Extension Activation Event
@@ -51,6 +52,7 @@ export async function activate(context: vscode.ExtensionContext) {
         const apiService = new CloudflareApiService(context, profileManager);
         const tokenService = new TokenService(context);
         const tunnelManager = new TunnelManager(context, logger, apiService, profileManager);
+        const systemServiceGenerator = new SystemServiceGenerator(tunnelManager, apiService);
 
         // Check for cloudflared installation
         try {
@@ -136,7 +138,8 @@ export async function activate(context: vscode.ExtensionContext) {
             apiService,
             tokenService,
             profileManager,
-            tunnelProvider
+            tunnelProvider,
+            systemServiceGenerator
         );
         context.subscriptions.push(...tunnelCommandDisposables);
 
@@ -153,6 +156,30 @@ export async function activate(context: vscode.ExtensionContext) {
             quickTunnelProvider
         );
         context.subscriptions.push(...quickTunnelCommandDisposables);
+
+        // Register the service generation commands
+        context.subscriptions.push(
+            vscode.commands.registerCommand('cloudflare-tunnel.generateService', async (tunnelId: string, tunnelName: string) => {
+                try {
+                    await tunnelProvider.generateServiceFiles(tunnelId, tunnelName);
+                } catch (error) {
+                    logger.error(LogComponent.EXTENSION, `Failed to generate service files: ${error}`);
+                    vscode.window.showErrorMessage('Failed to generate service files. Check the logs for details.');
+                }
+            })
+        );
+
+        context.subscriptions.push(
+            vscode.commands.registerCommand('cloudflare-tunnel.generateSystemService', async (tunnelId: string, tunnelName: string) => {
+                try {
+                    const systemServiceGenerator = new SystemServiceGenerator(tunnelManager, apiService);
+                    await systemServiceGenerator.generateServiceFile(tunnelId, tunnelName, 8080); // Default port, can be made configurable
+                } catch (error) {
+                    logger.error(LogComponent.EXTENSION, `Failed to generate system service files: ${error}`);
+                    vscode.window.showErrorMessage('Failed to generate system service files. Check the logs for details.');
+                }
+            })
+        );
 
         // Register cleanup on extension deactivation
         context.subscriptions.push({

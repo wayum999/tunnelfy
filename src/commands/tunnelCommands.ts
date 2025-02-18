@@ -6,6 +6,7 @@ import { TunnelTreeItem } from '../views/tunnelTreeView';
 import { ProfileManager } from '../services/profileManager';
 import { TunnelTreeDataProvider } from '../views/tunnelTreeView';
 import { Messages } from '../utils/messages';
+import { DockerComposeGenerator } from '../services/dockerComposeGenerator';
 
 // Type for DNS record QuickPick items
 type DnsRecordQuickPickItem = {
@@ -29,6 +30,7 @@ export function registerTunnelCommands(
     tunnelProvider: TunnelTreeDataProvider
 ): vscode.Disposable[] {
     const disposables: vscode.Disposable[] = [];
+    const dockerComposeGenerator = new DockerComposeGenerator(tunnelManager, apiService);
 
     // Copy Token Command
     disposables.push(
@@ -444,6 +446,70 @@ export function registerTunnelCommands(
                 await Messages.showInfo(Messages.TUNNELS_REFRESHED);
             } catch (error) {
                 await Messages.showError(Messages.ERROR_REFRESH_TUNNELS(error));
+            }
+        })
+    );
+
+    // Generate Docker Compose Command
+    disposables.push(
+        vscode.commands.registerCommand('tunnelfy.generateDockerCompose', async (item?: TunnelTreeItem) => {
+            try {
+                // If called from tree view, use the selected item
+                if (item?.tunnelId && item?.port) {
+                    const filePath = await dockerComposeGenerator.generateComposeFile(
+                        item.tunnelId,
+                        item.label,
+                        item.port
+                    );
+                    await Messages.showInfo(Messages.DOCKER_COMPOSE_GENERATED(filePath));
+                    return;
+                }
+
+                // If called from command palette, show QuickPick
+                const allTunnels = await apiService.listTunnels();
+                if (!allTunnels || allTunnels.length === 0) {
+                    await Messages.showInfo('No tunnels available.');
+                    return;
+                }
+
+                const selected = await vscode.window.showQuickPick(
+                    allTunnels.map(tunnel => ({
+                        label: tunnel.name,
+                        description: `ID: ${tunnel.id}`,
+                        detail: tunnel.connections && tunnel.connections.length > 0 ? 'Running' : 'Stopped',
+                        tunnelId: tunnel.id
+                    })),
+                    {
+                        placeHolder: 'Select a tunnel to generate Docker Compose file for',
+                        ignoreFocusOut: true
+                    }
+                );
+
+                if (selected) {
+                    // Get port from user
+                    const port = await vscode.window.showInputBox({
+                        prompt: 'Enter the port number for the tunnel',
+                        placeHolder: '8080',
+                        validateInput: (value) => {
+                            const port = parseInt(value);
+                            if (isNaN(port) || port < 1 || port > 65535) {
+                                return 'Please enter a valid port number (1-65535)';
+                            }
+                            return null;
+                        }
+                    });
+
+                    if (port) {
+                        const filePath = await dockerComposeGenerator.generateComposeFile(
+                            selected.tunnelId,
+                            selected.label,
+                            parseInt(port)
+                        );
+                        await Messages.showInfo(Messages.DOCKER_COMPOSE_GENERATED(filePath));
+                    }
+                }
+            } catch (error) {
+                await Messages.showError(Messages.ERROR_GENERATE_DOCKER_COMPOSE(error));
             }
         })
     );

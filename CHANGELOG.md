@@ -25,9 +25,10 @@ Major update to how the extension functions, using the Cloudflare API to handle 
 
 ## [0.0.4]
 
-Minor update fixing bugs and misc cleanup. 
+Moderate update with new Docker Compose file generation, fixing misc bugs and  cleanup. 
 
  - UPDATED: Testing and test coverage.
  - ADDED: Confirmation before stopping a tunnel.
  - UPDAED: Centralized alert message system and cleanup.
  - UPDATED: Make scripts more modular for maintanability.
+ - ADDED: Docker Compose file generation for tunnels.

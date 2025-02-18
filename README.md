@@ -22,11 +22,20 @@ Managing Cloudflare tunnels directly from a VS Code extension has never been eas
 - View detailed tunnel information
 - Run tunnels with persistent background operation
 
+### Docker Integration
+
+- Generate Docker Compose files for any tunnel with one click
+- Secure token management through environment files
+- Support for both host and container-based services
+- Easy network configuration for Docker environments
+- Simple start/stop commands with docker compose
+
 ## Prerequisites
 
 1. VS Code (v1.85.0 or higher)
 2. A Cloudflare account with API key access 
 3. Cloudflare Tunnel CLI (`cloudflared`) installed
+4. (Optional) Docker and Docker Compose for containerized tunnels
 
 ## Getting Started
 
@@ -75,6 +84,7 @@ Managing Cloudflare tunnels directly from a VS Code extension has never been eas
    - View tunnel information and sample configuration setups
    - Copy the tunnel token
    - Delete the tunnel
+   - Generate Docker Compose configuration
 
 ### 5. Quick Tunnels
 
@@ -86,6 +96,31 @@ Managing Cloudflare tunnels directly from a VS Code extension has never been eas
 3. Once running, you can:
    - Copy the Cloudflare-assigned hostname
    - Stop the tunnel
+
+### 6. Docker Support
+
+Tunnelfy now includes built-in Docker support for running tunnels in containers:
+
+1. Hover over any tunnel in the Persistent Tunnels view
+2. Click the Docker icon (leftmost button)
+3. Two files will be generated:
+   - `docker-compose.<tunnel-name>.yml`
+   - `cloudflare.<tunnel-name>.env` (contains the tunnel token)
+4. Rename the compose file to `docker-compose.yml`
+5. Start the tunnel with:
+   ```bash
+   docker compose up -d
+   ```
+6. Stop the tunnel with:
+   ```bash
+   docker compose down
+   ```
+
+The Docker configuration supports:
+- Host machine services via `host.docker.internal`
+- Container services via Docker networks
+- Secure token management through environment files
+- Automatic restart on failure
 
 ## Extension Commands
 
@@ -104,11 +139,59 @@ Several commands are accessible via the Command Palette (Ctrl+Shift+P / Cmd+Shif
 - `Tunnelfy: View Tunnel Info` - View detailed information about a tunnel
 - `Tunnelfy: Copy Tunnel Token` - Copy the token of a tunnel
 - `Tunnelfy: Delete Tunnel` - Delete a tunnel
+- `Tunnelfy: Generate Docker Compose` - Generate Docker Compose files for running the tunnel in Docker
 
 ### Quick Tunnel Management
 - `Tunnelfy: Create Quick Tunnel` - Create a new quick tunnel
 - `Tunnelfy: Copy Quick Tunnel URL` - Copy the URL of a quick tunnel
 - `Tunnelfy: Stop Quick Tunnel` - Stop a quick tunnel
+
+## Docker Support
+
+Tunnelfy now supports generating Docker Compose files for your tunnels, making it easy to run them in containerized environments.
+
+### Generating Docker Compose Files
+
+1. Hover over a tunnel in the Persistent Tunnels view
+2. Click the Docker icon (leftmost button)
+3. A `docker-compose.{tunnel-name}.yml` file will be generated in your workspace
+
+The generated Docker Compose file includes:
+- A service running the Cloudflare tunnel with your tunnel token
+- A placeholder service for your application
+- A shared network for communication between services
+
+Example Docker Compose file:
+```yaml
+version: '3'
+
+services:
+  my-tunnel:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=your-tunnel-token
+    restart: unless-stopped
+    networks:
+      - tunnel-net
+
+  app:
+    # Replace this with your application's image and configuration
+    image: your-app-image:latest
+    ports:
+      - "8080:8080"
+    networks:
+      - tunnel-net
+
+networks:
+  tunnel-net:
+    driver: bridge
+```
+
+To use the generated file:
+1. Replace `your-app-image:latest` with your actual application image
+2. Add any necessary environment variables or volumes for your app
+3. Run `docker-compose -f docker-compose.{tunnel-name}.yml up -d`
 
 ## Troubleshooting
 

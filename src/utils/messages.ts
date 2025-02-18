@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 
 /**
  * Centralized message management for the extension
@@ -108,10 +109,19 @@ export class Messages {
         message: 'Failed to copy tunnel URL',
         detail: String(error)
     });
+    static readonly ERROR_GENERATE_DOCKER_COMPOSE = (error: any) => ({
+        message: 'Failed to generate Docker Compose file',
+        detail: String(error)
+    });
     static readonly ERROR_GENERIC = (error: any) => ({
         message: 'An error occurred',
         detail: String(error)
     });
+
+    static readonly DOCKER_COMPOSE_GENERATED = (filePath: string) => 
+        filePath === 'New untitled files' 
+            ? 'Docker Compose and environment files generated in new editors'
+            : `Docker Compose and environment files generated at ${path.dirname(filePath)}`;
 
     // Helper methods for showing messages
     static async showInfo(message: string): Promise<void> {

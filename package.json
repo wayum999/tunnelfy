@@ -14,7 +14,7 @@
     "url": "https://github.com/wayum999/tunnelfy.git"
   },
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.87.0"
   },
   "activationEvents": [
     "onStartupFinished"
@@ -164,6 +164,11 @@
           "command": "tunnelfy.stopQuickTunnel",
           "when": "view == tunnelfy-quick-tunnels && viewItem == quickTunnel",
           "group": "inline@2"
+        },
+        {
+          "command": "tunnelfy.generateDockerCompose",
+          "when": "view == tunnelfy-tunnels && (viewItem == tunnel-stopped || viewItem == tunnel-running)",
+          "group": "inline@0"
         }
       ]
     },
@@ -272,6 +277,13 @@
         "category": "Tunnelfy",
         "icon": "$(refresh)",
         "description": "Refresh the list of quick tunnels"
+      },
+      {
+        "command": "tunnelfy.generateDockerCompose",
+        "title": "Generate Docker Compose",
+        "category": "Tunnelfy",
+        "icon": "$(file-code)",
+        "description": "Generate a Docker Compose file for this tunnel"
       }
     ]
   },
@@ -282,7 +294,7 @@
     "pretest": "npm run clean-tests && npm run compile && npm run compile-tests",
     "clean-tests": "rimraf out/test",
     "compile-tests": "tsc -p ./src/test/tsconfig.json",
-    "test": "vscode-test",
+    "test": "vscode-test --coverage",
     "lint": "eslint src --ext ts",
     "package": "vsce package",
     "publish": "vsce publish"
@@ -294,7 +306,7 @@
     "@types/node": "18.x",
     "@types/proxyquire": "^1.3.31",
     "@types/sinon": "^17.0.3",
-    "@types/vscode": "^1.85.0",
+    "@types/vscode": "^1.87.0",
     "@typescript-eslint/parser": "^6.15.0",
     "@vscode/test-cli": "^0.0.10",
     "@vscode/test-electron": "^2.4.1",

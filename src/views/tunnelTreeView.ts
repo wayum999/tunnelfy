@@ -3,6 +3,17 @@ import { TunnelManager, TunnelEvent } from '../services/cloudflared';
 import { ProfileManager } from '../services/profileManager';
 import { Logger, LogComponent } from '../utils/logger';
 
+// Define the button interface to match VS Code's structure
+interface TreeItemButton {
+    tooltip: string;
+    iconPath: vscode.ThemeIcon;
+    command: {
+        title: string;
+        command: string;
+        arguments?: any[];
+    };
+}
+
 /**
  * TunnelTreeItem - Represents a single tunnel entry in the VS Code tree view
  * 
@@ -11,6 +22,8 @@ import { Logger, LogComponent } from '../utils/logger';
  * current state (active/inactive) and type (quick tunnel vs. persistent tunnel).
  */
 export class TunnelTreeItem extends vscode.TreeItem {
+    public readonly buttons: readonly TreeItemButton[];
+
     constructor(
         public readonly label: string,
         public readonly tunnelId: string,
@@ -33,6 +46,18 @@ export class TunnelTreeItem extends vscode.TreeItem {
         } else {
             this.iconPath = new vscode.ThemeIcon('circle-outline', new vscode.ThemeColor('descriptionForeground'));
         }
+
+        // Add command buttons that appear on hover
+        this.command = undefined; // Ensure clicking the item doesn't trigger any action
+        this.buttons = [{
+            tooltip: 'Generate Docker Compose file',
+            iconPath: new vscode.ThemeIcon('docker'),
+            command: {
+                title: 'Generate Docker Compose',
+                command: 'tunnelfy.generateDockerCompose',
+                arguments: [this]
+            }
+        }];
     }
 }
 

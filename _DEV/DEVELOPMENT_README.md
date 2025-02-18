@@ -19,12 +19,17 @@
    - `loggingService.ts`: Handles logging across components
    - `tokenService.ts`: Manages secure token handling and storage
    - `tokenAuditService.ts`: Tracks and audits token operations
+   - `dockerComposeGenerator.ts`: Generates Docker configurations
+     - Creates Docker Compose files for tunnels
+     - Manages environment files for tokens
+     - Provides Docker networking guidance
 
 3. **Views Layer** (`src/views/`)
    - `tunnelTreeView.ts`: TreeView for tunnel management
      - Displays tunnel status with visual indicators
      - Provides hover-based tunnel controls
      - Handles tunnel selection and actions
+     - Includes Docker Compose generation button
    - `profilesView.ts`: UI for profile management
 
 4. **Commands Layer** (`src/commands/`)
@@ -160,6 +165,40 @@ The extension implements a comprehensive security system for handling sensitive 
    - Monitors failed attempts
    - Maintains secure audit logs
    - Implements log rotation
+
+### Docker Compose Generation
+
+The extension includes a Docker Compose generator for containerized tunnel deployment:
+
+1. **Component Structure**
+   ```
+   User Action (Docker button)
+        ↓
+   Command Handler
+        ↓
+   DockerComposeGenerator
+        ↓
+   Generated Files:
+   - docker-compose.{tunnel}.yml
+   - cloudflare.{tunnel}.env
+   ```
+
+2. **Security Features**
+   - Token stored in separate environment file
+   - Environment file named uniquely per tunnel
+   - Clear documentation for secure usage
+
+3. **Configuration Options**
+   - Host machine service connection
+   - Container service connection
+   - Network configuration
+   - Automatic restart handling
+
+4. **File Generation**
+   - Workspace-aware file creation
+   - Untitled file support for no workspace
+   - Clear usage instructions
+   - Network configuration examples
 
 ## Development Workflow
 

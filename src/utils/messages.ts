@@ -14,13 +14,16 @@ export class Messages {
     static readonly NO_PROFILES_FOUND = 'No Cloudflare accounts found for this API key';
 
     // Tunnel Messages
-    static readonly TUNNEL_CREATED = (name: string) => `Tunnel "${name}" created successfully`;
-    static readonly TUNNEL_DELETED = (name: string) => `Tunnel "${name}" deleted successfully`;
-    static readonly TUNNEL_STARTED = (name: string, hostname: string, port: string | number) => 
-        `Tunnel "${name}" started successfully\nHostname: ${hostname}\nPort: ${port}`;
-    static readonly TUNNEL_STOPPED = (name: string) => `Tunnel "${name}" stopped successfully`;
+    static readonly TUNNEL_CREATED = (name: string) => `Tunnel "${name}" has been created.`;
+    static readonly TUNNEL_DELETED = (name: string) => `Tunnel "${name}" has been deleted.`;
+    static readonly TUNNEL_STARTED = (name: string, hostname: string, port: number) => 
+        `Tunnel "${name}" is now running at ${hostname} (port ${port}).`;
+    static readonly TUNNEL_STOPPED = (name: string) => `Tunnel "${name}" has been stopped.`;
     static readonly TUNNEL_URL_COPIED = 'Tunnel URL copied to clipboard';
     static readonly NO_TUNNEL_URL = 'No tunnel URL available';
+    static readonly TUNNELS_REFRESHED = 'Tunnel list has been refreshed.';
+    static readonly ERROR_REFRESH_TUNNELS = (error: unknown) => 
+        `Failed to refresh tunnel list: ${error instanceof Error ? error.message : String(error)}`;
 
     // Quick Tunnel Messages
     static readonly QUICK_TUNNEL_STARTING = (name?: string, port?: string | number) => 

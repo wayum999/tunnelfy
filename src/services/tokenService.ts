@@ -164,17 +164,23 @@ export class TokenService {
             // Attempt to retrieve token from encrypted in-memory cache
             const memoryToken = this.encryptedTokens.get(tunnelId);
             if (memoryToken) {
-                const token = this.decryptFromMemory(
-                    memoryToken.encrypted,
-                    memoryToken.iv,
-                    memoryToken.authTag
-                );
-                await this.auditService.recordEvent({
-                    action: 'access',
-                    tunnelId,
-                    success: true
-                });
-                return token;
+                try {
+                    const token = this.decryptFromMemory(
+                        memoryToken.encrypted,
+                        memoryToken.iv,
+                        memoryToken.authTag
+                    );
+                    await this.auditService.recordEvent({
+                        action: 'access',
+                        tunnelId,
+                        success: true
+                    });
+                    return token;
+                } catch (error) {
+                    this.failedAttempts++;
+                    this.lastFailedAttempt = Date.now();
+                    throw error;
+                }
             }
 
             // If not in cache, retrieve token from VS Code's secret storage
@@ -190,16 +196,28 @@ export class TokenService {
                     tunnelId,
                     success: true
                 });
+            } else {
+                this.failedAttempts++;
+                this.lastFailedAttempt = Date.now();
             }
 
             return token;
         } catch (error: any) {
+            this.failedAttempts++;
+            this.lastFailedAttempt = Date.now();
+            
             await this.auditService.recordEvent({
                 action: 'access',
                 tunnelId,
                 success: false,
                 error: error?.message || 'Unknown error occurred'
             });
+
+            // If this is a rate limiting error, propagate it directly
+            if (error.message.includes('Too many failed attempts')) {
+                throw error;
+            }
+
             this.logger.error(LogComponent.TUNNEL, 'Failed to retrieve tunnel token:', error);
             throw new Error('Failed to retrieve tunnel token from secure storage');
         }

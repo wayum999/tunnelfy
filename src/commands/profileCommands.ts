@@ -10,9 +10,11 @@ export function registerProfileCommands(
     profileManager: ProfileManager,
     profilesProvider: ProfilesProvider,
     tunnelProvider: TunnelTreeDataProvider
-) {
+): vscode.Disposable[] {
+    const disposables: vscode.Disposable[] = [];
+
     // Create Profile Command
-    context.subscriptions.push(
+    disposables.push(
         vscode.commands.registerCommand('tunnelfy.createProfile', async () => {
             const name = await vscode.window.showInputBox({
                 prompt: 'Enter a name for the new profile',
@@ -81,7 +83,7 @@ export function registerProfileCommands(
     );
 
     // Change API Key Command
-    context.subscriptions.push(
+    disposables.push(
         vscode.commands.registerCommand('tunnelfy.changeApiKey', async (item: { label: string }) => {
             try {
                 if (!item || !item.label) {
@@ -108,7 +110,7 @@ export function registerProfileCommands(
     );
 
     // Delete Profile Command
-    context.subscriptions.push(
+    disposables.push(
         vscode.commands.registerCommand('tunnelfy.deleteProfile', async (item?: { label: string }) => {
             try {
                 // If called from tree view, use the selected item
@@ -199,7 +201,7 @@ export function registerProfileCommands(
     );
 
     // Set Active Profile Command
-    context.subscriptions.push(
+    disposables.push(
         vscode.commands.registerCommand('tunnelfy.setActiveProfile', async (item?: { label: string }) => {
             try {
                 // If called from tree view, use the selected item
@@ -242,4 +244,21 @@ export function registerProfileCommands(
             }
         })
     );
+
+    // Refresh Profiles Command
+    disposables.push(
+        vscode.commands.registerCommand('tunnelfy.refreshProfiles', async () => {
+            try {
+                profilesProvider.refresh();
+                await Messages.showInfo('Profile list has been refreshed.');
+            } catch (error) {
+                await Messages.showError(Messages.ERROR_GENERIC(error));
+            }
+        })
+    );
+
+    // Add all disposables to the extension context
+    disposables.forEach(d => context.subscriptions.push(d));
+
+    return disposables;
 } 

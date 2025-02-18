@@ -6,11 +6,12 @@ import { Logger, LogComponent } from '../utils/logger';
 export function registerQuickTunnelCommands(
     context: vscode.ExtensionContext,
     quickTunnelProvider: QuickTunnelTreeDataProvider
-) {
+): vscode.Disposable[] {
+    const disposables: vscode.Disposable[] = [];
     const logger = Logger.getInstance();
 
     // Create Quick Tunnel Command
-    context.subscriptions.push(
+    disposables.push(
         vscode.commands.registerCommand('tunnelfy.createQuickTunnel', async () => {
             try {
                 // Get tunnel name (optional)
@@ -105,7 +106,7 @@ export function registerQuickTunnelCommands(
     );
 
     // Stop Quick Tunnel Command
-    context.subscriptions.push(
+    disposables.push(
         vscode.commands.registerCommand('tunnelfy.stopQuickTunnel', async (item?: QuickTunnelTreeItem) => {
             try {
                 // If called from tree view, use the selected item
@@ -164,7 +165,7 @@ export function registerQuickTunnelCommands(
     );
 
     // Copy Quick Tunnel URL Command
-    context.subscriptions.push(
+    disposables.push(
         vscode.commands.registerCommand('tunnelfy.copyQuickTunnelUrl', async (item: QuickTunnelTreeItem) => {
             if (item.tunnelUrl) {
                 try {
@@ -181,4 +182,21 @@ export function registerQuickTunnelCommands(
             }
         })
     );
+
+    // Refresh Quick Tunnels Command
+    disposables.push(
+        vscode.commands.registerCommand('tunnelfy.refreshQuickTunnels', async () => {
+            try {
+                quickTunnelProvider.refresh();
+                await Messages.showInfo('Quick tunnel list has been refreshed.');
+            } catch (error) {
+                await Messages.showError(Messages.ERROR_GENERIC(error));
+            }
+        })
+    );
+
+    // Add all disposables to the extension context
+    disposables.forEach(d => context.subscriptions.push(d));
+
+    return disposables;
 } 

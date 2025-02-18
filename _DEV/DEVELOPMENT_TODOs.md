@@ -1,6 +1,6 @@
 # TODOs
 
-## Update DEVELOPMENT_README.md
+## [ ] Update DEVELOPMENT_README.md
 
 1. Update DEVELOPMENT_README.md with:
    - Latest project information and architecture details
@@ -22,7 +22,7 @@
    - Contains relevant code examples
 
 
-# Testing Enhancements and Organization
+# [ ]Testing Enhancements and Organization
 1. Organize Test Directory Structure
    - Create /test directory with subdirectories:
      - /unit for pure logic and helper function tests
@@ -140,17 +140,3 @@
       - Add troubleshooting guide
       - Include OS-specific instructions
       - Note permission requirements
-
-   ## Implementation Choice Guide
-
-   Background Process:
-   - Pros: Works cross-platform, no admin rights needed
-   - Cons: Does not persist across system reboots
-   - Best for: Basic persistence needs
-
-   System Services:
-   - Pros: Full persistence, auto-restart capability  
-   - Cons: Requires admin rights, OS-specific setup
-   - Best for: Production deployments
-
-   Recommendation: Start with background process implementation for simpler deployment, add system service support later if needed.

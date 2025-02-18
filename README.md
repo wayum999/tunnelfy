@@ -4,6 +4,36 @@ Managing Cloudflare tunnels directly from a VS Code extension has never been eas
 
 ![Tunnelfy Cloudflare Overview](images/readme/overview/Tunnelfy_Cloudflare_Overview.gif)
 
+
+## Table of Contents
+- [Features](#features)
+  - [Profile Management](#profile-management)
+  - [Tunnel Monitoring and Control](#tunnel-monitoring-and-control)
+  - [Docker Integration](#docker-integration)
+- [Prerequisites](#prerequisites)
+- [Getting Started](#getting-started)
+  - [1. Install the Extension](#1-install-the-extension)
+  - [2. Install Cloudflare Tunnel CLI](#2-install-cloudflare-tunnel-cli-cloudflared)
+  - [3. Create a Profile](#3-create-a-profile)
+  - [4. Persistent Tunnels](#4-persistent-tunnels)
+  - [5. Quick Tunnels](#5-quick-tunnels)
+  - [6. Docker Support](#6-docker-support)
+- [Extension Commands](#extension-commands)
+  - [Profile Management](#profile-management-1)
+  - [Permanent Tunnel Management](#permanent-tunnel-management)
+  - [Quick Tunnel Management](#quick-tunnel-management)
+  - [Docker Support](#docker-support)
+- [Troubleshooting](#troubleshooting)
+  - [Common Issues](#common-issues)
+- [Security](#security)
+- [Contributing](#contributing)
+- [License](#license)
+- [Support](#support)
+- [Installing Cloudflare Tunnel CLI](#installing-cloudflare-tunnel-cli-cloudflared)
+  - [Linux Installation](#linux-installation)
+  - [Windows Installation](#windows-installation)
+  - [macOS Installation](#macos-installation-homebrew)
+
 ## Features
 
 ### Profile Management
@@ -184,8 +214,8 @@ Several commands are accessible via the Command Palette (Ctrl+Shift+P / Cmd+Shif
 - `Tunnelfy: Stop Quick Tunnel` - Stop a quick tunnel
 
 ## Docker Support
+- `Tunnelfy: Generate Docker Compose` - Generate Docker Compose files for running the tunnel as a Docker service
 
-Tunnelfy now supports generating Docker Compose files for your tunnels, making it easy to run them in containerized environments.
 
 ### Generating Docker Compose Files
 
@@ -249,17 +279,27 @@ To use the generated file:
    - Check if you've reached your account's tunnel limit
    - Ensure you have a stable internet connection
 
-4. **Quick Tunnel Issues**
+4. **Connecting Tunnels to Domains/Subdomains**
+   - Ensure you have a persistent tunnel created with any display name you choose.
+   - Your list of domains/subdomains will not be presented until you run a tunnel.
+
+5. **Quick Tunnel Issues**
    - Verify cloudflared is installed and accessible
    - Check if the port is already in use
    - Look for rate limiting messages in the output
    - Ensure you have a stable internet connection
 
-5. **Development Environment Issues**
+6. **Development Environment Issues**
    - Run `npm install` to ensure all dependencies are installed
    - Clear the VS Code extension development host: `rm -rf .vscode-test`
    - Check the extension logs in the Output panel
    - Verify cloudflared installation and permissions
+
+7. **Persistent Tunnel Disappears When Extension is Closed**
+   - This is expected behavior. The tunnel will remain running in the background.
+   - For persistent tunnel setups:
+      1. use the `Tunnelfy: Generate Docker Compose` command to create a Docker Compose file for your tunnel.
+      2. use a system service (systemd, etc) to start the tunnel on boot (File generation in future updates).
 
 ## Security
 

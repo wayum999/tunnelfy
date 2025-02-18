@@ -3,17 +3,6 @@ import { TunnelManager, TunnelEvent } from '../services/cloudflared';
 import { ProfileManager } from '../services/profileManager';
 import { Logger, LogComponent } from '../utils/logger';
 
-// Define the button interface to match VS Code's structure
-interface TreeItemButton {
-    tooltip: string;
-    iconPath: vscode.ThemeIcon;
-    command: {
-        title: string;
-        command: string;
-        arguments?: any[];
-    };
-}
-
 /**
  * TunnelTreeItem - Represents a single tunnel entry in the VS Code tree view
  * 
@@ -22,8 +11,6 @@ interface TreeItemButton {
  * current state (active/inactive) and type (quick tunnel vs. persistent tunnel).
  */
 export class TunnelTreeItem extends vscode.TreeItem {
-    public readonly buttons: readonly TreeItemButton[];
-
     constructor(
         public readonly label: string,
         public readonly tunnelId: string,
@@ -46,18 +33,6 @@ export class TunnelTreeItem extends vscode.TreeItem {
         } else {
             this.iconPath = new vscode.ThemeIcon('circle-outline', new vscode.ThemeColor('descriptionForeground'));
         }
-
-        // Add command buttons that appear on hover
-        this.command = undefined; // Ensure clicking the item doesn't trigger any action
-        this.buttons = [{
-            tooltip: 'Generate Docker Compose file',
-            iconPath: new vscode.ThemeIcon('docker'),
-            command: {
-                title: 'Generate Docker Compose',
-                command: 'tunnelfy.generateDockerCompose',
-                arguments: [this]
-            }
-        }];
     }
 }
 
@@ -194,5 +169,36 @@ export class TunnelTreeDataProvider implements vscode.TreeDataProvider<TunnelTre
      */
     dispose(): void {
         this.treeView.dispose();
+    }
+
+    public async generateServiceFiles(tunnelId: string, tunnelName: string): Promise<void> {
+        try {
+            const options = [
+                { label: 'Docker Compose', description: 'Generate Docker Compose configuration files' },
+                { label: 'System Service', description: 'Generate systemd service configuration files' }
+            ];
+
+            const selection = await vscode.window.showQuickPick(options, {
+                placeHolder: 'Select service configuration type to generate',
+                title: 'Generate Service Configuration'
+            });
+
+            if (!selection) {
+                return;
+            }
+
+            if (selection.label === 'Docker Compose') {
+                await vscode.commands.executeCommand('cloudflare-tunnel.generateDockerCompose', tunnelId, tunnelName);
+            } else {
+                await vscode.commands.executeCommand('cloudflare-tunnel.generateSystemService', tunnelId, tunnelName);
+            }
+        } catch (error) {
+            this.logger.error(LogComponent.EXTENSION, `Failed to generate service files: ${error}`);
+            throw error;
+        }
+    }
+
+    private getTunnelTooltip(tunnel: TunnelTreeItem): string {
+        return `${tunnel.label} (${tunnel.tunnelId}) - ${tunnel.status === 'running' ? 'Active' : 'Inactive'}`;
     }
 }

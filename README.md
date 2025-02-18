@@ -10,6 +10,7 @@ Managing Cloudflare tunnels directly from a VS Code extension has never been eas
   - [Profile Management](#profile-management)
   - [Tunnel Monitoring and Control](#tunnel-monitoring-and-control)
   - [Docker Integration](#docker-integration)
+  - [System Service Integration](#system-service-integration)
 - [Prerequisites](#prerequisites)
 - [Getting Started](#getting-started)
   - [1. Install the Extension](#1-install-the-extension)
@@ -18,11 +19,13 @@ Managing Cloudflare tunnels directly from a VS Code extension has never been eas
   - [4. Persistent Tunnels](#4-persistent-tunnels)
   - [5. Quick Tunnels](#5-quick-tunnels)
   - [6. Docker Support](#6-docker-support)
+  - [7. System Service Support](#7-system-service-support)
 - [Extension Commands](#extension-commands)
   - [Profile Management](#profile-management-1)
   - [Permanent Tunnel Management](#permanent-tunnel-management)
   - [Quick Tunnel Management](#quick-tunnel-management)
   - [Docker Support](#docker-support)
+  - [System Service Support](#system-service-support)
 - [Troubleshooting](#troubleshooting)
   - [Common Issues](#common-issues)
 - [Security](#security)
@@ -59,6 +62,10 @@ Managing Cloudflare tunnels directly from a VS Code extension has never been eas
 - Support for both host and container-based services
 - Easy network configuration for Docker environments
 - Simple start/stop commands with docker compose
+
+### System Service Integration
+
+- Built-in system service support for running tunnels as system services
 
 ## Prerequisites
 
@@ -129,7 +136,7 @@ Managing Cloudflare tunnels directly from a VS Code extension has never been eas
 
 ### 6. Docker Support
 
-![Generating Docker Compose Files](images/readme/docker/Docker_Service.gif)
+![Generating Docker Compose Files](images/readme/services/Docker_Service.gif)
 
 Built-in Docker support for running tunnels in containers:
 
@@ -138,6 +145,10 @@ Built-in Docker support for running tunnels in containers:
 3. Two files will be generated and opened in your editor:
    - `docker-compose.<tunnel-name>.yml` - The Docker Compose configuration
    - `cloudflare.<tunnel-name>.env` - Contains the secure tunnel token
+
+### System Service Support
+
+- Built-in system service support for running tunnels as system services
 
 ### Using the Generated Files
 
@@ -188,6 +199,94 @@ services:
 ```
 
 To connect to other Docker services, you can add network configuration as documented in the generated file.
+
+## System Service Integration
+
+### System Service Generation
+
+Built-in system service support for running tunnels as system services:
+
+1. Hover over any tunnel in the Persistent Tunnels view
+2. Click the gear icon (rightmost button)
+3. Two files will be generated and opened in your editor:
+   - `cloudflared-<tunnel-name>.service` - The systemd service configuration
+   - `cloudflared-<tunnel-name>.env` - Contains the secure tunnel token
+
+### Using the Generated Files
+
+1. Copy the service file to the systemd directory:
+   ```bash
+   sudo cp cloudflared-<tunnel-name>.service /etc/systemd/system/
+   ```
+
+2. Create the environment file directory and copy the env file:
+   ```bash
+   sudo mkdir -p /etc/cloudflared
+   sudo cp cloudflared-<tunnel-name>.env /etc/cloudflared/
+   ```
+
+3. Set proper permissions:
+   ```bash
+   sudo chown root:root /etc/systemd/system/cloudflared-<tunnel-name>.service
+   sudo chmod 644 /etc/systemd/system/cloudflared-<tunnel-name>.service
+   sudo chown cloudflared:cloudflared /etc/cloudflared/cloudflared-<tunnel-name>.env
+   sudo chmod 600 /etc/cloudflared/cloudflared-<tunnel-name>.env
+   ```
+
+4. Start the service:
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable cloudflared-<tunnel-name>
+   sudo systemctl start cloudflared-<tunnel-name>
+   ```
+
+### System Service Features
+
+- **Secure Configuration**
+  - Service runs as dedicated cloudflared user
+  - Environment file with restricted permissions
+  - Systemd security hardening options enabled
+
+- **Service Management**
+  - Automatic service startup on boot
+  - Automatic restart on failure
+  - Standard systemd service controls
+  - Proper logging to system journal
+
+- **Security Hardening**
+  - Protected system and home directories
+  - Private /tmp directory
+  - No new privileges escalation
+  - Restricted service user permissions
+
+### Example Configuration
+
+The generated service file includes comprehensive security settings:
+
+```ini
+[Unit]
+Description=Cloudflare Tunnel - <tunnel-name>
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=cloudflared
+Group=cloudflared
+Restart=always
+RestartSec=1
+EnvironmentFile=/etc/cloudflared/cloudflared-<tunnel-name>.env
+ExecStart=/usr/local/bin/cloudflared tunnel --no-autoupdate --url http://localhost:<port> run
+
+# Hardening options
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
+```
 
 ## Extension Commands
 

@@ -7,6 +7,7 @@ import { ProfileManager } from '../services/profileManager';
 import { TunnelTreeDataProvider } from '../views/tunnelTreeView';
 import { Messages } from '../utils/messages';
 import { DockerComposeGenerator } from '../services/dockerComposeGenerator';
+import { SystemServiceGenerator } from '../services/systemServiceGenerator';
 
 // Type for DNS record QuickPick items
 type DnsRecordQuickPickItem = {
@@ -27,7 +28,8 @@ export function registerTunnelCommands(
     apiService: CloudflareApiService,
     tokenService: TokenService,
     profileManager: ProfileManager,
-    tunnelProvider: TunnelTreeDataProvider
+    tunnelProvider: TunnelTreeDataProvider,
+    systemServiceGenerator: SystemServiceGenerator
 ): vscode.Disposable[] {
     const disposables: vscode.Disposable[] = [];
     const dockerComposeGenerator = new DockerComposeGenerator(tunnelManager, apiService);
@@ -510,6 +512,70 @@ export function registerTunnelCommands(
                 }
             } catch (error) {
                 await Messages.showError(Messages.ERROR_GENERATE_DOCKER_COMPOSE(error));
+            }
+        })
+    );
+
+    // Generate System Service Command
+    disposables.push(
+        vscode.commands.registerCommand('tunnelfy.generateSystemService', async (item?: TunnelTreeItem) => {
+            try {
+                // If called from tree view, use the selected item
+                if (item?.tunnelId && item?.port) {
+                    const filePath = await systemServiceGenerator.generateServiceFile(
+                        item.tunnelId,
+                        item.label,
+                        item.port
+                    );
+                    await Messages.showInfo(Messages.SYSTEM_SERVICE_GENERATED(filePath));
+                    return;
+                }
+
+                // If called from command palette, show QuickPick
+                const allTunnels = await apiService.listTunnels();
+                if (!allTunnels || allTunnels.length === 0) {
+                    await Messages.showInfo('No tunnels available.');
+                    return;
+                }
+
+                const selected = await vscode.window.showQuickPick(
+                    allTunnels.map(tunnel => ({
+                        label: tunnel.name,
+                        description: `ID: ${tunnel.id}`,
+                        detail: tunnel.connections && tunnel.connections.length > 0 ? 'Running' : 'Stopped',
+                        tunnelId: tunnel.id
+                    })),
+                    {
+                        placeHolder: 'Select a tunnel to generate system service file for',
+                        ignoreFocusOut: true
+                    }
+                );
+
+                if (selected) {
+                    // Get port from user
+                    const port = await vscode.window.showInputBox({
+                        prompt: 'Enter the port number for the tunnel',
+                        placeHolder: '8080',
+                        validateInput: (value) => {
+                            const port = parseInt(value);
+                            if (isNaN(port) || port < 1 || port > 65535) {
+                                return 'Please enter a valid port number (1-65535)';
+                            }
+                            return null;
+                        }
+                    });
+
+                    if (port) {
+                        const filePath = await systemServiceGenerator.generateServiceFile(
+                            selected.tunnelId,
+                            selected.label,
+                            parseInt(port)
+                        );
+                        await Messages.showInfo(Messages.SYSTEM_SERVICE_GENERATED(filePath));
+                    }
+                }
+            } catch (error) {
+                await Messages.showError(Messages.ERROR_GENERATE_SYSTEM_SERVICE(error));
             }
         })
     );

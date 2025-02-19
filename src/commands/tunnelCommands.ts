@@ -399,6 +399,17 @@ export function registerTunnelCommands(
             try {
                 // If called from tree view, use the selected item
                 if (item?.tunnelId) {
+                    // Add confirmation dialog
+                    const confirm = await Messages.showModal(
+                        `Are you sure you want to stop tunnel '${item.label}'?`,
+                        'Stop',
+                        'Cancel'
+                    );
+
+                    if (confirm !== 'Stop') {
+                        return;
+                    }
+
                     await tunnelManager.stopTunnel(item.tunnelId);
                     await tunnelProvider.refresh();
                     await Messages.showInfo(Messages.TUNNEL_STOPPED(item.label));
@@ -430,6 +441,17 @@ export function registerTunnelCommands(
                 );
 
                 if (selected) {
+                    // Add confirmation dialog
+                    const confirm = await Messages.showModal(
+                        `Are you sure you want to stop tunnel '${selected.label}'?`,
+                        'Stop',
+                        'Cancel'
+                    );
+
+                    if (confirm !== 'Stop') {
+                        return;
+                    }
+
                     await tunnelManager.stopTunnel(selected.tunnelId);
                     await tunnelProvider.refresh();
                     await Messages.showInfo(Messages.TUNNEL_STOPPED(selected.label));

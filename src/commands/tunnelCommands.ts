@@ -257,19 +257,21 @@ export function registerTunnelCommands(
                 const records = await apiService.listDnsRecords(selectedZone.zone.id);
                 console.log('DNS records:', records);
                 
-                // Add option to create a new subdomain
+                // Add option to create a new subdomain and filter out TXT records
                 const quickPickItems: DnsRecordQuickPickItem[] = [
                     {
                         label: '$(add) Create new subdomain',
                         description: `Will create a new DNS record in ${selectedZone.zone.name}`,
                         isNew: true
                     },
-                    ...records.map(record => ({
-                        label: record.name,
-                        description: `Type: ${record.type}, Content: ${record.content}`,
-                        record,
-                        isNew: false
-                    }))
+                    ...records
+                        .filter(record => record.type !== 'TXT') // Filter out TXT records
+                        .map(record => ({
+                            label: record.name,
+                            description: `Type: ${record.type}, Content: ${record.content}`,
+                            record,
+                            isNew: false
+                        }))
                 ];
 
                 // Let user select a record or create new

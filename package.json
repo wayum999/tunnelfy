@@ -316,7 +316,7 @@
     "pretest": "npm run clean-tests && npm run compile && npm run compile-tests",
     "clean-tests": "rimraf out/test",
     "compile-tests": "tsc -p ./src/test/tsconfig.json",
-    "test": "vscode-test --coverage",
+    "test": "vscode-test",
     "lint": "eslint src --ext ts",
     "package": "vsce package",
     "publish": "vsce publish"

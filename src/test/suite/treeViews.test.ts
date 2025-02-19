@@ -1,7 +1,7 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import * as sinon from 'sinon';
-import { TunnelTreeDataProvider, TunnelTreeItem } from '../../views/tunnelTreeView';
+import { TunnelTreeDataProvider, TunnelTreeItem, TunnelGroupItem } from '../../views/tunnelTreeView';
 import { QuickTunnelTreeDataProvider, QuickTunnelTreeItem } from '../../views/quickTunnelTreeView';
 import { TunnelManager } from '../../services/cloudflared';
 import { CloudflareApiService } from '../../services/cloudflareApi';
@@ -17,6 +17,25 @@ suite('TreeView Components Test Suite', () => {
     let quickTunnelTreeProvider: QuickTunnelTreeDataProvider;
     let mockLogger: Logger;
     let mockProfileManager: ProfileManager;
+    let mockEventEmitter: vscode.EventEmitter<any>;
+    
+    // Track tunnels and quick tunnels
+    const tunnels: Array<{
+        id: string;
+        name: string;
+        created_at: string;
+        deleted_at: string | null;
+        connections: any[];
+        management_type: string;
+        is_running_locally: boolean;
+    }> = [];
+    
+    const quickTunnels: Array<{
+        port: number;
+        url: string;
+        tunnelUrl: string;
+        name?: string;
+    }> = [];
 
     const mockContext = {
         extensionPath: __dirname,
@@ -71,22 +90,6 @@ suite('TreeView Components Test Suite', () => {
         const MAX_QUICK_TUNNELS = 2; // Max 2 quick tunnels per minute
         let quickTunnelCount = 0;
         
-        // Use mutable arrays to track tunnels and quick tunnels
-        const tunnels: Array<{
-            id: string;
-            name: string;
-            created_at: string;
-            deleted_at: string | null;
-            connections: any[];
-        }> = [];
-        
-        const quickTunnels: Array<{
-            port: number;
-            url: string;
-            tunnelUrl: string;
-            name?: string;
-        }> = [];
-
         // Create a function to update quick tunnels that can be called from multiple places
         const updateQuickTunnels = () => {
             Object.defineProperty(tunnelManager, 'getQuickTunnels', {
@@ -108,7 +111,9 @@ suite('TreeView Components Test Suite', () => {
                         name, 
                         created_at: new Date().toISOString(),
                         deleted_at: null,
-                        connections: []
+                        connections: [],
+                        management_type: 'local',
+                        is_running_locally: false
                     };
                     tunnels.push(tunnel);
                     return tunnel;
@@ -192,18 +197,38 @@ suite('TreeView Components Test Suite', () => {
             await originalCleanup();
         };
 
-        tunnelTreeProvider = new TunnelTreeDataProvider(tunnelManager, mockProfileManager);
-        quickTunnelTreeProvider = new QuickTunnelTreeDataProvider(tunnelManager);
-        
         // Wait for providers to initialize and ensure clean state
         await tunnelManager.cleanup();
         await wait(500);
+
+        // Set up event emitter for tunnel events
+        mockEventEmitter = new vscode.EventEmitter();
+        
+        // Add event emitter to existing tunnelManager instead of overwriting it
+        Object.defineProperty(tunnelManager, 'onTunnelEvent', {
+            get: () => mockEventEmitter.event,
+            configurable: true
+        });
+
+        // Create tree providers
+        tunnelTreeProvider = new TunnelTreeDataProvider(tunnelManager, mockProfileManager);
+        quickTunnelTreeProvider = new QuickTunnelTreeDataProvider(tunnelManager);
     });
 
-    test('TunnelTreeView should initialize empty', async function() {
-        this.timeout(5000);
-        const elements = await tunnelTreeProvider.getChildren();
-        assert.strictEqual(elements?.length || 0, 0, 'TreeView should start empty');
+    test('TunnelTreeView should initialize empty', async () => {
+        // Get root level items (groups)
+        const rootItems = await tunnelTreeProvider.getChildren();
+        assert.ok(rootItems instanceof Array, 'Root items should be an array');
+        
+        // Get items in each group
+        const allTunnels = await Promise.all(
+            rootItems.map(group => tunnelTreeProvider.getChildren(group))
+        );
+        
+        // Check that all groups are empty
+        allTunnels.forEach(tunnels => {
+            assert.strictEqual(tunnels.length, 0, 'Each group should be empty on initialization');
+        });
     });
 
     test('QuickTunnelTreeView should initialize empty', async function() {
@@ -212,18 +237,45 @@ suite('TreeView Components Test Suite', () => {
         assert.strictEqual(elements?.length || 0, 0, 'TreeView should start empty');
     });
 
-    test('TunnelTreeView should update when tunnel is created', async function() {
-        this.timeout(5000);
+    test('TunnelTreeView should update when tunnel is created', async () => {
+        // Get initial root items (groups)
+        const initialRootItems = await tunnelTreeProvider.getChildren();
         
-        // Create a tunnel
-        await tunnelManager.createTunnel('test-tunnel');
+        // Simulate tunnel creation event
+        const newTunnel = { 
+            id: 'test-tunnel', 
+            name: 'Test Tunnel',
+            management_type: 'local',
+            is_running_locally: false,
+            created_at: new Date().toISOString(),
+            deleted_at: null,
+            connections: []
+        };
+        tunnels.push(newTunnel);
+        mockEventEmitter.fire({ type: 'created', tunnel: newTunnel });
         
-        // Wait for update
-        await wait(1000);
+        // Wait for the tree view to update
+        await wait(500);
         
-        // Get root elements
-        const elements = await tunnelTreeProvider.getChildren();
-        assert.strictEqual(elements?.length || 0, 1, 'TreeView should have one tunnel');
+        // Get items in each group after update
+        const allTunnels = await Promise.all(
+            initialRootItems.map(group => tunnelTreeProvider.getChildren(group))
+        );
+        
+        // Find the group containing the new tunnel
+        const localTunnels = allTunnels.find(tunnels => 
+            tunnels.some(tunnel => 
+                tunnel instanceof TunnelTreeItem && tunnel.tunnelId === 'test-tunnel'
+            )
+        );
+        
+        assert.ok(localTunnels, 'Should find group containing the new tunnel');
+        assert.strictEqual(localTunnels.length, 1, 'Group should contain exactly one tunnel');
+        
+        const newTunnelItem = localTunnels[0];
+        assert.ok(newTunnelItem instanceof TunnelTreeItem, 'New tunnel should be a TunnelTreeItem');
+        assert.strictEqual(newTunnelItem.tunnelId, 'test-tunnel', 'Tunnel ID should match');
+        assert.strictEqual(newTunnelItem.label, 'Test Tunnel', 'Tunnel name should match');
     });
 
     /**
@@ -241,6 +293,9 @@ suite('TreeView Components Test Suite', () => {
         // Reset any existing tunnels
         await tunnelManager.cleanup();
         await wait(1000);
+        
+        // Clear the tunnels array
+        tunnels.length = 0;
         
         // Create tunnels with delay between them
         const tunnel = await tunnelManager.createTunnel('test-tunnel');
@@ -271,8 +326,8 @@ suite('TreeView Components Test Suite', () => {
         assert.ok(quickTunnelCreated, 'Quick tunnel should be created successfully');
         
         // Wait for updates with retries
-        let regularElements: TunnelTreeItem[] | undefined;
-        let quickElements: QuickTunnelTreeItem[] | undefined;
+        let regularElements: Array<TunnelTreeItem | TunnelGroupItem> = [];
+        let quickElements: QuickTunnelTreeItem[] = [];
         attempts = 0;
         
         while (attempts < maxAttempts) {
@@ -293,8 +348,19 @@ suite('TreeView Components Test Suite', () => {
             // Log current state for debugging
             console.log(`Attempt ${attempts + 1}: Regular tunnels: ${regularElements?.length}, Quick tunnels: ${quickElements?.length}`);
             
-            if (regularElements?.length === 1 && quickElements?.length === 1) {
-                break;
+            // Get items in each group for regular tunnels
+            if (regularElements?.length === 2) { // 2 because we have two groups
+                const allTunnels = await Promise.all(
+                    regularElements.map(group => tunnelTreeProvider.getChildren(group))
+                );
+                
+                // Count total tunnels across all groups
+                const totalTunnels = allTunnels.reduce((sum, groupTunnels) => sum + groupTunnels.length, 0);
+                
+                if (totalTunnels === 1 && quickElements?.length === 1) {
+                    regularElements = allTunnels.flat();
+                    break;
+                }
             }
             
             attempts++;

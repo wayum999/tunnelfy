@@ -43,6 +43,10 @@ export interface CloudflareTunnel {
     status: string;
     /** Whether the tunnel uses remote configuration */
     remote_config: boolean;
+    /** Whether the tunnel is running locally */
+    is_running_locally?: boolean;
+    /** The management type of the tunnel */
+    management_type?: 'remote' | 'local';
 }
 
 /**

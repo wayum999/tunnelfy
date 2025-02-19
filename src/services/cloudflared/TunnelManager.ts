@@ -178,9 +178,15 @@ export class TunnelManager {
      * @returns Array of tunnel information
      * @throws Error if listing fails
      */
-    async listTunnels(): Promise<Array<{ id: string; name: string; connections?: Array<any>; url?: string }>> {
+    async listTunnels(): Promise<Array<{ id: string; name: string; connections?: Array<any>; url?: string; management_type?: 'remote' | 'local'; is_running_locally?: boolean }>> {
         try {
-            return await this.apiService.listTunnels();
+            const tunnels = await this.apiService.listTunnels();
+            
+            // Update is_running_locally based on our runningTunnels Map
+            return tunnels.map(tunnel => ({
+                ...tunnel,
+                is_running_locally: this.runningTunnels.has(tunnel.id)
+            }));
         } catch (error) {
             this.logger.error(LogComponent.TUNNEL, `Failed to list tunnels: ${error}`);
             // Return empty array instead of throwing

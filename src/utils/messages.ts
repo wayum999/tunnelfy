@@ -123,10 +123,10 @@ export class Messages {
             ? 'Docker Compose and environment files generated in new editors'
             : `Docker Compose and environment files generated at ${path.dirname(filePath)}`;
 
-    static readonly SYSTEM_SERVICE_GENERATED = (filePath: string) => 
-        filePath === 'New untitled files' 
-            ? 'System service and environment files generated in new editors'
-            : `System service and environment files generated at ${path.dirname(filePath)}`;
+    static readonly SYSTEM_SERVICE_GENERATED = (result: { type: 'workspace' | 'untitled'; servicePath?: string; envPath?: string }) => 
+        result.type === 'untitled' 
+            ? 'System service files have been created as untitled files in the editor.'
+            : `System service files have been created at:\n- ${result.servicePath}\n- ${result.envPath}`;
 
     static readonly ERROR_GENERATE_SYSTEM_SERVICE = (error: any) => ({
         message: 'Failed to generate system service file',

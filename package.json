@@ -123,37 +123,37 @@
         {
           "command": "tunnelfy.changeApiKey",
           "when": "view == tunnelfy-profiles && (viewItem == profile-active || viewItem == profile-inactive)",
-          "group": "inline@1"
+          "group": "inline@2"
         },
         {
           "command": "tunnelfy.setActiveProfile",
           "when": "view == tunnelfy-profiles && viewItem == profile-inactive",
-          "group": "inline@2"
+          "group": "inline@3"
         },
         {
           "command": "tunnelfy.deleteProfile",
           "when": "view == tunnelfy-profiles && (viewItem == profile-active || viewItem == profile-inactive)",
-          "group": "inline@3"
+          "group": "inline@1"
         },
         {
           "command": "tunnelfy.startTunnel",
           "when": "view == tunnelfy-tunnels && viewItem == tunnel-stopped",
-          "group": "inline@1"
+          "group": "inline@6"
         },
         {
           "command": "tunnelfy.stopTunnel",
           "when": "view == tunnelfy-tunnels && viewItem == tunnel-running",
-          "group": "inline@1"
+          "group": "inline@5"
         },
         {
           "command": "tunnelfy.copyToken",
           "when": "view == tunnelfy-tunnels && (viewItem == tunnel-stopped || viewItem == tunnel-running)",
-          "group": "inline@2"
+          "group": "inline@4"
         },
         {
           "command": "tunnelfy.deleteTunnel",
           "when": "view == tunnelfy-tunnels && viewItem == tunnel-stopped",
-          "group": "inline@3"
+          "group": "inline@1"
         },
         {
           "command": "tunnelfy.copyQuickTunnelUrl",
@@ -166,14 +166,14 @@
           "group": "inline@2"
         },
         {
-          "command": "tunnelfy.generateDockerCompose",
-          "when": "view == tunnelfy-tunnels && (viewItem == tunnel-stopped || viewItem == tunnel-running)",
-          "group": "inline@0"
-        },
-        {
           "command": "tunnelfy.generateSystemService",
           "when": "view == tunnelfy-tunnels && (viewItem == tunnel-stopped || viewItem == tunnel-running)",
-          "group": "inline@0"
+          "group": "inline@3"
+        },
+        {
+          "command": "tunnelfy.generateDockerCompose",
+          "when": "view == tunnelfy-tunnels && (viewItem == tunnel-stopped || viewItem == tunnel-running)",
+          "group": "inline@2"
         }
       ]
     },
@@ -304,7 +304,7 @@
         "command": "tunnelfy.generateSystemService",
         "title": "Generate System Service",
         "category": "Tunnelfy",
-        "icon": "$(settings-gear)",
+        "icon": "$(file-symlink-file)",
         "description": "Generate a system service file for this tunnel"
       }
     ]

@@ -544,12 +544,12 @@ export function registerTunnelCommands(
             try {
                 // If called from tree view, use the selected item
                 if (item?.tunnelId && item?.port) {
-                    const filePath = await systemServiceGenerator.generateServiceFile(
+                    const result = await systemServiceGenerator.generateServiceFile(
                         item.tunnelId,
                         item.label,
                         item.port
                     );
-                    await Messages.showInfo(Messages.SYSTEM_SERVICE_GENERATED(filePath));
+                    await Messages.showInfo(Messages.SYSTEM_SERVICE_GENERATED(result));
                     return;
                 }
 
@@ -588,12 +588,12 @@ export function registerTunnelCommands(
                     });
 
                     if (port) {
-                        const filePath = await systemServiceGenerator.generateServiceFile(
+                        const result = await systemServiceGenerator.generateServiceFile(
                             selected.tunnelId,
                             selected.label,
                             parseInt(port)
                         );
-                        await Messages.showInfo(Messages.SYSTEM_SERVICE_GENERATED(filePath));
+                        await Messages.showInfo(Messages.SYSTEM_SERVICE_GENERATED(result));
                     }
                 }
             } catch (error) {

@@ -5,8 +5,30 @@ import { TunnelManager } from './cloudflared';
 import { CloudflareApiService } from './cloudflareApi';
 import { Logger, LogComponent } from '../utils/logger';
 
+/**
+ * Custom error class for service file generation errors
+ */
+export class ServiceFileGenerationError extends Error {
+    constructor(message: string, public readonly cause?: unknown) {
+        super(message);
+        this.name = 'ServiceFileGenerationError';
+    }
+}
+
+/**
+ * Represents the result of generating service files
+ */
+interface ServiceFileGenerationResult {
+    /** The type of generation result */
+    type: 'workspace' | 'untitled';
+    /** The path to the service file if type is 'workspace', undefined otherwise */
+    servicePath?: string;
+    /** The path to the env file if type is 'workspace', undefined otherwise */
+    envPath?: string;
+}
+
 export class SystemServiceGenerator {
-    private readonly logger = Logger.getInstance();
+    private readonly logger: Logger = Logger.getInstance();
 
     constructor(
         private readonly tunnelManager: TunnelManager,
@@ -18,9 +40,10 @@ export class SystemServiceGenerator {
      * @param tunnelId The ID of the tunnel to generate the service file for
      * @param tunnelName The name of the tunnel
      * @param port The port the tunnel is running on
-     * @returns The path to the generated file or URI of the untitled file
+     * @returns The result of the service file generation
+     * @throws ServiceFileGenerationError if tunnel token cannot be retrieved or if file operations fail
      */
-    async generateServiceFile(tunnelId: string, tunnelName: string, port: number): Promise<string> {
+    async generateServiceFile(tunnelId: string, tunnelName: string, port: number): Promise<ServiceFileGenerationResult> {
         try {
             // Show confirmation dialog
             const generateButton: vscode.MessageItem = { title: 'Generate' };
@@ -36,13 +59,13 @@ export class SystemServiceGenerator {
             );
 
             if (confirmation?.title !== 'Generate') {
-                return '';
+                throw new ServiceFileGenerationError('User cancelled service file generation');
             }
 
             // Get the tunnel token
             const token = await this.apiService.getTunnelToken(tunnelId);
             if (!token) {
-                throw new Error('Could not get tunnel token');
+                throw new ServiceFileGenerationError('Could not get tunnel token');
             }
 
             // Create the service file content
@@ -52,7 +75,15 @@ export class SystemServiceGenerator {
             // Get the workspace folder
             const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
             
-            if (workspaceFolder) {
+            if (workspaceFolder && workspaceFolder.uri.scheme === 'file') {
+                // Validate workspace folder exists and is writable
+                try {
+                    await vscode.workspace.fs.stat(workspaceFolder.uri);
+                } catch (error) {
+                    this.logger.error(LogComponent.EXTENSION, `Invalid workspace folder: ${error}`);
+                    throw new ServiceFileGenerationError('Invalid workspace folder', error);
+                }
+
                 // If we have a workspace, create both files there
                 const serviceFileName = `cloudflared-${tunnelName}.service`;
                 const envFileName = `cloudflared-${tunnelName}.env`;
@@ -71,12 +102,18 @@ export class SystemServiceGenerator {
                         cancelOverwriteButton
                     );
                     if (overwrite?.title !== 'Overwrite') {
-                        return '';
+                        throw new ServiceFileGenerationError('User cancelled overwriting existing files');
                     }
                 }
                 
-                fs.writeFileSync(servicePath, serviceContent);
-                fs.writeFileSync(envPath, envContent);
+                // Use try-catch for file operations
+                try {
+                    fs.writeFileSync(servicePath, serviceContent);
+                    fs.writeFileSync(envPath, envContent);
+                } catch (error) {
+                    this.logger.error(LogComponent.EXTENSION, `Failed to write service files: ${error}`);
+                    throw new ServiceFileGenerationError('Failed to write service files', error);
+                }
 
                 // Open both files in the editor
                 const serviceUri = vscode.Uri.file(servicePath);
@@ -85,7 +122,11 @@ export class SystemServiceGenerator {
                 await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(serviceUri));
                 await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(envUri), { viewColumn: vscode.ViewColumn.Beside });
                 
-                return servicePath;
+                return {
+                    type: 'workspace',
+                    servicePath,
+                    envPath
+                };
             } else {
                 // If no workspace, create untitled files
                 const serviceFile = await vscode.workspace.openTextDocument({
@@ -98,11 +139,17 @@ export class SystemServiceGenerator {
                 });
                 await vscode.window.showTextDocument(serviceFile);
                 await vscode.window.showTextDocument(envFile, { viewColumn: vscode.ViewColumn.Beside });
-                return 'New untitled files';
+                
+                return {
+                    type: 'untitled'
+                };
             }
         } catch (error) {
             this.logger.error(LogComponent.EXTENSION, `Failed to generate system service file: ${error}`);
-            throw error;
+            if (error instanceof ServiceFileGenerationError) {
+                throw error;
+            }
+            throw new ServiceFileGenerationError('Failed to generate system service file', error);
         }
     }
 

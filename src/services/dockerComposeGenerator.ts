@@ -45,8 +45,14 @@ export class DockerComposeGenerator {
                 throw new Error('Could not get tunnel token');
             }
 
+            // Ensure proper base-10 port parsing
+            const parsedPort = parseInt(port.toString(), 10);
+            if (isNaN(parsedPort)) {
+                throw new Error('Invalid port number');
+            }
+
             // Create the Docker Compose content
-            const composeContent = this.createComposeFileContent(tunnelName, port);
+            const composeContent = this.createComposeFileContent(tunnelName, parsedPort);
             const envContent = `TUNNEL_TOKEN=${token}\n`;
 
             // Get the workspace folder

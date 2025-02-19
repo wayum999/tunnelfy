@@ -23,10 +23,12 @@ if git rev-parse "$RELEASE_TAG" >/dev/null 2>&1; then
 fi
 
 # Perform checks
+echo -e "${YELLOW}Performing checks...${NC}"
 check_current_branch "main" || exit 1
 check_uncommitted_changes || exit 1
 
 # Run initial tests
+echo -e "${YELLOW}Running initial tests...${NC}"
 run_tests || exit 1
 
 # Fetch latest changes from remote
@@ -58,10 +60,14 @@ git tag -a "$RELEASE_TAG" -m "Release $RELEASE_TAG"
 git push origin "$RELEASE_TAG"
 
 # Run publish script
-echo -e "${YELLOW}Publishing to VS Code Marketplace...${NC}"
+    echo -e "${YELLOW}Publishing to VS Code Marketplace...${NC}"
 vsce publish
 
+echo -e "${YELLOW}Publishing to Open VSX Registry...${NC}"
+ovsx publish
+
 # Switch back to development branch
+echo -e "${YELLOW}Switching back to development branch...${NC}"
 git checkout development
 
 echo -e "${GREEN}Successfully merged $CURRENT_BRANCH into main and created tag $RELEASE_TAG!${NC}" 

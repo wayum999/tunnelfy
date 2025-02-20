@@ -190,84 +190,59 @@ export class TunnelTreeDataProvider
         );
 
         // Filter tunnels based on group type
-        const groupTunnels = tunnels.filter(
-          (tunnel: CloudflareTunnel & { is_running_locally?: boolean }) => {
-            // Use remote_config to determine management type
-            const tunnelManagementType = tunnel.remote_config
-              ? ("remote" as const)
-              : ("local" as const);
-            this.logger.debug(
-              LogComponent.EXTENSION,
-              `[TREE DEBUG] Filtering tunnel ${tunnel.name} (${tunnel.id}):
-                        - remote_config: ${tunnel.remote_config}
-                        - calculated management type: ${tunnelManagementType}
-                        - group type: ${element.management_type}
-                        - matches group: ${tunnelManagementType === element.management_type}`,
-            );
-            return tunnelManagementType === element.management_type;
-          },
-        );
-
+        const groupTunnels = (tunnels as Array<CloudflareTunnel & { is_running_locally?: boolean }>).filter((tunnel) => {
+          // Use remote_config to determine management type
+          const tunnelManagementType = tunnel.remote_config ? 'remote' as const : 'local' as const;
+          this.logger.debug(
+            LogComponent.EXTENSION, 
+            `[TREE DEBUG] Filtering tunnel ${tunnel.name} (${tunnel.id}):
+            - remote_config: ${tunnel.remote_config}
+            - calculated management type: ${tunnelManagementType}
+            - group type: ${element.management_type}
+            - matches group: ${tunnelManagementType === element.management_type}`
+          );
+          return tunnelManagementType === element.management_type;
+        });
+        
         this.logger.debug(
-          LogComponent.EXTENSION,
+          LogComponent.EXTENSION, 
           `[TREE DEBUG] Group results for ${element.management_type}:
-                    - Total tunnels before filtering: ${tunnels.length}
-                    - Tunnels matching group: ${groupTunnels.length}
-                    - Matching tunnel names: ${groupTunnels.map((t) => t.name).join(", ")}`,
+          - Total tunnels before filtering: ${tunnels.length}
+          - Tunnels matching group: ${groupTunnels.length}
+          - Matching tunnel names: ${groupTunnels.map(t => t.name).join(', ')}`
         );
-
+        
         // Create tree items for each tunnel
-        const groupItems = await Promise.all(
-          groupTunnels.map(
-            async (
-              tunnel: CloudflareTunnel & { is_running_locally?: boolean },
-            ) => {
-              let port: number | undefined;
-
-              // If tunnel is running, try to get its port from the config
-              if (tunnel.connections && tunnel.connections.length > 0) {
-                try {
-                  const config = await this.tunnelManager.getTunnelConfig(
-                    tunnel.id,
-                  );
-                  if (
-                    config &&
-                    config.ingress &&
-                    config.ingress[0] &&
-                    config.ingress[0].service
-                  ) {
-                    const match =
-                      config.ingress[0].service.match(/localhost:(\d+)/);
-                    if (match) {
-                      port = parseInt(match[1], 10);
-                    }
-                  }
-                } catch (error) {
-                  this.logger.debug(
-                    LogComponent.EXTENSION,
-                    `Could not get port for tunnel ${tunnel.id}: ${error}`,
-                  );
+        const groupItems = await Promise.all(groupTunnels.map(async (tunnel) => {
+          let port: number | undefined;
+          
+          // If tunnel is running, try to get its port from the config
+          if (tunnel.connections && tunnel.connections.length > 0) {
+            try {
+              const config = await this.tunnelManager.getTunnelConfig(tunnel.id);
+              if (config && config.ingress && config.ingress[0] && config.ingress[0].service) {
+                const match = config.ingress[0].service.match(/localhost:(\d+)/);
+                if (match) {
+                  port = parseInt(match[1], 10);
                 }
               }
+            } catch (error) {
+              this.logger.debug(LogComponent.EXTENSION, `Could not get port for tunnel ${tunnel.id}: ${error}`);
+            }
+          }
 
-              // Use remote_config to determine management type
-              const management_type = tunnel.remote_config
-                ? ("remote" as const)
-                : ("local" as const);
+          // Use remote_config to determine management type
+          const management_type = tunnel.remote_config ? 'remote' as const : 'local' as const;
 
-              return new TunnelTreeItem(
-                tunnel.name,
-                tunnel.id,
-                tunnel.connections && tunnel.connections.length > 0
-                  ? "running"
-                  : "stopped",
-                management_type,
-                tunnel.is_running_locally || false,
-                port,
-              );
-            },
-          ),
-        );
+          return new TunnelTreeItem(
+            tunnel.name,
+            tunnel.id,
+            tunnel.connections && tunnel.connections.length > 0 ? 'running' : 'stopped',
+            management_type,
+            tunnel.is_running_locally || false,
+            port
+          );
+        }));
 
         // Update currentItems with the new items from this group
         // Remove existing items of this management type and add new ones

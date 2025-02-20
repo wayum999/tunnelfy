@@ -220,7 +220,7 @@ export class TunnelLogger {
       await new Promise<void>((resolve, reject) => {
         newStream.write(rotationMessage, (err: Error | null | undefined) => {
           if (err) reject(err);
-          else resolve();
+          else {resolve();}
         });
       });
     } catch (error) {

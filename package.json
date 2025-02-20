@@ -137,22 +137,22 @@
         },
         {
           "command": "tunnelfy.startTunnel",
-          "when": "view == tunnelfy-tunnels && viewItem == tunnel-stopped",
+          "when": "view == tunnelfy-tunnels && (viewItem == tunnel-stopped || viewItem == tunnel-stopped-remote)",
           "group": "inline@6"
         },
         {
           "command": "tunnelfy.stopTunnel",
-          "when": "view == tunnelfy-tunnels && viewItem == tunnel-running",
+          "when": "view == tunnelfy-tunnels && (viewItem == tunnel-running || viewItem == tunnel-running-remote)",
           "group": "inline@5"
         },
         {
           "command": "tunnelfy.copyToken",
-          "when": "view == tunnelfy-tunnels && (viewItem == tunnel-stopped || viewItem == tunnel-running)",
+          "when": "view == tunnelfy-tunnels && (viewItem == tunnel-stopped || viewItem == tunnel-running || viewItem == tunnel-stopped-remote || viewItem == tunnel-running-remote)",
           "group": "inline@4"
         },
         {
           "command": "tunnelfy.deleteTunnel",
-          "when": "view == tunnelfy-tunnels && viewItem == tunnel-stopped",
+          "when": "view == tunnelfy-tunnels && (viewItem == tunnel-stopped || viewItem == tunnel-stopped-remote)",
           "group": "inline@1"
         },
         {
@@ -167,12 +167,12 @@
         },
         {
           "command": "tunnelfy.generateSystemService",
-          "when": "view == tunnelfy-tunnels && (viewItem == tunnel-stopped || viewItem == tunnel-running)",
+          "when": "view == tunnelfy-tunnels && (viewItem == tunnel-stopped || viewItem == tunnel-running || viewItem == tunnel-stopped-remote || viewItem == tunnel-running-remote)",
           "group": "inline@3"
         },
         {
           "command": "tunnelfy.generateDockerCompose",
-          "when": "view == tunnelfy-tunnels && (viewItem == tunnel-stopped || viewItem == tunnel-running)",
+          "when": "view == tunnelfy-tunnels && (viewItem == tunnel-stopped || viewItem == tunnel-running || viewItem == tunnel-stopped-remote || viewItem == tunnel-running-remote)",
           "group": "inline@2"
         }
       ]

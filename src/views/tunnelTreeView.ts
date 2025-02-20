@@ -15,17 +15,32 @@ export class TunnelTreeItem extends vscode.TreeItem {
         public readonly label: string,
         public readonly tunnelId: string,
         public readonly status: 'running' | 'stopped',
+        public readonly management_type: 'remote' | 'local',
+        public readonly is_running_locally: boolean,
         public readonly port?: number
     ) {
         super(label, vscode.TreeItemCollapsibleState.None);
 
-        this.contextValue = `tunnel-${status}`;
-        this.description = port && status === 'running' ? 
-            `${tunnelId} (Port ${port})` : 
-            tunnelId;
-        this.tooltip = port && status === 'running' ? 
-            `${label} (${tunnelId}) - Port ${port}` : 
-            `${label} (${tunnelId})`;
+        // Set context value based on status and management type
+        this.contextValue = `tunnel-${status}${management_type === 'remote' ? '-remote' : ''}`;
+        
+        // Create description that includes management type and port info
+        const managementInfo = management_type === 'remote' ? '[Remote]' : '[Local]';
+        const portInfo = port && status === 'running' ? `(Port ${port})` : '';
+        const runningInfo = is_running_locally ? '[Running Locally]' : '';
+        this.description = `${managementInfo} ${tunnelId} ${portInfo} ${runningInfo}`.trim();
+
+        // Create detailed tooltip
+        this.tooltip = new vscode.MarkdownString();
+        this.tooltip.appendMarkdown(`**${label}** (${tunnelId})\n\n`);
+        this.tooltip.appendMarkdown(`**Management**: ${management_type === 'remote' ? 'Remote' : 'Local'}\n\n`);
+        if (port && status === 'running') {
+            this.tooltip.appendMarkdown(`**Port**: ${port}\n\n`);
+        }
+        this.tooltip.appendMarkdown(`**Status**: ${status}`);
+        if (is_running_locally) {
+            this.tooltip.appendMarkdown(`\n\n**Running Locally**: Yes`);
+        }
 
         // Set icon based on status
         if (status === 'running') {
@@ -33,6 +48,20 @@ export class TunnelTreeItem extends vscode.TreeItem {
         } else {
             this.iconPath = new vscode.ThemeIcon('circle-outline', new vscode.ThemeColor('descriptionForeground'));
         }
+    }
+}
+
+/**
+ * Group item for organizing tunnels by management type
+ */
+export class TunnelGroupItem extends vscode.TreeItem {
+    constructor(
+        public readonly label: string,
+        public readonly management_type: 'remote' | 'local'
+    ) {
+        super(label, vscode.TreeItemCollapsibleState.Expanded);
+        this.contextValue = `tunnel-group-${management_type}`;
+        this.iconPath = new vscode.ThemeIcon(management_type === 'remote' ? 'cloud' : 'home');
     }
 }
 
@@ -46,11 +75,11 @@ export class TunnelTreeItem extends vscode.TreeItem {
  * 3. Managing tunnel lifecycle events
  * 4. Providing context menu actions
  */
-export class TunnelTreeDataProvider implements vscode.TreeDataProvider<TunnelTreeItem> {
-    private _onDidChangeTreeData: vscode.EventEmitter<TunnelTreeItem | undefined | null | void> = new vscode.EventEmitter<TunnelTreeItem | undefined | null | void>();
-    readonly onDidChangeTreeData: vscode.Event<TunnelTreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
+export class TunnelTreeDataProvider implements vscode.TreeDataProvider<TunnelTreeItem | TunnelGroupItem> {
+    private _onDidChangeTreeData: vscode.EventEmitter<TunnelTreeItem | TunnelGroupItem | undefined | null | void> = new vscode.EventEmitter<TunnelTreeItem | TunnelGroupItem | undefined | null | void>();
+    readonly onDidChangeTreeData: vscode.Event<TunnelTreeItem | TunnelGroupItem | undefined | null | void> = this._onDidChangeTreeData.event;
     private readonly logger = Logger.getInstance();
-    private treeView: vscode.TreeView<TunnelTreeItem>;
+    private treeView: vscode.TreeView<TunnelTreeItem | TunnelGroupItem>;
     private currentItems: TunnelTreeItem[] = [];
 
     /**
@@ -81,71 +110,97 @@ export class TunnelTreeDataProvider implements vscode.TreeDataProvider<TunnelTre
      * @param element The tunnel tree item to display
      * @returns The tree item with display properties set
      */
-    getTreeItem(element: TunnelTreeItem): vscode.TreeItem {
+    getTreeItem(element: TunnelTreeItem | TunnelGroupItem): vscode.TreeItem {
         return element;
     }
 
     /**
      * Gets the parent of a tree item (not used in flat list)
-     * @param _element The tree item to get parent for
-     * @returns Always returns null as this is a flat list
+     * @param element The tree item to get parent for
+     * @returns The parent group item or null
      */
-    getParent(_element: TunnelTreeItem): vscode.ProviderResult<TunnelTreeItem> {
+    getParent(element: TunnelTreeItem | TunnelGroupItem): vscode.ProviderResult<TunnelGroupItem> {
+        if (element instanceof TunnelTreeItem) {
+            return new TunnelGroupItem(
+                element.management_type === 'remote' ? 'Remote-Managed Tunnels' : 'Locally-Managed Tunnels',
+                element.management_type
+            );
+        }
         return null;
     }
 
     /**
      * Gets the child items to display in the tree
      * @param element The parent element (unused in flat list)
-     * @returns Array of tunnel tree items
+     * @returns Array of tunnel tree items or groups
      */
-    async getChildren(element?: TunnelTreeItem): Promise<TunnelTreeItem[]> {
-        if (element) {
-            return [];
+    async getChildren(element?: TunnelTreeItem | TunnelGroupItem): Promise<Array<TunnelTreeItem | TunnelGroupItem>> {
+        if (!element) {
+            // Root level - return groups
+            return [
+                new TunnelGroupItem('Remote-Managed Tunnels', 'remote'),
+                new TunnelGroupItem('Locally-Managed Tunnels', 'local')
+            ];
         }
 
-        try {
-            // Check if there's an active profile
-            const activeProfile = await this.profileManager.getActiveProfile();
-            if (!activeProfile) {
-                return [];
-            }
-
-            // Get tunnels from Cloudflare
-            const tunnels = await this.tunnelManager.listTunnels();
-            
-            // Create tree items for each tunnel
-            this.currentItems = await Promise.all(tunnels.map(async tunnel => {
-                let port: number | undefined;
-                
-                // If tunnel is running, try to get its port from the config
-                if (tunnel.connections && tunnel.connections.length > 0) {
-                    try {
-                        const config = await this.tunnelManager.getTunnelConfig(tunnel.id);
-                        if (config && config.ingress && config.ingress[0] && config.ingress[0].service) {
-                            const match = config.ingress[0].service.match(/localhost:(\d+)/);
-                            if (match) {
-                                port = parseInt(match[1], 10);
-                            }
-                        }
-                    } catch (error) {
-                        this.logger.debug(LogComponent.EXTENSION, `Could not get port for tunnel ${tunnel.id}: ${error}`);
-                    }
+        if (element instanceof TunnelGroupItem) {
+            try {
+                // Check if there's an active profile
+                const activeProfile = await this.profileManager.getActiveProfile();
+                if (!activeProfile) {
+                    return [];
                 }
 
-                return new TunnelTreeItem(
-                    tunnel.name,
-                    tunnel.id,
-                    tunnel.connections && tunnel.connections.length > 0 ? 'running' : 'stopped',
-                    port
-                );
-            }));
+                // Get tunnels from Cloudflare
+                const tunnels = await this.tunnelManager.listTunnels();
+                
+                // Filter tunnels based on group type
+                const groupTunnels = tunnels.filter(tunnel => tunnel.management_type === element.management_type);
+                
+                // Create tree items for each tunnel
+                const groupItems = await Promise.all(groupTunnels.map(async tunnel => {
+                    let port: number | undefined;
+                    
+                    // If tunnel is running, try to get its port from the config
+                    if (tunnel.connections && tunnel.connections.length > 0) {
+                        try {
+                            const config = await this.tunnelManager.getTunnelConfig(tunnel.id);
+                            if (config && config.ingress && config.ingress[0] && config.ingress[0].service) {
+                                const match = config.ingress[0].service.match(/localhost:(\d+)/);
+                                if (match) {
+                                    port = parseInt(match[1], 10);
+                                }
+                            }
+                        } catch (error) {
+                            this.logger.debug(LogComponent.EXTENSION, `Could not get port for tunnel ${tunnel.id}: ${error}`);
+                        }
+                    }
 
-            return this.currentItems;
-        } catch (error) {
-            this.logger.error(LogComponent.EXTENSION, `Failed to get tunnels: ${error}`);
-            return [];
+                    return new TunnelTreeItem(
+                        tunnel.name,
+                        tunnel.id,
+                        tunnel.connections && tunnel.connections.length > 0 ? 'running' : 'stopped',
+                        tunnel.management_type || 'local',
+                        tunnel.is_running_locally || false,
+                        port
+                    );
+                }));
+
+                // Update currentItems with the new items from this group
+                // Remove existing items of this management type and add new ones
+                this.currentItems = [
+                    ...this.currentItems.filter(item => item.management_type !== element.management_type),
+                    ...groupItems
+                ];
+
+                return groupItems;
+            } catch (error) {
+                this.logger.error(LogComponent.EXTENSION, `Failed to get tunnels: ${error}`);
+                return [];
+            }
         }
+
+        return [];
     }
 
     /**

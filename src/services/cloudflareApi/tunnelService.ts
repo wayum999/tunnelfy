@@ -33,7 +33,11 @@ export class TunnelService extends BaseCloudflareService {
                 // Ensure connections is always an array
                 connections: tunnel.connections || [],
                 // Normalize status based on various fields
-                status: this.normalizeTunnelStatus(tunnel)
+                status: this.normalizeTunnelStatus(tunnel),
+                // Set management type based on remote_config
+                management_type: tunnel.remote_config ? 'remote' : 'local',
+                // is_running_locally will be set by TunnelManager
+                is_running_locally: false
             }));
         } catch (error) {
             this.logger.error(LogComponent.API, 'Failed to list tunnels:', error);

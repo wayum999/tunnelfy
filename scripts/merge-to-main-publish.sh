@@ -12,14 +12,14 @@ read RELEASE_TAG
 
 # Validate release tag format (X.X.X)
 if ! [[ $RELEASE_TAG =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    echo -e "${RED}Invalid release tag format. Must be in the format X.X.X (e.g., 0.0.3)${NC}"
-    exit 1
+	echo -e "${RED}Invalid release tag format. Must be in the format X.X.X (e.g., 0.0.3)${NC}"
+	exit 1
 fi
 
 # Check if tag already exists
 if git rev-parse "$RELEASE_TAG" >/dev/null 2>&1; then
-    echo -e "${RED}Tag $RELEASE_TAG already exists${NC}"
-    exit 1
+	echo -e "${RED}Tag $RELEASE_TAG already exists${NC}"
+	exit 1
 fi
 
 # Perform checks
@@ -38,9 +38,9 @@ git fetch origin main
 # Try to merge main into current branch first
 echo -e "${YELLOW}Merging main into $CURRENT_BRANCH...${NC}"
 if ! git merge origin/main; then
-    echo -e "${RED}Failed to merge main into $CURRENT_BRANCH${NC}"
-    echo -e "Please resolve conflicts and try again"
-    exit 1
+	echo -e "${RED}Failed to merge main into $CURRENT_BRANCH${NC}"
+	echo -e "Please resolve conflicts and try again"
+	exit 1
 fi
 
 # Perform the merge to main
@@ -48,10 +48,10 @@ merge_branch "$CURRENT_BRANCH" "main" || exit 1
 
 # Run final tests
 run_tests || {
-    echo -e "${RED}Tests failed after merge. Rolling back...${NC}"
-    git reset --hard HEAD@{1}
-    git checkout "$CURRENT_BRANCH"
-    exit 1
+	echo -e "${RED}Tests failed after merge. Rolling back...${NC}"
+	git reset --hard HEAD@{1}
+	git checkout "$CURRENT_BRANCH"
+	exit 1
 }
 
 # Create and push the release tag
@@ -60,7 +60,7 @@ git tag -a "$RELEASE_TAG" -m "Release $RELEASE_TAG"
 git push origin "$RELEASE_TAG"
 
 # Run publish script
-    echo -e "${YELLOW}Publishing to VS Code Marketplace...${NC}"
+echo -e "${YELLOW}Publishing to VS Code Marketplace...${NC}"
 vsce publish
 
 echo -e "${YELLOW}Publishing to Open VSX Registry...${NC}"
@@ -70,4 +70,4 @@ ovsx publish
 echo -e "${YELLOW}Switching back to development branch...${NC}"
 git checkout development
 
-echo -e "${GREEN}Successfully merged $CURRENT_BRANCH into main and created tag $RELEASE_TAG!${NC}" 
+echo -e "${GREEN}Successfully merged $CURRENT_BRANCH into main and created tag $RELEASE_TAG!${NC}"

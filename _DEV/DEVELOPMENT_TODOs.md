@@ -1,26 +1,59 @@
 # TODOs
 
-## [ ] Update DEVELOPMENT_README.md
+## [ ] Code Quality Issues to Address
 
-1. Update DEVELOPMENT_README.md with:
-   - Latest project information and architecture details
-   - Development environment setup instructions
-   - Build and test procedures
-   - Code organization and structure
+### src/commands/profileCommands.ts
+- [ ] Reduce number of returns in `registerProfileCommands` (currently 9)
+- [ ] Reduce total complexity of `registerProfileCommands` (currently 67)
+- [ ] Refactor duplicate code blocks:
+  ```typescript
+  if (confirm === "Delete") {
+    const isActiveProfile = await profileManager.isActiveProfile(
+      item.label,
+    );
+    const allProfiles = await profileManager.listProfiles();
+    // ... 22 more lines
+  ```
+  Found in 2 locations with mass = 123
 
-2. Add comprehensive documentation for:
-   - Process for adding new functionality
-   - Steps for modifying list views and UI components
-   - Extension command implementation
-   - Service layer modifications
-   - Testing requirements and procedures
+### src/commands/quickTunnelCommands.ts
+- [ ] Reduce number of returns in `registerQuickTunnelCommands` (currently 10)
+- [ ] Reduce total complexity of `registerQuickTunnelCommands` (currently 64)
 
-3. Ensure documentation is:
-   - Clear and thorough
-   - Easy to follow for new developers
-   - Accurate and up-to-date
-   - Contains relevant code examples
+### src/commands/tunnelCommands.ts
+- [ ] Reduce number of parameters in `registerTunnelCommands` (currently 7)
+- [ ] Reduce number of returns in `registerTunnelCommands` (currently 31)
+- [ ] Reduce total complexity of `registerTunnelCommands` (currently 147)
+- [ ] Refactor duplicate code blocks:
+  ```typescript
+  disposables.push(
+    vscode.commands.registerCommand(
+      "tunnelfy.generateDockerCompose",
+      async (item?: TunnelTreeItem) => {
+        try {
+          // If called from tree view, use the selected item
+          // ... 69 more lines
+  ```
+  Found in 2 locations with mass = 277
 
+### src/services/cloudflared/TunnelManager.ts
+- [ ] Reduce number of returns in `createQuickTunnel` (currently 7)
+- [ ] Reduce deeply nested control flow (level 5) in quick tunnels code
+- [ ] Reduce total complexity (currently 166)
+- [ ] Reduce complexity in the following functions:
+  - `findCloudflaredProcesses` (currently 22)
+  - `killProcess` (currently 25)
+  - `getQuickTunnels` (currently 19)
+  - `createQuickTunnel` (currently 56)
+
+### src/services/systemServiceGenerator.ts
+- [ ] Reduce complexity of `generateServiceFile` (currently 18)
+
+### src/views/tunnelTreeView.ts
+- [ ] Reduce number of parameters in constructor (currently 6)
+- [ ] Reduce number of returns in `getChildren` (currently 7)
+- [ ] Reduce total complexity (currently 51)
+- [ ] Reduce complexity of `getChildren` (currently 33)
 
 # [ ]Testing Enhancements and Organization
 1. Organize Test Directory Structure

@@ -41,7 +41,7 @@ export interface CloudflareTunnel {
     metadata: Record<string, any>;
     /** Current tunnel status */
     status: string;
-    /** Whether the tunnel uses remote configuration */
+    /** Whether the tunnel is managed remotely */
     remote_config: boolean;
     /** Whether the tunnel is running locally */
     is_running_locally?: boolean;

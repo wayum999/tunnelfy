@@ -17,30 +17,27 @@ export class TunnelService extends BaseCloudflareService {
         try {
             const accountId = await this.getAccountId();
             const tunnels = await this.makeRequest<CloudflareTunnel[]>(`/accounts/${accountId}/tunnels`);
-            
-            // Filter out deleted tunnels and sort by name
-            const activeTunnels = tunnels
-                .filter((tunnel: CloudflareTunnel) => !tunnel.deleted_at)
-                .sort((a: CloudflareTunnel, b: CloudflareTunnel) => 
-                    a.name.toLowerCase().localeCompare(b.name.toLowerCase())
+
+            this.logger.debug(
+                LogComponent.API,
+                `Retrieved ${tunnels.length} tunnels. Processing details...`
+            );
+
+            // Map additional status information for active tunnels
+            const tunnelsWithStatus = await Promise.all(tunnels.map(async (tunnel: CloudflareTunnel) => {
+                this.logger.debug(
+                    LogComponent.API,
+                    `Processing tunnel ${tunnel.name} (${tunnel.id}):
+                    - remote_config: ${tunnel.remote_config}
+                    - status: ${tunnel.status}`
                 );
 
-            this.logger.debug(LogComponent.API, `Found ${activeTunnels.length} active tunnels`);
-            
-            // Map additional status information
-            return activeTunnels.map((tunnel: CloudflareTunnel) => ({
-                ...tunnel,
-                // Ensure connections is always an array
-                connections: tunnel.connections || [],
-                // Normalize status based on various fields
-                status: this.normalizeTunnelStatus(tunnel),
-                // Set management type based on remote_config
-                management_type: tunnel.remote_config ? 'remote' : 'local',
-                // is_running_locally will be set by TunnelManager
-                is_running_locally: false
+                return tunnel;
             }));
+
+            return tunnelsWithStatus;
         } catch (error) {
-            this.logger.error(LogComponent.API, 'Failed to list tunnels:', error);
+            this.logger.error(LogComponent.API, `Failed to list tunnels: ${error}`);
             throw error;
         }
     }
@@ -56,7 +53,12 @@ export class TunnelService extends BaseCloudflareService {
             const accountId = await this.getAccountId();
             const tunnel = await this.makeRequest<CloudflareTunnel>(`/accounts/${accountId}/tunnels/${tunnelId}`);
             this.logger.debug(LogComponent.API, `Retrieved info for tunnel: ${tunnel.name}`);
-            return tunnel;
+            return {
+                ...tunnel,
+                connections: tunnel.connections || [],
+                status: this.normalizeTunnelStatus(tunnel),
+                is_running_locally: false
+            };
         } catch (error) {
             this.logger.error(LogComponent.API, `Failed to get tunnel info for ${tunnelId}:`, error);
             throw error;
@@ -66,21 +68,39 @@ export class TunnelService extends BaseCloudflareService {
     /**
      * Creates a new tunnel
      * @param name Name for the new tunnel
+     * @param managementType How the tunnel will be managed ('local' or 'remote')
      * @returns Created tunnel information
      * @throws Error if tunnel creation fails
      */
-    async createTunnel(name: string): Promise<CloudflareTunnel> {
+    async createTunnel(name: string, managementType: 'remote' | 'local'): Promise<CloudflareTunnel> {
         try {
+            // Set config_src based on management type for the request
+            const config_src = managementType === 'remote' ? 'cloudflare' as const : 'local' as const;
+            
+            this.logger.debug(
+                LogComponent.API,
+                `Creating tunnel with name: ${name}, config_src: ${config_src}`
+            );
+
             const accountId = await this.getAccountId();
-            const tunnel = await this.makeRequest<CloudflareTunnel>(`/accounts/${accountId}/tunnels`, 'POST', { name });
-            this.logger.info(LogComponent.API, `Created tunnel: ${name} (${tunnel.id})`);
-            return {
-                ...tunnel,
-                connections: [],
-                status: 'inactive'
-            };
+            const response = await this.makeRequest<CloudflareTunnel>(
+                `/accounts/${accountId}/tunnels`,
+                'POST',
+                { name, config_src }
+            );
+
+            // The response will have remote_config instead of config_src
+            this.logger.debug(
+                LogComponent.API,
+                `Tunnel created successfully. Response:
+                - name: ${response.name}
+                - id: ${response.id}
+                - remote_config: ${response.remote_config}`
+            );
+
+            return response;
         } catch (error) {
-            this.logger.error(LogComponent.API, `Failed to create tunnel ${name}:`, error);
+            this.logger.error(LogComponent.API, `Failed to create tunnel: ${error}`);
             throw error;
         }
     }

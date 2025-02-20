@@ -93,7 +93,31 @@ export function registerTunnelCommands(
 
             if (name) {
                 try {
-                    const tunnel = await tunnelManager.createTunnel(name);
+                    // Let user select management type
+                    const managementType = await vscode.window.showQuickPick(
+                        [
+                            {
+                                label: 'Local Management',
+                                description: 'Manage tunnel configuration locally',
+                                value: 'local' as const
+                            },
+                            {
+                                label: 'Remote Management',
+                                description: 'Manage tunnel configuration through Cloudflare dashboard',
+                                value: 'remote' as const
+                            }
+                        ],
+                        {
+                            placeHolder: 'Select how you want to manage this tunnel',
+                            ignoreFocusOut: true
+                        }
+                    );
+
+                    if (!managementType) {
+                        return;
+                    }
+
+                    const tunnel = await tunnelManager.createTunnel(name, managementType.value);
                     await tunnelProvider.refresh();
                     await Messages.showInfo(Messages.TUNNEL_CREATED(tunnel.name));
                 } catch (error) {

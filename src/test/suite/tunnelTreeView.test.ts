@@ -25,7 +25,9 @@ suite('TunnelTreeView Test Suite', () => {
                     connections: [],
                     remote_config: false,
                     management_type: 'local',
-                    is_running_locally: false
+                    is_running_locally: false,
+                    created_at: new Date().toISOString(),
+                    deleted_at: null
                 },
                 { 
                     id: 'tunnel2', 
@@ -33,7 +35,9 @@ suite('TunnelTreeView Test Suite', () => {
                     connections: [{}],
                     remote_config: true,
                     management_type: 'remote',
-                    is_running_locally: true
+                    is_running_locally: true,
+                    created_at: new Date().toISOString(),
+                    deleted_at: null
                 }
             ]),
             onTunnelEvent: mockEventEmitter.event,

@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { TunnelManager, TunnelEvent } from '../services/cloudflared';
 import { ProfileManager } from '../services/profileManager';
 import { Logger, LogComponent } from '../utils/logger';
+import { CloudflareTunnel } from '../services/cloudflareApi/types';
 
 /**
  * TunnelTreeItem - Represents a single tunnel entry in the VS Code tree view
@@ -154,11 +155,33 @@ export class TunnelTreeDataProvider implements vscode.TreeDataProvider<TunnelTre
                 // Get tunnels from Cloudflare
                 const tunnels = await this.tunnelManager.listTunnels();
                 
+                this.logger.debug(LogComponent.EXTENSION, `[TREE DEBUG] Processing tunnels for ${element.management_type} group. Total tunnels: ${tunnels.length}`);
+                
                 // Filter tunnels based on group type
-                const groupTunnels = tunnels.filter(tunnel => tunnel.management_type === element.management_type);
+                const groupTunnels = tunnels.filter((tunnel: CloudflareTunnel & { is_running_locally?: boolean }) => {
+                    // Use remote_config to determine management type
+                    const tunnelManagementType = tunnel.remote_config ? 'remote' as const : 'local' as const;
+                    this.logger.debug(
+                        LogComponent.EXTENSION, 
+                        `[TREE DEBUG] Filtering tunnel ${tunnel.name} (${tunnel.id}):
+                        - remote_config: ${tunnel.remote_config}
+                        - calculated management type: ${tunnelManagementType}
+                        - group type: ${element.management_type}
+                        - matches group: ${tunnelManagementType === element.management_type}`
+                    );
+                    return tunnelManagementType === element.management_type;
+                });
+                
+                this.logger.debug(
+                    LogComponent.EXTENSION, 
+                    `[TREE DEBUG] Group results for ${element.management_type}:
+                    - Total tunnels before filtering: ${tunnels.length}
+                    - Tunnels matching group: ${groupTunnels.length}
+                    - Matching tunnel names: ${groupTunnels.map(t => t.name).join(', ')}`
+                );
                 
                 // Create tree items for each tunnel
-                const groupItems = await Promise.all(groupTunnels.map(async tunnel => {
+                const groupItems = await Promise.all(groupTunnels.map(async (tunnel: CloudflareTunnel & { is_running_locally?: boolean }) => {
                     let port: number | undefined;
                     
                     // If tunnel is running, try to get its port from the config
@@ -176,11 +199,14 @@ export class TunnelTreeDataProvider implements vscode.TreeDataProvider<TunnelTre
                         }
                     }
 
+                    // Use remote_config to determine management type
+                    const management_type = tunnel.remote_config ? 'remote' as const : 'local' as const;
+
                     return new TunnelTreeItem(
                         tunnel.name,
                         tunnel.id,
                         tunnel.connections && tunnel.connections.length > 0 ? 'running' : 'stopped',
-                        tunnel.management_type || 'local',
+                        management_type,
                         tunnel.is_running_locally || false,
                         port
                     );

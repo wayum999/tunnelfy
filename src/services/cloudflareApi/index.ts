@@ -49,8 +49,8 @@ export class CloudflareApiService {
         return this.tunnelService.getTunnelInfo(tunnelId);
     }
 
-    async createTunnel(name: string) {
-        return this.tunnelService.createTunnel(name);
+    async createTunnel(name: string, managementType: 'local' | 'remote' = 'local') {
+        return this.tunnelService.createTunnel(name, managementType);
     }
 
     async deleteTunnel(tunnelId: string) {

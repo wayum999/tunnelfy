@@ -9,6 +9,7 @@ import { TunnelLogger } from './TunnelLogger';
 import { TunnelConfig } from './TunnelConfig';
 import * as util from 'util';
 import { Messages } from '../../utils/messages';
+import { CloudflareTunnel as ApiTunnel } from '../cloudflareApi/types';
 
 /**
  * Custom error class for when cloudflared is not found
@@ -58,7 +59,7 @@ export interface CloudflareTunnel {
     metadata: Record<string, any>;
     /** Current tunnel status */
     status: string;
-    /** Whether the tunnel uses remote configuration */
+    /** Whether the tunnel is managed remotely */
     remote_config: boolean;
 }
 
@@ -114,15 +115,16 @@ export class TunnelManager {
     }
 
     /**
-     * Creates a new Cloudflare tunnel
+     * Creates a new tunnel with the given name
      * @param name Name for the new tunnel
+     * @param managementType How the tunnel will be managed ('local' or 'remote')
      * @returns Created tunnel information
-     * @throws Error if tunnel creation fails
+     * @throws Error if creation fails
      */
-    async createTunnel(name: string): Promise<CloudflareTunnel> {
+    async createTunnel(name: string, managementType: 'local' | 'remote' = 'local'): Promise<ApiTunnel> {
         try {
-            const tunnel = await this.apiService.createTunnel(name);
-            this.logger.info(LogComponent.TUNNEL, `Created tunnel: ${name} with ID: ${tunnel.id}`);
+            const tunnel = await this.apiService.createTunnel(name, managementType);
+            this.logger.info(LogComponent.TUNNEL, `Created tunnel: ${name} (${tunnel.id})`);
 
             // Get the token and save the initial configuration
             const token = await this.apiService.getTunnelToken(tunnel.id);
@@ -178,7 +180,7 @@ export class TunnelManager {
      * @returns Array of tunnel information
      * @throws Error if listing fails
      */
-    async listTunnels(): Promise<Array<{ id: string; name: string; connections?: Array<any>; url?: string; management_type?: 'remote' | 'local'; is_running_locally?: boolean }>> {
+    async listTunnels(): Promise<Array<ApiTunnel & { is_running_locally?: boolean }>> {
         try {
             const tunnels = await this.apiService.listTunnels();
             

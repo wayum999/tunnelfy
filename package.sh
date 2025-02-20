@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Ensure we're in the extension directory
-cd "$(dirname "$0")"
+cd "$(dirname "$0")" || exit
 
 # Install dependencies if needed
 npm install

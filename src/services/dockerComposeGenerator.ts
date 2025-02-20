@@ -1,125 +1,145 @@
-import * as vscode from 'vscode';
-import * as fs from 'fs';
-import * as path from 'path';
-import { TunnelManager } from './cloudflared';
-import { CloudflareApiService } from './cloudflareApi';
-import { Logger, LogComponent } from '../utils/logger';
+import * as vscode from "vscode";
+import * as fs from "fs";
+import * as path from "path";
+import { TunnelManager } from "./cloudflared";
+import { CloudflareApiService } from "./cloudflareApi";
+import { Logger, LogComponent } from "../utils/logger";
 
 export class DockerComposeGenerator {
-    private readonly logger = Logger.getInstance();
+  private readonly logger = Logger.getInstance();
 
-    constructor(
-        private readonly tunnelManager: TunnelManager,
-        private readonly apiService: CloudflareApiService
-    ) {}
+  constructor(
+    private readonly tunnelManager: TunnelManager,
+    private readonly apiService: CloudflareApiService,
+  ) {}
 
-    /**
-     * Generates a Docker Compose file for a specific tunnel
-     * @param tunnelId The ID of the tunnel to generate the compose file for
-     * @param tunnelName The name of the tunnel
-     * @param port The port the tunnel is running on
-     * @returns The path to the generated file or URI of the untitled file
-     */
-    async generateComposeFile(tunnelId: string, tunnelName: string, port: number): Promise<string> {
-        try {
-            // Show confirmation dialog
-            const generateButton: vscode.MessageItem = { title: 'Generate' };
-            const cancelButton: vscode.MessageItem = { title: 'Cancel' };
-            
-            const confirmation = await vscode.window.showInformationMessage(
-                `This will generate Docker Compose files for tunnel "${tunnelName}". The following files will be created:\n` +
-                `- docker-compose.${tunnelName}.yml\n` +
-                `- cloudflare.${tunnelName}.env (contains sensitive token)`,
-                { modal: true },
-                generateButton,
-                cancelButton
-            );
+  /**
+   * Generates a Docker Compose file for a specific tunnel
+   * @param tunnelId The ID of the tunnel to generate the compose file for
+   * @param tunnelName The name of the tunnel
+   * @param port The port the tunnel is running on
+   * @returns The path to the generated file or URI of the untitled file
+   */
+  async generateComposeFile(
+    tunnelId: string,
+    tunnelName: string,
+    port: number,
+  ): Promise<string> {
+    try {
+      // Show confirmation dialog
+      const generateButton: vscode.MessageItem = { title: "Generate" };
+      const cancelButton: vscode.MessageItem = { title: "Cancel" };
 
-            if (confirmation?.title !== 'Generate') {
-                return '';
-            }
+      const confirmation = await vscode.window.showInformationMessage(
+        `This will generate Docker Compose files for tunnel "${tunnelName}". The following files will be created:\n` +
+          `- docker-compose.${tunnelName}.yml\n` +
+          `- cloudflare.${tunnelName}.env (contains sensitive token)`,
+        { modal: true },
+        generateButton,
+        cancelButton,
+      );
 
-            // Get the tunnel token
-            const token = await this.apiService.getTunnelToken(tunnelId);
-            if (!token) {
-                throw new Error('Could not get tunnel token');
-            }
+      if (confirmation?.title !== "Generate") {
+        return "";
+      }
 
-            // Ensure proper base-10 port parsing
-            const parsedPort = parseInt(port.toString(), 10);
-            if (isNaN(parsedPort)) {
-                throw new Error('Invalid port number');
-            }
+      // Get the tunnel token
+      const token = await this.apiService.getTunnelToken(tunnelId);
+      if (!token) {
+        throw new Error("Could not get tunnel token");
+      }
 
-            // Create the Docker Compose content
-            const composeContent = this.createComposeFileContent(tunnelName, parsedPort);
-            const envContent = `TUNNEL_TOKEN=${token}\n`;
+      // Ensure proper base-10 port parsing
+      const parsedPort = parseInt(port.toString(), 10);
+      if (isNaN(parsedPort)) {
+        throw new Error("Invalid port number");
+      }
 
-            // Get the workspace folder
-            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-            
-            if (workspaceFolder) {
-                // If we have a workspace, create both files there
-                const composeFileName = `docker-compose.${tunnelName}.yml`;
-                const envFileName = `cloudflare.${tunnelName}.env`;
-                const composePath = path.join(workspaceFolder.uri.fsPath, composeFileName);
-                const envPath = path.join(workspaceFolder.uri.fsPath, envFileName);
+      // Create the Docker Compose content
+      const composeContent = this.createComposeFileContent(
+        tunnelName,
+        parsedPort,
+      );
+      const envContent = `TUNNEL_TOKEN=${token}\n`;
 
-                // Check if files already exist
-                if (fs.existsSync(composePath) || fs.existsSync(envPath)) {
-                    const overwriteButton: vscode.MessageItem = { title: 'Overwrite' };
-                    const cancelOverwriteButton: vscode.MessageItem = { title: 'Cancel' };
-                    
-                    const overwrite = await vscode.window.showWarningMessage(
-                        'One or both files already exist. Do you want to overwrite them?',
-                        { modal: true },
-                        overwriteButton,
-                        cancelOverwriteButton
-                    );
-                    if (overwrite?.title !== 'Overwrite') {
-                        return '';
-                    }
-                }
-                
-                fs.writeFileSync(composePath, composeContent);
-                fs.writeFileSync(envPath, envContent);
+      // Get the workspace folder
+      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
 
-                // Open both files in the editor
-                const composeUri = vscode.Uri.file(composePath);
-                const envUri = vscode.Uri.file(envPath);
-                
-                await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(composeUri));
-                await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(envUri), { viewColumn: vscode.ViewColumn.Beside });
-                
-                return composePath;
-            } else {
-                // If no workspace, create untitled files
-                const composeFile = await vscode.workspace.openTextDocument({
-                    content: composeContent,
-                    language: 'yaml'
-                });
-                const envFile = await vscode.workspace.openTextDocument({
-                    content: envContent,
-                    language: 'dotenv'
-                });
-                await vscode.window.showTextDocument(composeFile);
-                await vscode.window.showTextDocument(envFile, { viewColumn: vscode.ViewColumn.Beside });
-                return 'New untitled files';
-            }
-        } catch (error) {
-            this.logger.error(LogComponent.EXTENSION, `Failed to generate Docker Compose file: ${error}`);
-            throw error;
+      if (workspaceFolder) {
+        // If we have a workspace, create both files there
+        const composeFileName = `docker-compose.${tunnelName}.yml`;
+        const envFileName = `cloudflare.${tunnelName}.env`;
+        const composePath = path.join(
+          workspaceFolder.uri.fsPath,
+          composeFileName,
+        );
+        const envPath = path.join(workspaceFolder.uri.fsPath, envFileName);
+
+        // Check if files already exist
+        if (fs.existsSync(composePath) || fs.existsSync(envPath)) {
+          const overwriteButton: vscode.MessageItem = { title: "Overwrite" };
+          const cancelOverwriteButton: vscode.MessageItem = { title: "Cancel" };
+
+          const overwrite = await vscode.window.showWarningMessage(
+            "One or both files already exist. Do you want to overwrite them?",
+            { modal: true },
+            overwriteButton,
+            cancelOverwriteButton,
+          );
+          if (overwrite?.title !== "Overwrite") {
+            return "";
+          }
         }
-    }
 
-    /**
-     * Creates the content for the Docker Compose file
-     * @param tunnelName The name of the tunnel
-     * @param port The port to expose
-     * @returns The Docker Compose file content
-     */
-    private createComposeFileContent(tunnelName: string, port: number): string {
-        return `# Cloudflare Tunnel Docker Compose Configuration
+        fs.writeFileSync(composePath, composeContent);
+        fs.writeFileSync(envPath, envContent);
+
+        // Open both files in the editor
+        const composeUri = vscode.Uri.file(composePath);
+        const envUri = vscode.Uri.file(envPath);
+
+        await vscode.window.showTextDocument(
+          await vscode.workspace.openTextDocument(composeUri),
+        );
+        await vscode.window.showTextDocument(
+          await vscode.workspace.openTextDocument(envUri),
+          { viewColumn: vscode.ViewColumn.Beside },
+        );
+
+        return composePath;
+      } else {
+        // If no workspace, create untitled files
+        const composeFile = await vscode.workspace.openTextDocument({
+          content: composeContent,
+          language: "yaml",
+        });
+        const envFile = await vscode.workspace.openTextDocument({
+          content: envContent,
+          language: "dotenv",
+        });
+        await vscode.window.showTextDocument(composeFile);
+        await vscode.window.showTextDocument(envFile, {
+          viewColumn: vscode.ViewColumn.Beside,
+        });
+        return "New untitled files";
+      }
+    } catch (error) {
+      this.logger.error(
+        LogComponent.EXTENSION,
+        `Failed to generate Docker Compose file: ${error}`,
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Creates the content for the Docker Compose file
+   * @param tunnelName The name of the tunnel
+   * @param port The port to expose
+   * @returns The Docker Compose file content
+   */
+  private createComposeFileContent(tunnelName: string, port: number): string {
+    return `# Cloudflare Tunnel Docker Compose Configuration
 # ==========================================
 #
 # Important:
@@ -171,5 +191,5 @@ services:
       - cloudflare.${tunnelName}.env
     restart: unless-stopped
 `;
-    }
-} 
+  }
+}

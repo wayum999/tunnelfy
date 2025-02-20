@@ -1,11 +1,19 @@
 # Tunnelfy
 
+<div align="center">
+<br />
+<a href="https://www.producthunt.com/posts/tunnelfy?embed=true&utm_source=badge-featured&utm_medium=badge&utm_souce=badge-tunnelfy" target="_blank"><img src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=881568&theme=neutral&t=1740079423667" alt="Tunnelfy - Manage&#0032;Cloudflare&#0032;tunnels&#0032;from&#0032;VSCode | Product Hunt" style="width: 250px; height: 54px;" width="250" height="54" /></a> &nbsp;&nbsp;
+<a href="https://www.producthunt.com/posts/tunnelfy?embed=true&utm_source=badge-top-post-topic-badge&utm_medium=badge&utm_souce=badge-tunnelfy" target="_blank"><img src="https://api.producthunt.com/widgets/embed-image/v1/top-post-topic-badge.svg?post_id=881568&theme=neutral&period=weekly&topic_id=93&t=1740079438891" alt="Tunnelfy - Manage&#0032;Cloudflare&#0032;tunnels&#0032;from&#0032;VSCode | Product Hunt" style="width: 250px; height: 54px;" width="250" height="54" /></a>
+</div>
+<br />
 Managing Cloudflare tunnels directly from a VS Code extension has never been easier. Streamline your development workflow by creating and managing permanent and quick tunnels without leaving your IDE.
+<br />
+<br />
 
 ![Tunnelfy Cloudflare Overview](images/readme/overview/Tunnelfy_Cloudflare_Overview.gif)
 
-
 ## Table of Contents
+
 - [Features](#features)
   - [Profile Management](#profile-management)
   - [Tunnel Monitoring and Control](#tunnel-monitoring-and-control)
@@ -70,7 +78,7 @@ Managing Cloudflare tunnels directly from a VS Code extension has never been eas
 ## Prerequisites
 
 1. VS Code (v1.85.0 or higher)
-2. A Cloudflare account with API key access 
+2. A Cloudflare account with API key access
 3. Cloudflare Tunnel CLI (`cloudflared`) installed
 4. (Optional) Docker and Docker Compose for containerized tunnels
 
@@ -102,12 +110,12 @@ Managing Cloudflare tunnels directly from a VS Code extension has never been eas
    3. Clicking on "API Tokens"
    4. Clicking on "Create Token"
    5. Selecting the following permissions:
-     - Account: Account Settings: Read 
-     - Account: Cloudflare Tunnel: Edit
-     - Zone: DNS: Edit
+   - Account: Account Settings: Read
+   - Account: Cloudflare Tunnel: Edit
+   - Zone: DNS: Edit
    6. Client IP Address Filtering (OPTIONAL but recommended):
-     - Operator: Is in 
-     - Value: `Your IP Address` (Can be found with https://nordvpn.com/what-is-my-ip)
+   - Operator: Is in
+   - Value: `Your IP Address` (Can be found with <https://nordvpn.com/what-is-my-ip>)
    - The API key will be stored securely and never displayed again
 
 ### 4. Persistent Tunnels
@@ -153,16 +161,19 @@ Built-in Docker support for running tunnels in containers:
 ### Using the Generated Files
 
 1. Rename the compose file:
+
    ```bash
    mv docker-compose.<tunnel-name>.yml docker-compose.yml
    ```
 
 2. Start the tunnel:
+
    ```bash
    docker compose up -d
    ```
 
 3. Stop the tunnel:
+
    ```bash
    docker compose down
    ```
@@ -170,11 +181,13 @@ Built-in Docker support for running tunnels in containers:
 ### Docker Configuration Features
 
 - **Secure Token Management**
+
   - Tunnel token stored in separate environment file
   - Environment file automatically loaded by Docker Compose
   - Easy to add to `.gitignore` for security
 
 - **Service Connection Options**
+
   - Default: Connects to services on your host machine via `host.docker.internal`
   - Optional: Connect to other Docker services using Docker networks
   - Configurable URL and port settings
@@ -215,17 +228,20 @@ Built-in system service support for running tunnels as system services:
 ### Using the Generated Files
 
 1. Copy the service file to the systemd directory:
+
    ```bash
    sudo cp cloudflared-<tunnel-name>.service /etc/systemd/system/
    ```
 
 2. Create the environment file directory and copy the env file:
+
    ```bash
    sudo mkdir -p /etc/cloudflared
    sudo cp cloudflared-<tunnel-name>.env /etc/cloudflared/
    ```
 
 3. Set proper permissions:
+
    ```bash
    sudo chown root:root /etc/systemd/system/cloudflared-<tunnel-name>.service
    sudo chmod 644 /etc/systemd/system/cloudflared-<tunnel-name>.service
@@ -234,6 +250,7 @@ Built-in system service support for running tunnels as system services:
    ```
 
 4. Start the service:
+
    ```bash
    sudo systemctl daemon-reload
    sudo systemctl enable cloudflared-<tunnel-name>
@@ -243,11 +260,13 @@ Built-in system service support for running tunnels as system services:
 ### System Service Features
 
 - **Secure Configuration**
+
   - Service runs as dedicated cloudflared user
   - Environment file with restricted permissions
   - Systemd security hardening options enabled
 
 - **Service Management**
+
   - Automatic service startup on boot
   - Automatic restart on failure
   - Standard systemd service controls
@@ -293,11 +312,13 @@ WantedBy=multi-user.target
 Several commands are accessible via the Command Palette (Ctrl+Shift+P / Cmd+Shift+P):
 
 ### Profile Management
+
 - `Tunnelfy: Create Profile` - Create a new Cloudflare profile with an API key
 - `Tunnelfy: Switch Profile` - Switch between Cloudflare profiles
 - `Tunnelfy: Delete Profile` - Delete a Cloudflare profile
 
 ### Permanent Tunnel Management
+
 - `Tunnelfy: Create Tunnel` - Create a new permanent tunnel
 - `Tunnelfy: Refresh Tunnels` - Refresh the list of tunnels
 - `Tunnelfy: Start Tunnel` - Start a tunnel
@@ -308,13 +329,14 @@ Several commands are accessible via the Command Palette (Ctrl+Shift+P / Cmd+Shif
 - `Tunnelfy: Generate Docker Compose` - Generate Docker Compose files for running the tunnel in Docker
 
 ### Quick Tunnel Management
+
 - `Tunnelfy: Create Quick Tunnel` - Create a new quick tunnel
 - `Tunnelfy: Copy Quick Tunnel URL` - Copy the URL of a quick tunnel
 - `Tunnelfy: Stop Quick Tunnel` - Stop a quick tunnel
 
 ## Docker Support
-- `Tunnelfy: Generate Docker Compose` - Generate Docker Compose files for running the tunnel as a Docker service
 
+- `Tunnelfy: Generate Docker Compose` - Generate Docker Compose files for running the tunnel as a Docker service
 
 ### Generating Docker Compose Files
 
@@ -323,13 +345,15 @@ Several commands are accessible via the Command Palette (Ctrl+Shift+P / Cmd+Shif
 3. A `docker-compose.{tunnel-name}.yml` file will be generated in your workspace
 
 The generated Docker Compose file includes:
+
 - A service running the Cloudflare tunnel with your tunnel token
 - A placeholder service for your application
 - A shared network for communication between services
 
 Example Docker Compose file:
+
 ```yaml
-version: '3'
+version: "3"
 
 services:
   my-tunnel:
@@ -355,6 +379,7 @@ networks:
 ```
 
 To use the generated file:
+
 1. Replace `your-app-image:latest` with your actual application image
 2. Add any necessary environment variables or volumes for your app
 3. Run `docker-compose -f docker-compose.{tunnel-name}.yml up -d`
@@ -364,31 +389,37 @@ To use the generated file:
 ### Common Issues
 
 1. **Invalid API Key**
+
    - Make sure your API key has the correct permissions (Cloudflare Tunnel:Edit)
    - Verify the API key is still active in your Cloudflare dashboard
    - Try creating a new API key if issues persist
 
 2. **Profile Switching Issues**
+
    - Ensure the API key for the profile is still valid
    - Check your internet connection
    - Try deleting and recreating the profile if issues persist
 
 3. **Tunnel Creation Fails**
+
    - Verify your API key has sufficient permissions
    - Check if you've reached your account's tunnel limit
    - Ensure you have a stable internet connection
 
 4. **Connecting Tunnels to Domains/Subdomains**
+
    - Ensure you have a persistent tunnel created with any display name you choose.
    - Your list of domains/subdomains will not be presented until you run a tunnel.
 
 5. **Quick Tunnel Issues**
+
    - Verify cloudflared is installed and accessible
    - Check if the port is already in use
    - Look for rate limiting messages in the output
    - Ensure you have a stable internet connection
 
 6. **Development Environment Issues**
+
    - Run `npm install` to ensure all dependencies are installed
    - Clear the VS Code extension development host: `rm -rf .vscode-test`
    - Check the extension logs in the Output panel
@@ -397,8 +428,8 @@ To use the generated file:
 7. **Persistent Tunnel Disappears When Extension is Closed**
    - This is expected behavior. The tunnel will remain running in the background.
    - For persistent tunnel setups:
-      1. use the `Tunnelfy: Generate Docker Compose` command to create a Docker Compose file for your tunnel.
-      2. use a system service (systemd, etc) to start the tunnel on boot (File generation in future updates).
+     1. use the `Tunnelfy: Generate Docker Compose` command to create a Docker Compose file for your tunnel.
+     2. use a system service (systemd, etc) to start the tunnel on boot (File generation in future updates).
 
 ## Security
 
@@ -412,10 +443,12 @@ To use the generated file:
 We welcome contributions! Here's how you can help:
 
 1. **Fork the Repository**
+
    - Create a fork of the repository
    - Clone your fork locally
 
 2. **Set Up Development Environment**
+
    ```bash
    # Install dependencies
    npm install
@@ -427,16 +460,19 @@ We welcome contributions! Here's how you can help:
    ```
 
 3. **Create a Feature Branch**
+
    ```bash
    git checkout -b feature/your-feature
    ```
 
 4. **Make Your Changes**
+
    - Write code following our style guidelines
    - Add tests for new functionality
    - Update documentation as needed
 
 5. **Test Your Changes**
+
    ```bash
    # Run the test suite
    npm test
@@ -460,11 +496,11 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Support
 
 If you encounter any issues or have suggestions, please:
+
 1. Check the [Troubleshooting](#troubleshooting) section
 2. View the extension logs
 3. Open an issue on GitHub
-4. Email info@tunnelfy.com if all else fails (response time will be slow)
-
+4. Email <info@tunnelfy.com> if all else fails (response time will be slow)
 
 ---
 
@@ -473,7 +509,9 @@ If you encounter any issues or have suggestions, please:
 Cloudflare Tunnel CLI (`cloudflared`) allows you to securely control exposing local applications to the internet without opening firewall ports. It is an essential part of Tunnelfy functionality.
 
 ### Linux Installation
+
 #### Debian/Ubuntu-based distributions
+
 ```bash
 sudo apt update && sudo apt install -y curl
 curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
@@ -483,6 +521,7 @@ cloudflared --version
 ```
 
 #### RHEL/Fedora-based distributions
+
 ```bash
 sudo dnf install -y curl
 curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
@@ -492,34 +531,41 @@ cloudflared --version
 ```
 
 #### Arch Linux-based distributions
+
 ```bash
 yay -S cloudflared-bin
 cloudflared --version
 ```
 
 ### Windows Installation
+
 #### Using the MSI Installer
+
 1. Download the latest **Cloudflare Tunnel client** from:
    - [Cloudflare Tunnel Download](https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/)
 2. Run the installer and follow the prompts.
 3. Verify installation in **Command Prompt** or **PowerShell**:
+
 ```powershell
 cloudflared --version
 ```
 
 #### Using Chocolatey
+
 ```powershell
 choco install cloudflared
 cloudflared --version
 ```
 
 #### Using Winget
+
 ```powershell
 winget install Cloudflare.cloudflared
 cloudflared --version
 ```
 
 ### macOS Installation (Homebrew)
+
 ```bash
 brew install cloudflare/cloudflare/cloudflared
 brew services start cloudflared

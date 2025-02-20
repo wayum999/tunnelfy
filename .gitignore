@@ -130,3 +130,6 @@ _DEV/test.yml
 .qodo/history.sqlite
 _DEV/z
 _DEV/DEVELOPMENT_TODOs.md
+.qlty
+.github/workflows/.env
+.github/workflows/qodo-cover.yml

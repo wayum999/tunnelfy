@@ -41,7 +41,7 @@ export interface CloudflareTunnel {
     metadata: Record<string, any>;
     /** Current tunnel status */
     status: string;
-    /** Whether the tunnel uses remote configuration */
+    /** Whether the tunnel is managed remotely */
     remote_config: boolean;
     /** Whether the tunnel is running locally */
     is_running_locally?: boolean;
@@ -54,69 +54,69 @@ export interface CloudflareTunnel {
  * Contains account details and settings
  */
 export interface CloudflareAccount {
-    /** Unique identifier for the account */
-    id: string;
-    /** Account name */
-    name: string;
-    /** Type of account */
-    type: string;
-    /** Account settings */
-    settings: {
-        /** Whether two-factor authentication is required */
-        enforce_twofactor: boolean;
-        /** Whether API access is enabled */
-        api_access_enabled: boolean | null;
-        /** Expiry time for access approval */
-        access_approval_expiry: string | null;
-        /** Whether to use account custom nameservers by default */
-        use_account_custom_ns_by_default: boolean;
-        /** Default nameservers */
-        default_nameservers: string;
-        /** Email for abuse reports */
-        abuse_contact_email: string | null;
-    };
-    /** Account creation timestamp */
-    created_on: string;
+  /** Unique identifier for the account */
+  id: string;
+  /** Account name */
+  name: string;
+  /** Type of account */
+  type: string;
+  /** Account settings */
+  settings: {
+    /** Whether two-factor authentication is required */
+    enforce_twofactor: boolean;
+    /** Whether API access is enabled */
+    api_access_enabled: boolean | null;
+    /** Expiry time for access approval */
+    access_approval_expiry: string | null;
+    /** Whether to use account custom nameservers by default */
+    use_account_custom_ns_by_default: boolean;
+    /** Default nameservers */
+    default_nameservers: string;
+    /** Email for abuse reports */
+    abuse_contact_email: string | null;
+  };
+  /** Account creation timestamp */
+  created_on: string;
 }
 
 /**
  * Interface for DNS record information
  */
 export interface DnsRecord {
-    id: string;
-    name: string;
-    type: string;
-    content: string;
+  id: string;
+  name: string;
+  type: string;
+  content: string;
 }
 
 /**
  * Interface for zone information
  */
 export interface Zone {
-    id: string;
-    name: string;
+  id: string;
+  name: string;
 }
 
 /**
  * Interface for CNAME conflict check results
  */
 export interface CnameConflictResult {
-    isPointingElsewhere: boolean;
-    existingRecord?: {
-        id: string;
-        content: string;
-    };
-    tunnelInUse?: {
-        recordId: string;
-        recordName: string;
-    };
+  isPointingElsewhere: boolean;
+  existingRecord?: {
+    id: string;
+    content: string;
+  };
+  tunnelInUse?: {
+    recordId: string;
+    recordName: string;
+  };
 }
 
 /**
  * Interface for API response structure
  */
 export interface CloudflareApiResponse<T> {
-    success: boolean;
-    errors?: Array<{ message: string }>;
-    result: T;
-} 
+  success: boolean;
+  errors?: Array<{ message: string }>;
+  result: T;
+}

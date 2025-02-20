@@ -84,15 +84,21 @@ export class TunnelService extends BaseCloudflareService {
    * @returns Created tunnel information
    * @throws Error if tunnel creation fails
    */
-  async createTunnel(name: string, managementType: 'local' | 'remote' = 'local'): Promise<CloudflareTunnel> {
+  async createTunnel(
+    name: string,
+    managementType: "local" | "remote" = "local",
+  ): Promise<CloudflareTunnel> {
     try {
       const accountId = await this.getAccountId();
-      const config_src = managementType === 'remote' ? 'cloudflare' as const : 'local' as const;
-      
+      const config_src =
+        managementType === "remote"
+          ? ("cloudflare" as const)
+          : ("local" as const);
+
       const tunnel = await this.makeRequest<CloudflareTunnel>(
         `/accounts/${accountId}/tunnels`,
         "POST",
-        { name, config_src }
+        { name, config_src },
       );
       this.logger.info(
         LogComponent.API,

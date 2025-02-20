@@ -1,6 +1,7 @@
 # Cloudflare VS Code Extension Development Notes
 
 ## Table of Contents
+
 - [Project Architecture](#project-architecture)
   - [Core Components](#core-components)
   - [Process Architecture](#process-architecture)
@@ -85,6 +86,7 @@
 The extension implements a robust process management system for tunnels:
 
 1. **Tunnel Process Management**
+
    ```
    User Action
         ↓
@@ -114,6 +116,7 @@ The logging system is built around component-based logging with file rotation:
 ```
 
 Each log type includes:
+
 - Timestamp
 - Log level (DEBUG, INFO, WARN, ERROR)
 - Component identifier
@@ -154,6 +157,7 @@ The logging system is built around component-based logging with file rotation:
 ```
 
 Each log type includes:
+
 - Timestamp
 - Log level (DEBUG, INFO, WARN, ERROR)
 - Component identifier
@@ -163,6 +167,7 @@ Each log type includes:
 ### Tunnel Management
 
 Two types of tunnels are supported:
+
 1. **Persistent Tunnels**
    - Created via cloudflared CLI
    - Stored in Cloudflare configuration
@@ -185,6 +190,7 @@ The extension implements a comprehensive security system for handling sensitive 
    - Full audit trail of all token operations
 
 2. **Token Storage Layers**
+
    ```
    User Request
         ↓
@@ -213,6 +219,7 @@ The extension implements a comprehensive security system for handling sensitive 
 The extension includes a Docker Compose generator for containerized tunnel deployment:
 
 1. **Component Structure**
+
    ```
    User Action (Docker button)
         ↓
@@ -247,6 +254,7 @@ The extension includes a Docker Compose generator for containerized tunnel deplo
 ### Setting Up Development Environment
 
 1. **Prerequisites Installation**
+
    ```bash
    npm install
    npm install -g yo generator-code
@@ -258,6 +266,7 @@ The extension includes a Docker Compose generator for containerized tunnel deplo
    - Enable ESLint
 
 3. **Development Commands**
+
    ```bash
    npm run watch     # Start compilation in watch mode
    npm run lint      # Run ESLint
@@ -266,6 +275,7 @@ The extension includes a Docker Compose generator for containerized tunnel deplo
 
 4. **Script Organization**
    The project uses a set of standardized scripts for git operations:
+
    ```
    scripts/
    ├── git-utils.sh            # Shared git utilities and functions
@@ -283,6 +293,7 @@ The extension includes a Docker Compose generator for containerized tunnel deplo
    - Clear user feedback
 
    Usage:
+
    ```bash
    # Merge to development
    ./scripts/merge-to-development.sh
@@ -346,6 +357,7 @@ The testing system is built around several layers:
    - Custom test helpers
 
 4. **Test Coverage Areas**
+
    ```
    Security Tests
    ├── Token Storage
@@ -391,11 +403,13 @@ src/test/
 #### Quick Start
 
 To run all tests:
+
 ```bash
 npm run test
 ```
 
 This command will:
+
 1. Clean the test output directory (`npm run clean-tests`)
 2. Compile the extension (`npm run compile`)
 3. Compile the tests (`npm run compile-tests`)
@@ -447,14 +461,17 @@ suite('Your Test Suite Name', () => {
 
 1. **Isolation**: Each test should be independent and not rely on the state from other tests.
 2. **Async/Await**: Use async/await for asynchronous operations:
+
    ```typescript
    test('Async test', async () => {
        const result = await someAsyncOperation();
        assert.ok(result);
    });
    ```
+
 3. **Cleanup**: Use `suiteSetup` and `suiteTeardown` to handle setup and cleanup.
 4. **Error Handling**: Test both success and error cases:
+
    ```typescript
    test('Error handling', async () => {
        try {
@@ -471,6 +488,7 @@ suite('Your Test Suite Name', () => {
 #### TypeScript Configuration
 
 Tests use a separate TypeScript configuration in `src/test/tsconfig.json`:
+
 ```json
 {
     "extends": "../../tsconfig.json",
@@ -487,6 +505,7 @@ Tests use a separate TypeScript configuration in `src/test/tsconfig.json`:
 #### VS Code Test Runner Configuration
 
 The test runner is configured in `src/test/runTest.ts` with specific launch arguments:
+
 ```typescript
 await runTests({
     extensionDevelopmentPath,
@@ -506,6 +525,7 @@ await runTests({
 3. Press F5 to start debugging
 
 The tests will run in a new VS Code window, and you can:
+
 - Set breakpoints in your test files
 - Step through test execution
 - Inspect variables
@@ -513,7 +533,7 @@ The tests will run in a new VS Code window, and you can:
 
 ### Common Issues and Solutions
 
-1. **Tests Not Running**: 
+1. **Tests Not Running**:
    - Ensure all TypeScript files are compiled
    - Run `npm run clean-tests` followed by `npm test`
 
@@ -527,19 +547,23 @@ The tests will run in a new VS Code window, and you can:
 
 4. **VS Code Extension Host Issues**:
    - Clear the VS Code extension development host:
+
      ```bash
      rm -rf .vscode-test
      ```
+
    - Run tests again
 
 ### Adding New Tests
 
 1. Create a new file in `src/test/suite/` with the `.test.ts` extension
 2. Import required modules:
+
    ```typescript
    import * as assert from 'assert';
    import * as vscode from 'vscode';
    ```
+
 3. Write your tests using the Mocha framework
 4. Run `npm test` to verify your tests
 
@@ -548,6 +572,7 @@ Remember to test both positive and negative cases, and ensure your tests are iso
 ## Security Development Guidelines
 
 1. **Token Handling**
+
    ```typescript
    // Always use TokenService for token operations
    const token = await tokenService.getTunnelToken(tunnelId);
@@ -560,6 +585,7 @@ Remember to test both positive and negative cases, and ensure your tests are iso
    ```
 
 2. **Clipboard Operations**
+
    ```typescript
    // Always use secure clipboard handling
    // ❌ Bad
@@ -570,6 +596,7 @@ Remember to test both positive and negative cases, and ensure your tests are iso
    ```
 
 3. **Audit Logging**
+
    ```typescript
    // Record all security-relevant operations
    await auditService.recordEvent({
@@ -588,6 +615,7 @@ Remember to test both positive and negative cases, and ensure your tests are iso
    - Validate audit trails
 
 2. **Running Tests**
+
    ```bash
    # Run all tests
    npm test
@@ -600,6 +628,7 @@ Remember to test both positive and negative cases, and ensure your tests are iso
    ```
 
 3. **Writing Security Tests**
+
    ```typescript
    test('Rate limiting after failed attempts', async () => {
      // Simulate failed attempts
@@ -646,6 +675,7 @@ cloudflare-vscode/
 ### Adding a New Command
 
 1. Add command definition to `package.json`:
+
    ```json
    {
      "contributes": {
@@ -661,6 +691,7 @@ cloudflare-vscode/
    ```
 
 2. Register command in `extension.ts`:
+
    ```typescript
    context.subscriptions.push(
      vscode.commands.registerCommand('cloudflare-tunnel.newCommand', () => {
@@ -673,6 +704,7 @@ cloudflare-vscode/
 ### Git Workflow
 
 1. **Feature Development**
+
    ```bash
    # Create feature branch
    git checkout -b feature/your-feature
@@ -686,6 +718,7 @@ cloudflare-vscode/
    ```
 
 2. **Release Process**
+
    ```bash
    # Merge to main
    ./scripts/merge-to-main.sh
@@ -697,6 +730,7 @@ cloudflare-vscode/
 ### Adding New Logging Component
 
 1. Add to `LogComponent` enum in `loggingService.ts`:
+
    ```typescript
    export enum LogComponent {
      NEW_COMPONENT = 'NEW_COMPONENT'
@@ -704,6 +738,7 @@ cloudflare-vscode/
    ```
 
 2. Use in code:
+
    ```typescript
    logger.info(LogComponent.NEW_COMPONENT, 'Message');
    ```

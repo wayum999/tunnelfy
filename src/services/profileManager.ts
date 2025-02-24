@@ -204,8 +204,8 @@ export class ProfileManager {
         }
 
         // Validate profile name format
-        if (!/^[a-zA-Z0-9-_]+$/.test(name)) {
-            throw new Error('Profile name can only contain letters, numbers, hyphens, and underscores');
+        if (!/^[a-zA-Z0-9-_ ]+$/.test(name)) {
+            throw new Error('Profile name can only contain letters, numbers, spaces, hyphens, and underscores');
         }
 
         // Validate account ID format

@@ -1,27 +1,27 @@
-import * as path from 'path';
-import { runTests } from '@vscode/test-electron';
+import * as path from "path";
+import { runTests } from "@vscode/test-electron";
 
 async function main() {
-    try {
-        // The folder containing the Extension Manifest package.json
-        const extensionDevelopmentPath = path.resolve(__dirname, '../../');
+  try {
+    // The folder containing the Extension Manifest package.json
+    const extensionDevelopmentPath = path.resolve(__dirname, "../../");
 
-        // The path to test runner
-        const extensionTestsPath = path.resolve(__dirname, '../../out/test/suite');
+    // The path to test runner
+    const extensionTestsPath = path.resolve(__dirname, "../../out/test/suite");
 
-        // Download VS Code, unzip it and run the integration test
-        await runTests({
-            extensionDevelopmentPath,
-            extensionTestsPath,
-            launchArgs: [
-                '--disable-workspace-trust', // Disable workspace trust dialog
-                '--force-disable-user-env'   // Use clean environment
-            ]
-        });
-    } catch (err) {
-        console.error('Failed to run tests:', err);
-        process.exit(1);
-    }
+    // Download VS Code, unzip it and run the integration test
+    await runTests({
+      extensionDevelopmentPath,
+      extensionTestsPath,
+      launchArgs: [
+        "--disable-workspace-trust", // Disable workspace trust dialog
+        "--force-disable-user-env", // Use clean environment
+      ],
+    });
+  } catch (err) {
+    console.error("Failed to run tests:", err);
+    process.exit(1);
+  }
 }
 
 main();

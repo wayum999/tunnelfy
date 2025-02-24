@@ -22,3 +22,16 @@ Major update to how the extension functions, using the Cloudflare API to handle 
 - ADDED: Cloudflare API key storage and management.
 - ADDED: Cloudflared API functionality.
 - UPDATED: Modularized codebase for better readability and maintainability.
+
+## [0.0.4]
+
+- UPDATED: Testing and test coverage.
+- ADDED: Confirmation before stopping a tunnel.
+- UPDAED: Centralized alert message system and cleanup.
+- UPDATED: Make scripts more modular for maintanability.
+- ADDED: Docker Compose file generation for tunnels.
+- ADDED: System service file generation for tunnels.
+- UPDATED: DNS listing to not show TXT records.
+- ADDED: Status indicator for cloudflared installation.
+- ADDED: Option for remote of locally managed tunnels.
+- UPDATED: List view to show local and remote tunnels separately.

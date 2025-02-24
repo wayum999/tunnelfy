@@ -2,7 +2,7 @@
   "name": "tunnelfy",
   "displayName": "Tunnelfy",
   "description": "Manage Cloudflare tunnels from this VS Code extension. Streamline your development workflow by controlling your perisistent and quick tunnels without leaving the IDE.",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "publisher": "Willbot",
   "icon": "images/icon.png",
   "galleryBanner": {
@@ -123,37 +123,37 @@
         {
           "command": "tunnelfy.changeApiKey",
           "when": "view == tunnelfy-profiles && (viewItem == profile-active || viewItem == profile-inactive)",
-          "group": "inline@1"
+          "group": "inline@2"
         },
         {
           "command": "tunnelfy.setActiveProfile",
           "when": "view == tunnelfy-profiles && viewItem == profile-inactive",
-          "group": "inline@2"
+          "group": "inline@3"
         },
         {
           "command": "tunnelfy.deleteProfile",
           "when": "view == tunnelfy-profiles && (viewItem == profile-active || viewItem == profile-inactive)",
-          "group": "inline@3"
+          "group": "inline@1"
         },
         {
           "command": "tunnelfy.startTunnel",
-          "when": "view == tunnelfy-tunnels && viewItem == tunnel-stopped",
-          "group": "inline@1"
+          "when": "view == tunnelfy-tunnels && (viewItem == tunnel-stopped || viewItem == tunnel-stopped-remote)",
+          "group": "inline@6"
         },
         {
           "command": "tunnelfy.stopTunnel",
-          "when": "view == tunnelfy-tunnels && viewItem == tunnel-running",
-          "group": "inline@1"
+          "when": "view == tunnelfy-tunnels && (viewItem == tunnel-running || viewItem == tunnel-running-remote)",
+          "group": "inline@5"
         },
         {
           "command": "tunnelfy.copyToken",
-          "when": "view == tunnelfy-tunnels && (viewItem == tunnel-stopped || viewItem == tunnel-running)",
-          "group": "inline@2"
+          "when": "view == tunnelfy-tunnels && (viewItem == tunnel-stopped || viewItem == tunnel-running || viewItem == tunnel-stopped-remote || viewItem == tunnel-running-remote)",
+          "group": "inline@4"
         },
         {
           "command": "tunnelfy.deleteTunnel",
-          "when": "view == tunnelfy-tunnels && viewItem == tunnel-stopped",
-          "group": "inline@3"
+          "when": "view == tunnelfy-tunnels && (viewItem == tunnel-stopped || viewItem == tunnel-stopped-remote)",
+          "group": "inline@1"
         },
         {
           "command": "tunnelfy.copyQuickTunnelUrl",
@@ -163,6 +163,16 @@
         {
           "command": "tunnelfy.stopQuickTunnel",
           "when": "view == tunnelfy-quick-tunnels && viewItem == quickTunnel",
+          "group": "inline@2"
+        },
+        {
+          "command": "tunnelfy.generateSystemService",
+          "when": "view == tunnelfy-tunnels && (viewItem == tunnel-stopped || viewItem == tunnel-running || viewItem == tunnel-stopped-remote || viewItem == tunnel-running-remote)",
+          "group": "inline@3"
+        },
+        {
+          "command": "tunnelfy.generateDockerCompose",
+          "when": "view == tunnelfy-tunnels && (viewItem == tunnel-stopped || viewItem == tunnel-running || viewItem == tunnel-stopped-remote || viewItem == tunnel-running-remote)",
           "group": "inline@2"
         }
       ]
@@ -272,6 +282,30 @@
         "category": "Tunnelfy",
         "icon": "$(refresh)",
         "description": "Refresh the list of quick tunnels"
+      },
+      {
+        "command": "tunnelfy.generateDockerCompose",
+        "title": "Generate Docker Compose",
+        "category": "Tunnelfy",
+        "icon": "$(file-code)",
+        "description": "Generate a Docker Compose file for this tunnel"
+      },
+      {
+        "command": "cloudflare-tunnel.generateService",
+        "title": "Generate Service Configuration",
+        "category": "Cloudflare"
+      },
+      {
+        "command": "cloudflare-tunnel.generateSystemService",
+        "title": "Generate System Service Configuration",
+        "category": "Cloudflare"
+      },
+      {
+        "command": "tunnelfy.generateSystemService",
+        "title": "Generate System Service",
+        "category": "Tunnelfy",
+        "icon": "$(file-symlink-file)",
+        "description": "Generate a system service file for this tunnel"
       }
     ]
   },
@@ -295,7 +329,8 @@
     "@types/proxyquire": "^1.3.31",
     "@types/sinon": "^17.0.3",
     "@types/vscode": "^1.85.0",
-    "@typescript-eslint/parser": "^6.15.0",
+    "@typescript-eslint/eslint-plugin": "^8.24.1",
+    "@typescript-eslint/parser": "^6.21.0",
     "@vscode/test-cli": "^0.0.10",
     "@vscode/test-electron": "^2.4.1",
     "chai": "^5.1.2",

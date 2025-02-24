@@ -17,6 +17,9 @@ node_modules/
 **/src/**/*.js
 !esbuild.js
 
+# Allow compiled test files
+!out/test/**/*.js
+
 # Environment and secrets
 .env
 .env.local
@@ -90,7 +93,7 @@ tunnel.db
 
 # Package manager locks in subdirectories
 **/package-lock.json
-!./package-lock.json 
+!package-lock.json 
 
 # _DEV
 _DEV/api_test/
@@ -123,3 +126,16 @@ _DEV/Tunnelfy_Test_Failure_Analysis.md
 run_merge_branch_development.sh
 run_publish.sh
 _DEV/FAILED_TESTS.md
+_DEV/test.yml
+.qodo/history.sqlite
+_DEV/z
+_DEV/DEVELOPMENT_TODOs.md
+.qlty
+.github/workflows/.env
+.github/workflows/qodo-cover.yml
+images/readme/tunnels/zTunnelfy_Cloudflare_Tunnels.gif
+images/readme/profiles/zTunnelfy_Cloudflare_Profiles.gif
+images/readme/quicktunnels/zTunnelfy_Cloudflare_QuickTunnels.gif
+images/readme/services/zDocker_Service.gif
+images/readme/services/zSystem_Service.gif
+images/readme/overview/zTunnelfy_Cloudflare_Overview.gif

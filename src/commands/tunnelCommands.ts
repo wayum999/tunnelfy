@@ -8,6 +8,8 @@ import { TunnelTreeDataProvider } from "../views/tunnelTreeView";
 import { Messages } from "../utils/messages";
 import { DockerComposeGenerator } from "../services/dockerComposeGenerator";
 import { SystemServiceGenerator } from "../services/systemServiceGenerator";
+import { Logger } from "../utils/logger";
+import { checkAndPromptCloudflared } from "../utils/cloudflaredUtils";
 
 // Type for DNS record QuickPick items
 type DnsRecordQuickPickItem = {
@@ -30,6 +32,7 @@ export function registerTunnelCommands(
   profileManager: ProfileManager,
   tunnelProvider: TunnelTreeDataProvider,
   systemServiceGenerator: SystemServiceGenerator,
+  logger: Logger,
 ): vscode.Disposable[] {
   const disposables: vscode.Disposable[] = [];
   const dockerComposeGenerator = new DockerComposeGenerator(
@@ -215,6 +218,11 @@ export function registerTunnelCommands(
       "tunnelfy.startTunnel",
       async (item?: TunnelTreeItem) => {
         try {
+          // Check for cloudflared first
+          if (!await checkAndPromptCloudflared(logger)) {
+            return;
+          }
+
           // Get all tunnels and filter for stopped ones
           const allTunnels = await apiService.listTunnels();
           console.log("All tunnels:", allTunnels);

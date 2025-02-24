@@ -35,3 +35,8 @@ Major update to how the extension functions, using the Cloudflare API to handle 
 - ADDED: Status indicator for cloudflared installation.
 - ADDED: Option for remote of locally managed tunnels.
 - UPDATED: List view to show local and remote tunnels separately.
+
+## [0.0.5]
+
+- FIXED: Gracefully handle the case where no profile is set.
+- UPDATED: README, CODE_OF_CONDUCT.md, CONTRIBUTING.md, ISSUE_TEMPLATE.md, and SECURITY.md.

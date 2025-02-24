@@ -15,6 +15,16 @@ export class TunnelService extends BaseCloudflareService {
    */
   async listTunnels(): Promise<CloudflareTunnel[]> {
     try {
+      // Check if there's an active profile first
+      const activeProfile = await this.profileManager.getActiveProfile();
+      if (!activeProfile) {
+        this.logger.debug(
+          LogComponent.API,
+          'No active profile found, returning empty tunnel list'
+        );
+        return [];
+      }
+
       const accountId = await this.getAccountId();
       const tunnels = await this.makeRequest<CloudflareTunnel[]>(
         `/accounts/${accountId}/tunnels`,

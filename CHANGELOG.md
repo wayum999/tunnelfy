@@ -32,3 +32,6 @@ Major update to how the extension functions, using the Cloudflare API to handle 
 - ADDED: Docker Compose file generation for tunnels.
 - ADDED: System service file generation for tunnels.
 - UPDATED: DNS listing to not show TXT records.
+- ADDED: Status indicator for cloudflared installation.
+- ADDED: Option for remote of locally managed tunnels.
+- UPDATED: List view to show local and remote tunnels separately.

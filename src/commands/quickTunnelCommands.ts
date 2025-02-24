@@ -5,6 +5,7 @@ import {
 } from "../views/quickTunnelTreeView";
 import { Messages } from "../utils/messages";
 import { Logger, LogComponent } from "../utils/logger";
+import { checkAndPromptCloudflared } from '../utils/cloudflaredUtils';
 
 export function registerQuickTunnelCommands(
   context: vscode.ExtensionContext,
@@ -17,6 +18,11 @@ export function registerQuickTunnelCommands(
   disposables.push(
     vscode.commands.registerCommand("tunnelfy.createQuickTunnel", async () => {
       try {
+        // Check for cloudflared first
+        if (!await checkAndPromptCloudflared(logger)) {
+          return;
+        }
+
         // Get tunnel name (optional)
         const name = await vscode.window.showInputBox({
           prompt: "Enter a name for the quick tunnel (optional)",

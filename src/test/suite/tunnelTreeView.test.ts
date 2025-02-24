@@ -117,7 +117,7 @@ suite("TunnelTreeView Test Suite", () => {
     assert.strictEqual(icon.id, "circle-outline");
   });
 
-  test("getChildren should return empty array when no active profile", async () => {
+  test("getChildren should return special item when no active profile", async () => {
     mockProfileManager.getActiveProfile.resolves(undefined);
 
     // Get root level items (groups)
@@ -129,12 +129,22 @@ suite("TunnelTreeView Test Suite", () => {
       rootItems.map((group) => tunnelTreeDataProvider.getChildren(group)),
     );
 
-    // Check that all groups are empty
+    // Check that each group has one "No Profile Set Up" item
     allTunnels.forEach((tunnels) => {
       assert.strictEqual(
         tunnels.length,
-        0,
-        "Each group should be empty when no active profile",
+        1,
+        "Each group should have one 'No Profile Set Up' item",
+      );
+      const item = tunnels[0] as TunnelTreeItem;
+      assert.ok(item instanceof TunnelTreeItem, "Item should be a TunnelTreeItem");
+      assert.strictEqual(item.tunnelId, "no-profile", "Item should have no-profile ID");
+      assert.strictEqual(item.status, "stopped", "Item should have stopped status");
+      assert.ok(item.iconPath instanceof vscode.ThemeIcon, "Item should have a ThemeIcon");
+      assert.strictEqual((item.iconPath as vscode.ThemeIcon).id, "info", "Item should have info icon");
+      assert.ok(
+        item.label.includes("No Profile Set Up"),
+        "Item should indicate no profile is set up",
       );
     });
   });

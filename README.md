@@ -1,10 +1,5 @@
 # Tunnelfy
 
-<div align="center">
-<br />
-<a href="https://www.producthunt.com/posts/tunnelfy?embed=true&utm_source=badge-featured&utm_medium=badge&utm_souce=badge-tunnelfy" target="_blank"><img src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=881568&theme=neutral&t=1740079423667" alt="Tunnelfy - Manage&#0032;Cloudflare&#0032;tunnels&#0032;from&#0032;VSCode | Product Hunt" style="width: 250px; height: 54px;" width="250" height="54" /></a> &nbsp;&nbsp;
-<a href="https://www.producthunt.com/posts/tunnelfy?embed=true&utm_source=badge-top-post-topic-badge&utm_medium=badge&utm_souce=badge-tunnelfy" target="_blank"><img src="https://api.producthunt.com/widgets/embed-image/v1/top-post-topic-badge.svg?post_id=881568&theme=neutral&period=weekly&topic_id=93&t=1740079438891" alt="Tunnelfy - Manage&#0032;Cloudflare&#0032;tunnels&#0032;from&#0032;VSCode | Product Hunt" style="width: 250px; height: 54px;" width="250" height="54" /></a>
-</div>
 <br />
 Managing Cloudflare tunnels directly from a VS Code extension has never been easier. Streamline your development workflow by creating and managing permanent and quick tunnels without leaving your IDE.
 <br />

@@ -99,7 +99,7 @@
           "group": "navigation@2"
         },
         {
-          "command": "tunnelfy.refreshTunnels",
+          "command": "tunnelfy.generateService",
           "when": "view == tunnelfy-tunnels",
           "group": "navigation@1"
         },
@@ -107,6 +107,11 @@
           "command": "tunnelfy.createTunnel",
           "when": "view == tunnelfy-tunnels",
           "group": "navigation@2"
+        },
+        {
+          "command": "tunnelfy.refreshTunnels",
+          "when": "view == tunnelfy-tunnels",
+          "group": "navigation@3"
         },
         {
           "command": "tunnelfy.createQuickTunnel",
@@ -163,16 +168,6 @@
         {
           "command": "tunnelfy.stopQuickTunnel",
           "when": "view == tunnelfy-quick-tunnels && viewItem == quickTunnel",
-          "group": "inline@2"
-        },
-        {
-          "command": "tunnelfy.generateSystemService",
-          "when": "view == tunnelfy-tunnels && (viewItem == tunnel-stopped || viewItem == tunnel-running || viewItem == tunnel-stopped-remote || viewItem == tunnel-running-remote)",
-          "group": "inline@3"
-        },
-        {
-          "command": "tunnelfy.generateDockerCompose",
-          "when": "view == tunnelfy-tunnels && (viewItem == tunnel-stopped || viewItem == tunnel-running || viewItem == tunnel-stopped-remote || viewItem == tunnel-running-remote)",
           "group": "inline@2"
         }
       ]
@@ -284,24 +279,14 @@
         "description": "Refresh the list of quick tunnels"
       },
       {
-        "command": "tunnelfy.generateDockerCompose",
-        "title": "Generate Docker Compose",
+        "command": "tunnelfy.generateService",
+        "title": "Generate Service",
         "category": "Tunnelfy",
         "icon": "$(file-code)",
-        "description": "Generate a Docker Compose file for this tunnel"
+        "description": "Generate service configuration files for this tunnel"
       },
       {
-        "command": "cloudflare-tunnel.generateService",
-        "title": "Generate Service Configuration",
-        "category": "Cloudflare"
-      },
-      {
-        "command": "cloudflare-tunnel.generateSystemService",
-        "title": "Generate System Service Configuration",
-        "category": "Cloudflare"
-      },
-      {
-        "command": "tunnelfy.generateSystemService",
+        "command": "tunnelfy.generateService",
         "title": "Generate System Service",
         "category": "Tunnelfy",
         "icon": "$(file-symlink-file)",
@@ -310,13 +295,15 @@
     ]
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "npm run package-extension",
     "compile": "node esbuild.js",
+    "package-extension": "node esbuild.js --minify",
     "watch": "node esbuild.js --watch",
     "pretest": "npm run clean-tests && npm run compile && npm run compile-tests",
     "clean-tests": "rimraf out/test",
     "compile-tests": "tsc -p ./src/test/tsconfig.json",
     "test": "vscode-test",
+    "test-explorer": "npm run clean-tests && npm run compile && npm run compile-tests && vscode-test",
     "lint": "eslint src --ext ts",
     "package": "vsce package",
     "publish": "vsce publish"

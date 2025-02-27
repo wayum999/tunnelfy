@@ -27,6 +27,7 @@ import { registerTunnelCommands } from './commands/tunnelCommands';
 import { registerQuickTunnelCommands } from './commands/quickTunnelCommands';
 import { Messages } from './utils/messages';
 import { SystemServiceGenerator } from './services/systemServiceGenerator';
+import { ServiceGenerator } from './services/serviceGenerator';
 import { checkAndPromptCloudflared, setCloudflaredStatusBarItem } from './utils/cloudflaredUtils';
 
 let cloudflaredStatusBarItem: vscode.StatusBarItem;
@@ -61,7 +62,7 @@ export async function activate(context: vscode.ExtensionContext) {
         const apiService = new CloudflareApiService(context, profileManager);
         const tokenService = new TokenService(context);
         const tunnelManager = new TunnelManager(context, logger, apiService, profileManager);
-        const systemServiceGenerator = new SystemServiceGenerator(tunnelManager, apiService);
+        const serviceGenerator = new ServiceGenerator(tunnelManager, apiService);
 
         // Initialize UI providers
         const profilesProvider = new ProfilesProvider(profileManager);
@@ -81,7 +82,7 @@ export async function activate(context: vscode.ExtensionContext) {
             tokenService,
             profileManager,
             tunnelProvider,
-            systemServiceGenerator,
+            serviceGenerator,
             logger
         );
         context.subscriptions.push(...tunnelCommandDisposables);

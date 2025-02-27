@@ -320,53 +320,6 @@ export class TunnelTreeDataProvider
     this.treeView.dispose();
   }
 
-  public async generateServiceFiles(
-    tunnelId: string,
-    tunnelName: string,
-  ): Promise<void> {
-    try {
-      const options = [
-        {
-          label: "Docker Compose",
-          description: "Generate Docker Compose configuration files",
-        },
-        {
-          label: "System Service",
-          description: "Generate systemd service configuration files",
-        },
-      ];
-
-      const selection = await vscode.window.showQuickPick(options, {
-        placeHolder: "Select service configuration type to generate",
-        title: "Generate Service Configuration",
-      });
-
-      if (!selection) {
-        return;
-      }
-
-      if (selection.label === "Docker Compose") {
-        await vscode.commands.executeCommand(
-          "cloudflare-tunnel.generateDockerCompose",
-          tunnelId,
-          tunnelName,
-        );
-      } else {
-        await vscode.commands.executeCommand(
-          "cloudflare-tunnel.generateSystemService",
-          tunnelId,
-          tunnelName,
-        );
-      }
-    } catch (error) {
-      this.logger.error(
-        LogComponent.EXTENSION,
-        `Failed to generate service files: ${error}`,
-      );
-      throw error;
-    }
-  }
-
   private getTunnelTooltip(tunnel: TunnelTreeItem): string {
     return `${tunnel.label} (${tunnel.tunnelId}) - ${tunnel.status === "running" ? "Active" : "Inactive"}`;
   }

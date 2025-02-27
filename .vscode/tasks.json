@@ -31,6 +31,25 @@
       "script": "test",
       "group": "test",
       "problemMatcher": "$tsc"
+    },
+    {
+      "label": "test-compile",
+      "type": "shell",
+      "command": "npm run clean-tests && npm run compile && npm run compile-tests",
+      "group": "test",
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared"
+      },
+      "problemMatcher": "$tsc"
+    },
+    {
+      "label": "compile",
+      "dependsOn": ["test-compile"],
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      }
     }
   ]
 }

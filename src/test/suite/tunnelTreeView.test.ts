@@ -117,7 +117,7 @@ suite("TunnelTreeView Test Suite", () => {
     assert.strictEqual(icon.id, "circle-outline");
   });
 
-  test("getChildren should return empty array when no active profile", async () => {
+  test("getChildren should return special item when no active profile", async () => {
     mockProfileManager.getActiveProfile.resolves(undefined);
 
     // Get root level items (groups)
@@ -129,12 +129,22 @@ suite("TunnelTreeView Test Suite", () => {
       rootItems.map((group) => tunnelTreeDataProvider.getChildren(group)),
     );
 
-    // Check that all groups are empty
+    // Check that each group has one "No Profile Set Up" item
     allTunnels.forEach((tunnels) => {
       assert.strictEqual(
         tunnels.length,
-        0,
-        "Each group should be empty when no active profile",
+        1,
+        "Each group should have one 'No Profile Set Up' item",
+      );
+      const item = tunnels[0] as TunnelTreeItem;
+      assert.ok(item instanceof TunnelTreeItem, "Item should be a TunnelTreeItem");
+      assert.strictEqual(item.tunnelId, "no-profile", "Item should have no-profile ID");
+      assert.strictEqual(item.status, "stopped", "Item should have stopped status");
+      assert.ok(item.iconPath instanceof vscode.ThemeIcon, "Item should have a ThemeIcon");
+      assert.strictEqual((item.iconPath as vscode.ThemeIcon).id, "info", "Item should have info icon");
+      assert.ok(
+        item.label.includes("No Profile Set Up"),
+        "Item should indicate no profile is set up",
       );
     });
   });
@@ -256,94 +266,5 @@ suite("TunnelTreeView Test Suite", () => {
 
     tunnelTreeDataProvider.refresh();
     assert.ok(eventFired);
-  });
-
-  test("generateServiceFiles should handle Docker Compose selection", async () => {
-    // Mock the QuickPick selection
-    const mockShowQuickPick = sinon.stub(vscode.window, "showQuickPick");
-    mockShowQuickPick.resolves({
-      label: "Docker Compose",
-      description: "Generate Docker Compose configuration files",
-    });
-
-    // Mock the command execution
-    const mockExecuteCommand = sinon.stub(vscode.commands, "executeCommand");
-    mockExecuteCommand.resolves();
-
-    await tunnelTreeDataProvider.generateServiceFiles(
-      "test-tunnel",
-      "Test Tunnel",
-    );
-
-    assert.ok(
-      mockExecuteCommand.calledWith(
-        "cloudflare-tunnel.generateDockerCompose",
-        "test-tunnel",
-        "Test Tunnel",
-      ),
-    );
-  });
-
-  test("generateServiceFiles should handle System Service selection", async () => {
-    // Mock the QuickPick selection
-    const mockShowQuickPick = sinon.stub(vscode.window, "showQuickPick");
-    mockShowQuickPick.resolves({
-      label: "System Service",
-      description: "Generate systemd service configuration files",
-    });
-
-    // Mock the command execution
-    const mockExecuteCommand = sinon.stub(vscode.commands, "executeCommand");
-    mockExecuteCommand.resolves();
-
-    await tunnelTreeDataProvider.generateServiceFiles(
-      "test-tunnel",
-      "Test Tunnel",
-    );
-
-    assert.ok(
-      mockExecuteCommand.calledWith(
-        "cloudflare-tunnel.generateSystemService",
-        "test-tunnel",
-        "Test Tunnel",
-      ),
-    );
-  });
-
-  test("generateServiceFiles should handle QuickPick cancellation", async () => {
-    // Mock the QuickPick selection to simulate cancellation
-    const mockShowQuickPick = sinon.stub(vscode.window, "showQuickPick");
-    mockShowQuickPick.resolves(undefined);
-
-    // Mock the command execution
-    const mockExecuteCommand = sinon.stub(vscode.commands, "executeCommand");
-
-    await tunnelTreeDataProvider.generateServiceFiles(
-      "test-tunnel",
-      "Test Tunnel",
-    );
-
-    assert.ok(
-      !mockExecuteCommand.called,
-      "No command should be executed when QuickPick is cancelled",
-    );
-  });
-
-  test("generateServiceFiles should handle errors", async () => {
-    // Mock the QuickPick selection
-    const mockShowQuickPick = sinon.stub(vscode.window, "showQuickPick");
-    mockShowQuickPick.resolves({
-      label: "Docker Compose",
-      description: "Generate Docker Compose configuration files",
-    });
-
-    // Mock the command execution to throw an error
-    const mockExecuteCommand = sinon.stub(vscode.commands, "executeCommand");
-    mockExecuteCommand.rejects(new Error("Test error"));
-
-    await assert.rejects(
-      tunnelTreeDataProvider.generateServiceFiles("test-tunnel", "Test Tunnel"),
-      /Test error/,
-    );
   });
 });

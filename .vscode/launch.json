@@ -12,7 +12,8 @@
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}",
         "--verbose",
-        "--no-cached-data"
+        "--no-cached-data",
+        "--disable-extensions"
       ],
       "outFiles": ["${workspaceFolder}/dist/**/*.js"],
       "preLaunchTask": "npm: watch"
@@ -29,7 +30,7 @@
         "${workspaceFolder}/dist/**/*.js",
         "${workspaceFolder}/out/test/**/*.js"
       ],
-      "preLaunchTask": "npm: test-compile"
+      "preLaunchTask": "test-compile"
     }
   ]
 }

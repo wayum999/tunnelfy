@@ -20,9 +20,19 @@
   "typescript.tsc.autoDetect": "off",
   "typescript.preferences.importModuleSpecifier": "relative",
   "typescript.tsdk": "node_modules/typescript/lib",
-  "mochaExplorer.files": "src/test/**/*.test.ts",
-  "mochaExplorer.require": "ts-node/register",
-  "mochaExplorer.timeout": 60000,
+  // Configure Test Explorer to compile tests before running
+  "testExplorer.useNativeTesting": false,
+  "testExplorer.addToEditorContextMenu": true,
+  "testExplorer.onStart": "reset",
+  "testExplorer.onReload": "reset",
+  // Configure VS Code Test Runner
+  "testing.automaticallyOpenPeekView": "never",
+  "testing.followRunningTest": false,
+  "testing.alwaysRevealTestOnStateChange": false,
+  // Configure VS Code Extension Test Runner
+  "extensionTestRunner.runOptions": {
+    "preLaunchTask": "test-compile"
+  },
   "jira-plugin.workingProject": "",
   "files.watcherExclude": {
     "**/.git/objects/**": true,
@@ -48,6 +58,12 @@
     "editor.defaultFormatter": "vscode.json-language-features"
   },
   "eslint.format.enable": true,
-  "eslint.validate": ["javascript", "typescript"],
-  "todo-tree.tree.showCountsInTree": true
+  "eslint.validate": [
+    "javascript",
+    "typescript"
+  ],
+  "todo-tree.tree.showCountsInTree": true,
+  "[jsonc]": {
+    "editor.defaultFormatter": "vscode.json-language-features"
+  }
 }

@@ -10,6 +10,7 @@ import { DockerComposeGenerator } from "../services/dockerComposeGenerator";
 import { SystemServiceGenerator } from "../services/systemServiceGenerator";
 import { Logger } from "../utils/logger";
 import { checkAndPromptCloudflared } from "../utils/cloudflaredUtils";
+import { ServiceGenerator, ServiceType } from "../services/serviceGenerator";
 
 // Type for DNS record QuickPick items
 type DnsRecordQuickPickItem = {
@@ -31,14 +32,13 @@ export function registerTunnelCommands(
   tokenService: TokenService,
   profileManager: ProfileManager,
   tunnelProvider: TunnelTreeDataProvider,
-  systemServiceGenerator: SystemServiceGenerator,
+  serviceGenerator: ServiceGenerator,
   logger: Logger,
 ): vscode.Disposable[] {
   const disposables: vscode.Disposable[] = [];
-  const dockerComposeGenerator = new DockerComposeGenerator(
-    tunnelManager,
-    apiService,
-  );
+  
+  // Create Docker Compose generator for backward compatibility
+  const dockerComposeGenerator = new DockerComposeGenerator(tunnelManager, apiService);
 
   // Copy Token Command
   disposables.push(
@@ -549,26 +549,69 @@ export function registerTunnelCommands(
     }),
   );
 
-  // Generate Docker Compose Command
+  // Generate Service Command (unified)
   disposables.push(
     vscode.commands.registerCommand(
-      "tunnelfy.generateDockerCompose",
-      async (item?: TunnelTreeItem) => {
+      "tunnelfy.generateService",
+      async (tunnelId?: string, tunnelName?: string, serviceType?: ServiceType) => {
         try {
-          // If called from tree view, use the selected item
-          if (item?.tunnelId && item?.port) {
-            const filePath = await dockerComposeGenerator.generateComposeFile(
-              item.tunnelId,
-              item.label,
-              item.port,
+          // If called with specific tunnel ID and name (from another command or test)
+          if (tunnelId && tunnelName) {
+            // Get port from user if not running
+            const port = await vscode.window.showInputBox({
+              prompt: "Enter the port number for the tunnel",
+              placeHolder: "8080",
+              validateInput: (value) => {
+                const port = parseInt(value);
+                if (isNaN(port) || port < 1 || port > 65535) {
+                  return "Please enter a valid port number (1-65535)";
+                }
+                return null;
+              },
+            });
+
+            if (!port) {
+              return;
+            }
+
+            // If service type is not provided, show quick pick to select type
+            if (!serviceType) {
+              const options = [
+                {
+                  label: "Docker Compose",
+                  description: "Generate Docker Compose configuration files",
+                  value: "docker" as ServiceType,
+                },
+                {
+                  label: "System Service",
+                  description: "Generate systemd service configuration files",
+                  value: "system" as ServiceType,
+                },
+              ];
+
+              const selection = await vscode.window.showQuickPick(options, {
+                placeHolder: "Select service configuration type to generate",
+                title: "Generate Service Configuration",
+              });
+
+              if (!selection) {
+                return;
+              }
+
+              serviceType = selection.value;
+            }
+
+            const result = await serviceGenerator.generateServiceFile(
+              tunnelId,
+              tunnelName,
+              parseInt(port),
+              serviceType
             );
-            await Messages.showInfo(
-              Messages.DOCKER_COMPOSE_GENERATED(filePath),
-            );
+            await Messages.showInfo(Messages.SERVICE_GENERATED(result));
             return;
           }
 
-          // If called from command palette, show QuickPick
+          // If called from command palette or title bar, show QuickPick to select tunnel
           const allTunnels = await apiService.listTunnels();
           if (!allTunnels || allTunnels.length === 0) {
             await Messages.showInfo("No tunnels available.");
@@ -587,7 +630,7 @@ export function registerTunnelCommands(
             })),
             {
               placeHolder:
-                "Select a tunnel to generate Docker Compose file for",
+                "Select a tunnel to generate service files for",
               ignoreFocusOut: true,
             },
           );
@@ -607,98 +650,66 @@ export function registerTunnelCommands(
             });
 
             if (port) {
-              const filePath = await dockerComposeGenerator.generateComposeFile(
+              // If service type is not provided, show quick pick to select type
+              if (!serviceType) {
+                const options = [
+                  {
+                    label: "Docker Compose",
+                    description: "Generate Docker Compose configuration files",
+                    value: "docker" as ServiceType,
+                  },
+                  {
+                    label: "System Service",
+                    description: "Generate systemd service configuration files",
+                    value: "system" as ServiceType,
+                  },
+                ];
+
+                const selection = await vscode.window.showQuickPick(options, {
+                  placeHolder: "Select service configuration type to generate",
+                  title: "Generate Service Configuration",
+                });
+
+                if (!selection) {
+                  return;
+                }
+
+                serviceType = selection.value;
+              }
+
+              const result = await serviceGenerator.generateServiceFile(
                 selected.tunnelId,
                 selected.label,
                 parseInt(port),
+                serviceType
               );
-              await Messages.showInfo(
-                Messages.DOCKER_COMPOSE_GENERATED(filePath),
-              );
+              await Messages.showInfo(Messages.SERVICE_GENERATED(result));
             }
           }
         } catch (error) {
-          await Messages.showError(
-            Messages.ERROR_GENERATE_DOCKER_COMPOSE(error),
-          );
+          await Messages.showError(Messages.ERROR_GENERATE_SERVICE(error));
         }
       },
     ),
   );
 
-  // Generate System Service Command
+  // Keep the old commands for backward compatibility but make them use the new service generator
+  disposables.push(
+    vscode.commands.registerCommand(
+      "tunnelfy.generateDockerCompose",
+      async (item?: TunnelTreeItem) => {
+        return vscode.commands.executeCommand("tunnelfy.generateService", item, "docker");
+      }
+    )
+  );
+
   disposables.push(
     vscode.commands.registerCommand(
       "tunnelfy.generateSystemService",
       async (item?: TunnelTreeItem) => {
-        try {
-          // If called from tree view, use the selected item
-          if (item?.tunnelId && item?.port) {
-            const result = await systemServiceGenerator.generateServiceFile(
-              item.tunnelId,
-              item.label,
-              item.port,
-            );
-            await Messages.showInfo(Messages.SYSTEM_SERVICE_GENERATED(result));
-            return;
-          }
-
-          // If called from command palette, show QuickPick
-          const allTunnels = await apiService.listTunnels();
-          if (!allTunnels || allTunnels.length === 0) {
-            await Messages.showInfo("No tunnels available.");
-            return;
-          }
-
-          const selected = await vscode.window.showQuickPick(
-            allTunnels.map((tunnel) => ({
-              label: tunnel.name,
-              description: `ID: ${tunnel.id}`,
-              detail:
-                tunnel.connections && tunnel.connections.length > 0
-                  ? "Running"
-                  : "Stopped",
-              tunnelId: tunnel.id,
-            })),
-            {
-              placeHolder:
-                "Select a tunnel to generate system service file for",
-              ignoreFocusOut: true,
-            },
-          );
-
-          if (selected) {
-            // Get port from user
-            const port = await vscode.window.showInputBox({
-              prompt: "Enter the port number for the tunnel",
-              placeHolder: "8080",
-              validateInput: (value) => {
-                const port = parseInt(value);
-                if (isNaN(port) || port < 1 || port > 65535) {
-                  return "Please enter a valid port number (1-65535)";
-                }
-                return null;
-              },
-            });
-
-            if (port) {
-              const result = await systemServiceGenerator.generateServiceFile(
-                selected.tunnelId,
-                selected.label,
-                parseInt(port),
-              );
-              await Messages.showInfo(
-                Messages.SYSTEM_SERVICE_GENERATED(result),
-              );
-            }
-          }
-        } catch (error) {
-          await Messages.showError(
-            Messages.ERROR_GENERATE_SYSTEM_SERVICE(error),
-          );
-        }
-      },
-    ),
+        return vscode.commands.executeCommand("tunnelfy.generateService", item, "system");
+      }
+    )
   );
 
   // Add all disposables to the extension context

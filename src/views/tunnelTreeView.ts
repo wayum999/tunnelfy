@@ -178,7 +178,17 @@ export class TunnelTreeDataProvider
         // Check if there's an active profile
         const activeProfile = await this.profileManager.getActiveProfile();
         if (!activeProfile) {
-          return [];
+          // Return a special tree item that prompts the user to create a profile
+          const item = new TunnelTreeItem(
+            "No Profile Set Up - Click 'Create Profile' in the Profiles view to get started",
+            "no-profile",
+            "stopped",
+            element.management_type,
+            false
+          );
+          // Override the icon to show an info icon
+          item.iconPath = new vscode.ThemeIcon("info");
+          return [item];
         }
 
         // Get tunnels from Cloudflare
@@ -308,53 +318,6 @@ export class TunnelTreeDataProvider
    */
   dispose(): void {
     this.treeView.dispose();
-  }
-
-  public async generateServiceFiles(
-    tunnelId: string,
-    tunnelName: string,
-  ): Promise<void> {
-    try {
-      const options = [
-        {
-          label: "Docker Compose",
-          description: "Generate Docker Compose configuration files",
-        },
-        {
-          label: "System Service",
-          description: "Generate systemd service configuration files",
-        },
-      ];
-
-      const selection = await vscode.window.showQuickPick(options, {
-        placeHolder: "Select service configuration type to generate",
-        title: "Generate Service Configuration",
-      });
-
-      if (!selection) {
-        return;
-      }
-
-      if (selection.label === "Docker Compose") {
-        await vscode.commands.executeCommand(
-          "cloudflare-tunnel.generateDockerCompose",
-          tunnelId,
-          tunnelName,
-        );
-      } else {
-        await vscode.commands.executeCommand(
-          "cloudflare-tunnel.generateSystemService",
-          tunnelId,
-          tunnelName,
-        );
-      }
-    } catch (error) {
-      this.logger.error(
-        LogComponent.EXTENSION,
-        `Failed to generate service files: ${error}`,
-      );
-      throw error;
-    }
   }
 
   private getTunnelTooltip(tunnel: TunnelTreeItem): string {

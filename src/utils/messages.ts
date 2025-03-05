@@ -142,6 +142,14 @@ export class Messages {
     message: "Failed to generate Docker Compose file",
     detail: String(error),
   });
+  static readonly ERROR_GENERATE_SYSTEM_SERVICE = (error: any) => ({
+    message: "Failed to generate system service file",
+    detail: String(error),
+  });
+  static readonly ERROR_GENERATE_SERVICE = (error: any) => ({
+    message: "Failed to generate service file",
+    detail: String(error),
+  });
   static readonly ERROR_GENERIC = (error: any) => ({
     message: "An error occurred",
     detail: String(error),
@@ -161,10 +169,17 @@ export class Messages {
       ? "System service files have been created as untitled files in the editor."
       : `System service files have been created at:\n- ${result.servicePath}\n- ${result.envPath}`;
 
-  static readonly ERROR_GENERATE_SYSTEM_SERVICE = (error: any) => ({
-    message: "Failed to generate system service file",
-    detail: String(error),
-  });
+  static readonly SERVICE_GENERATED = (result: {
+    type: "workspace" | "untitled";
+    serviceType: "docker" | "system";
+    servicePath?: string;
+    envPath?: string;
+  }) => {
+    const serviceTypeLabel = result.serviceType === "docker" ? "Docker Compose" : "System service";
+    return result.type === "untitled"
+      ? `${serviceTypeLabel} files have been created as untitled files in the editor.`
+      : `${serviceTypeLabel} files have been created at:\n- ${result.servicePath}\n- ${result.envPath}`;
+  };
 
   // Helper methods for showing messages
   static async showInfo(message: string): Promise<void> {

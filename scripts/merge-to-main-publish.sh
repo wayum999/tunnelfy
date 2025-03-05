@@ -71,3 +71,5 @@ echo -e "${YELLOW}Switching back to development branch...${NC}"
 git checkout development
 
 echo -e "${GREEN}Successfully merged $CURRENT_BRANCH into main and created tag $RELEASE_TAG!${NC}"
+
+echo -e "Don't forget to change the version in package.json"

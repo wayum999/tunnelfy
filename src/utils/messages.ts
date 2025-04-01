@@ -77,7 +77,7 @@ export class Messages {
   };
   static readonly CLOUDFLARED_INSTALL_ACTION = "Installation Instructions";
   static readonly CLOUDFLARED_INSTALL_DARWIN =
-    "To install, run: `brew install cloudflare/cloudflare/cloudflared`";
+    "To install with homebrew, run: `brew install cloudflared`";
   static readonly CLOUDFLARED_INSTALL_WIN32 =
     "Download the installer from: https://github.com/cloudflare/cloudflared/releases";
   static readonly CLOUDFLARED_INSTALL_LINUX =

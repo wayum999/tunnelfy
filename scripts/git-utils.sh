@@ -21,7 +21,8 @@ check_current_branch() {
 
 # Check for uncommitted changes
 check_uncommitted_changes() {
-	if ! git diff-index --quiet HEAD --; then
+	local status_output=$(git status --porcelain)
+	if [ -n "$status_output" ]; then
 		echo -e "${RED}Error: You have uncommitted changes.${NC}"
 		echo -e "Please commit or stash them before merging."
 		return 1

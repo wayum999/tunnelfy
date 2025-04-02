@@ -2,7 +2,7 @@
   "name": "tunnelfy",
   "displayName": "Tunnelfy",
   "description": "Manage Cloudflare tunnels from this VS Code extension. Streamline your development workflow by controlling your perisistent and quick tunnels without leaving the IDE.",
-  "version": "0.0.7",
+  "version": "0.0.5",
   "publisher": "Willbot",
   "icon": "images/icon.png",
   "galleryBanner": {

@@ -9,8 +9,8 @@
     "**/CVS": true,
     "**/.DS_Store": true,
     "**/Thumbs.db": true,
-    "**/node_modules": true,
-    "**/.vscode-test": true
+    // "**/node_modules": true,
+    // "**/.vscode-test": true
   },
   "search.exclude": {
     "out": true, // set this to false to include "out" folder in search results

@@ -15,7 +15,9 @@
         "--no-cached-data",
         "--disable-extensions"
       ],
-      "outFiles": ["${workspaceFolder}/dist/**/*.js"],
+      "outFiles": [
+        "${workspaceFolder}/dist/**/*.js"
+      ],
       "preLaunchTask": "npm: watch"
     },
     {
@@ -24,7 +26,8 @@
       "request": "launch",
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}",
-        "--extensionTestsPath=${workspaceFolder}/out/test/suite/index"
+        "--extensionTestsPath=${workspaceFolder}/out/test/suite/index",
+        "--user-data-dir=${workspaceFolder}/.vscode-test/tmp"
       ],
       "outFiles": [
         "${workspaceFolder}/dist/**/*.js",

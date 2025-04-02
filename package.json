@@ -2,7 +2,7 @@
   "name": "tunnelfy",
   "displayName": "Tunnelfy",
   "description": "Manage Cloudflare tunnels from this VS Code extension. Streamline your development workflow by controlling your perisistent and quick tunnels without leaving the IDE.",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "publisher": "Willbot",
   "icon": "images/icon.png",
   "galleryBanner": {
@@ -302,8 +302,8 @@
     "pretest": "npm run clean-tests && npm run compile && npm run compile-tests",
     "clean-tests": "rimraf out/test",
     "compile-tests": "tsc -p ./src/test/tsconfig.json",
-    "test": "vscode-test",
-    "test-explorer": "npm run clean-tests && npm run compile && npm run compile-tests && vscode-test",
+    "test": "VSCODE_EXTENSION_TESTS_USER_DATA_DIR=/tmp/vscode-test vscode-test --user-data-dir=/tmp/vscode-test",
+    "test-explorer": "npm run clean-tests && npm run compile && npm run compile-tests && VSCODE_EXTENSION_TESTS_USER_DATA_DIR=/tmp/vscode-test vscode-test --user-data-dir=/tmp/vscode-test",
     "lint": "eslint src --ext ts",
     "package": "vsce package",
     "publish": "vsce publish"

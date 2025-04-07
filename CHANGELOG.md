@@ -40,3 +40,16 @@ Major update to how the extension functions, using the Cloudflare API to handle 
 
 - FIXED: Gracefully handle the case where no profile is set.
 - UPDATED: README, CODE_OF_CONDUCT.md, CONTRIBUTING.md, ISSUE_TEMPLATE.md, and SECURITY.md.
+
+## [0.0.6]
+
+- FIXED: Small bugs
+
+## [0.0.7]
+
+- UPDATED: Testing and test coverage.
+
+## [0.0.8]
+
+- UPDATED: Testing and test coverage.
+- UPDATED: Changlog adjustment.

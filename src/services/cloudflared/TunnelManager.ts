@@ -256,16 +256,43 @@ export class TunnelManager {
   /**
    * Starts a tunnel with specified configuration
    * @param tunnelId ID of the tunnel to run
-   * @param port Local port to tunnel
+   * @param portOrUrl Local port number or full URL to tunnel (e.g., "http://localhost:8080" or "http://127.0.0.1:3000")
    * @returns Child process running the tunnel
    * @throws Error if tunnel start fails
    */
-  async runTunnel(tunnelId: string, port: number): Promise<cp.ChildProcess> {
+  async runTunnel(tunnelId: string, portOrUrl: number | string): Promise<cp.ChildProcess> {
     if (this.runningTunnels.has(tunnelId)) {
       throw new Error(`Tunnel ${tunnelId} is already running`);
     }
 
     try {
+      // Parse port or URL
+      let port: number;
+      let targetUrl: string;
+      
+      if (typeof portOrUrl === 'number') {
+        // For backward compatibility - if a number is passed, assume it's localhost
+        port = portOrUrl;
+        targetUrl = `http://localhost:${port}`;
+      } else {
+        // Parse the URL to validate it and extract information
+        try {
+          const url = new URL(portOrUrl);
+          // Extract port from URL or use default for protocol
+          port = url.port ? parseInt(url.port, 10) : (url.protocol === 'https:' ? 443 : 80);
+          targetUrl = portOrUrl;
+        } catch (error) {
+          // If it's not a valid URL, check if it's just a port number as string
+          const numericPort = parseInt(portOrUrl, 10);
+          if (!isNaN(numericPort) && numericPort > 0 && numericPort < 65536) {
+            port = numericPort;
+            targetUrl = `http://localhost:${port}`;
+          } else {
+            throw new Error(`Invalid URL or port: ${portOrUrl}`);
+          }
+        }
+      }
+
       // Get tunnel info first to include name in logs
       const tunnelInfo = await this.apiService.getTunnelInfo(tunnelId);
       if (!tunnelInfo || !tunnelInfo.name) {
@@ -303,7 +330,7 @@ export class TunnelManager {
         },
         ingress: [
           {
-            service: `http://localhost:${port}`,
+            service: targetUrl,
           },
           {
             service: "http_status:404",
@@ -318,9 +345,7 @@ export class TunnelManager {
 
       // Build command with token-based auth and url before run
       const args = ["tunnel"];
-      if (port) {
-        args.push("--url", `http://localhost:${port}`);
-      }
+      args.push("--url", targetUrl);
       args.push("run", "--token", token);
 
       const process = cp.spawn(cloudflaredPath, args, {
@@ -360,11 +385,14 @@ export class TunnelManager {
       });
 
       // Log and emit start event
-      await this.tunnelLogger.logTunnelEvent(tunnelId, "started", { port });
+      await this.tunnelLogger.logTunnelEvent(tunnelId, "started", { 
+        targetUrl,
+        port
+      });
       this._onTunnelEvent.fire({
         type: "start",
         tunnelId,
-        message: `Tunnel started for port ${port}`,
+        message: `Tunnel started for ${targetUrl}`,
       });
 
       return process;
@@ -860,20 +888,47 @@ export class TunnelManager {
 
   /**
    * Creates a quick tunnel for temporary use
-   * @param port Local port to tunnel
+   * @param portOrUrl Local port number or full URL to tunnel (e.g., "http://localhost:8080" or "http://127.0.0.1:3000")
    * @param name Optional name for the tunnel
    * @returns Object containing local and tunnel URLs
    * @throws Error if quick tunnel creation fails
    */
   async createQuickTunnel(
-    port: number,
+    portOrUrl: number | string,
     name?: string,
   ): Promise<{ url: string; tunnelUrl: string; name?: string } | null> {
     try {
+      // Parse port or URL
+      let port: number;
+      let targetUrl: string;
+      
+      if (typeof portOrUrl === 'number') {
+        // For backward compatibility - if a number is passed, assume it's localhost
+        port = portOrUrl;
+        targetUrl = `http://localhost:${port}`;
+      } else {
+        // Parse the URL to validate it and extract information
+        try {
+          const url = new URL(portOrUrl);
+          // Extract port from URL or use default for protocol
+          port = url.port ? parseInt(url.port, 10) : (url.protocol === 'https:' ? 443 : 80);
+          targetUrl = portOrUrl;
+        } catch (error) {
+          // If it's not a valid URL, check if it's just a port number as string
+          const numericPort = parseInt(portOrUrl, 10);
+          if (!isNaN(numericPort) && numericPort > 0 && numericPort < 65536) {
+            port = numericPort;
+            targetUrl = `http://localhost:${port}`;
+          } else {
+            throw new Error(`Invalid URL or port: ${portOrUrl}`);
+          }
+        }
+      }
+
       Messages.showInfo(Messages.QUICK_TUNNEL_STARTING(name, port));
       this.logger.info(
         LogComponent.TUNNEL,
-        `Starting quick tunnel${name ? ` "${name}"` : ""} for port ${port}`,
+        `Starting quick tunnel${name ? ` "${name}"` : ""} for ${targetUrl}`,
       );
 
       // Find cloudflared
@@ -904,17 +959,8 @@ export class TunnelManager {
         throw new Error("Failed to verify cloudflared installation");
       }
 
-      // Ensure port is a number and properly formatted
-      const portNum = parseInt(port.toString(), 10);
-      if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
-        throw new Error("Invalid port number");
-      }
-
-      // Construct the local URL
-      const localUrl = `http://localhost:${portNum}`;
-
       // Build the command arguments
-      const args = ["tunnel", "--url", localUrl];
+      const args = ["tunnel", "--url", targetUrl];
       const cmdString = `${cloudflaredPath} ${args.join(" ")}`;
       this.logger.info(LogComponent.TUNNEL, `Running command: ${cmdString}`);
 
@@ -934,7 +980,7 @@ export class TunnelManager {
       );
 
       // Create a unique ID for the quick tunnel
-      const quickTunnelId = `quick-${portNum}-${Date.now()}`;
+      const quickTunnelId = `quick-${port}-${Date.now()}`;
       const logStream = this.tunnelLogger.createLogStream(quickTunnelId);
 
       // Create a promise that resolves when we find the URL
@@ -972,7 +1018,7 @@ export class TunnelManager {
             this._onTunnelEvent.fire({
               type: "start",
               tunnelId: quickTunnelId,
-              message: `Quick tunnel${name ? ` "${name}"` : ""} started for port ${portNum}`,
+              message: `Quick tunnel${name ? ` "${name}"` : ""} started for ${targetUrl}`,
             });
             Messages.showInfo(Messages.QUICK_TUNNEL_RUNNING(tunnelUrl, name));
             resolve(tunnelUrl);
@@ -1037,8 +1083,8 @@ export class TunnelManager {
 
               // Check for port already in use
               if (errorBuffer.includes("bind: address already in use")) {
-                Messages.showError(Messages.QUICK_TUNNEL_PORT_IN_USE(portNum));
-                reject(new Error(`Port ${portNum} is already in use`));
+                Messages.showError(Messages.QUICK_TUNNEL_PORT_IN_USE(port));
+                reject(new Error(`Port ${port} is already in use`));
                 return;
               }
 
@@ -1102,12 +1148,27 @@ export class TunnelManager {
       const tunnelUrl = await urlPromise;
 
       return {
-        url: localUrl,
+        url: targetUrl,
         tunnelUrl,
+        name
       };
     } catch (error) {
       // Clean up on error
-      await this.stopQuickTunnel(port);
+      if (typeof portOrUrl === 'number') {
+        await this.stopQuickTunnel(portOrUrl);
+      } else {
+        try {
+          const url = new URL(portOrUrl);
+          const port = url.port ? parseInt(url.port, 10) : (url.protocol === 'https:' ? 443 : 80);
+          await this.stopQuickTunnel(port);
+        } catch (e) {
+          // If we can't parse the URL, try to extract port from error message or just log the error
+          this.logger.error(
+            LogComponent.TUNNEL,
+            `Failed to stop quick tunnel after error: ${e}`,
+          );
+        }
+      }
       this.logger.error(
         LogComponent.TUNNEL,
         `Failed to create quick tunnel: ${error}`,

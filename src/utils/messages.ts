@@ -28,8 +28,15 @@ export class Messages {
   static readonly TUNNEL_STARTED = (
     name: string,
     hostname: string,
-    port: number,
-  ) => `Tunnel "${name}" is now running at ${hostname} (port ${port}).`;
+    targetUrlOrPort: string | number,
+  ) => {
+    // If targetUrlOrPort is a number, it's a port (backward compatibility)
+    if (typeof targetUrlOrPort === 'number') {
+      return `Tunnel "${name}" is now running at ${hostname} (port ${targetUrlOrPort}).`;
+    }
+    // Otherwise it's a URL
+    return `Tunnel "${name}" is now running at ${hostname} (target: ${targetUrlOrPort}).`;
+  };
   static readonly TUNNEL_STOPPED = (name: string) =>
     `Tunnel "${name}" has been stopped.`;
   static readonly TUNNEL_URL_COPIED = "Tunnel URL copied to clipboard";
@@ -41,13 +48,22 @@ export class Messages {
   // Quick Tunnel Messages
   static readonly QUICK_TUNNEL_STARTING = (
     name?: string,
-    port?: string | number,
-  ) => `Starting quick tunnel${name ? ` "${name}"` : ""} on port ${port}...`;
+    portOrUrl?: string | number,
+  ) => {
+    if (typeof portOrUrl === 'number') {
+      return `Starting quick tunnel${name ? ` "${name}"` : ""} on port ${portOrUrl}...`;
+    }
+    return `Starting quick tunnel${name ? ` "${name}"` : ""} for ${portOrUrl}...`;
+  };
   static readonly QUICK_TUNNEL_CREATED = (
     name?: string,
-    port?: string | number,
-  ) =>
-    `Quick tunnel${name ? ` "${name}"` : ""} created successfully on port ${port}`;
+    portOrUrl?: string | number,
+  ) => {
+    if (typeof portOrUrl === 'number') {
+      return `Quick tunnel${name ? ` "${name}"` : ""} created successfully on port ${portOrUrl}`;
+    }
+    return `Quick tunnel${name ? ` "${name}"` : ""} created successfully for ${portOrUrl}`;
+  };
   static readonly QUICK_TUNNEL_RUNNING = (url: string, name?: string) =>
     `Quick tunnel${name ? ` "${name}"` : ""} is running at ${url}`;
   static readonly QUICK_TUNNEL_STOPPED = (
@@ -88,6 +104,12 @@ export class Messages {
     "https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/installation";
   static readonly CLOUDFLARED_VERSION_ERROR =
     "Failed to verify cloudflared installation";
+
+  // Input Messages
+  static readonly ADDRESS_INPUT_PROMPT = 
+    "Enter EITHER the full address to tunnel OR just the port number if using localhost (e.g., http://localhost:8080 -or- 8080 -or- http://127.0.0.1:3000).";
+  static readonly ADDRESS_INPUT_VALIDATION_ERROR = 
+    "Please enter a valid URL (e.g., http://localhost:8080) or a valid port number (65535)";
 
   // Token Messages
   static readonly TOKEN_COPIED =

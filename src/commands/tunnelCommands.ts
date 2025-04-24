@@ -261,21 +261,46 @@ export function registerTunnelCommands(
           }
 
           // Get port number
-          const port = await vscode.window.showInputBox({
-            prompt: "Enter the local port to tunnel",
-            placeHolder: "8080",
+          const addressInput = await vscode.window.showInputBox({
+            prompt: Messages.ADDRESS_INPUT_PROMPT,
+            placeHolder: "http://localhost:8080",
+            ignoreFocusOut: true,
             validateInput: (value) => {
-              const port = parseInt(value, 10);
-              if (isNaN(port) || port < 1 || port > 65535) {
-                return "Please enter a valid port number (1-65535)";
+              // First try to parse as URL
+              try {
+                new URL(value);
+                return null; // Valid URL
+              } catch (error) {
+                // If not a valid URL, check if it's a valid port number
+                const port = parseInt(value, 10);
+                if (isNaN(port) || port < 1 || port > 65535) {
+                  return Messages.ADDRESS_INPUT_VALIDATION_ERROR;
+                }
+                return null; // Valid port number
               }
-              return null;
             },
           });
-          console.log("Selected port:", port);
+          console.log("Selected address:", addressInput);
 
-          if (!port) {
+          if (!addressInput) {
             return;
+          }
+
+          // Parse address input
+          let portNumber: number;
+          let targetUrl: string;
+          
+          try {
+            // Try to parse as URL
+            new URL(addressInput);
+            targetUrl = addressInput;
+            // Extract port from URL if present, or use default port
+            const url = new URL(addressInput);
+            portNumber = url.port ? parseInt(url.port, 10) : (url.protocol === 'https:' ? 443 : 80);
+          } catch (error) {
+            // Not a valid URL, treat as port
+            portNumber = parseInt(addressInput, 10);
+            targetUrl = `http://localhost:${portNumber}`;
           }
 
           // Get zones (domains) from Cloudflare
@@ -425,7 +450,7 @@ export function registerTunnelCommands(
             ingress: [
               {
                 hostname,
-                service: `http://localhost:${port}`,
+                service: targetUrl,
               },
               {
                 service: "http_status:404",
@@ -445,7 +470,7 @@ export function registerTunnelCommands(
           console.log("Starting tunnel...");
           await tunnelManager.runTunnel(
             tunnelToStart.tunnelId,
-            parseInt(port, 10),
+            targetUrl as any, // Type cast to avoid TypeScript error
           );
           console.log("Tunnel started");
           await tunnelProvider.refresh();
@@ -454,7 +479,7 @@ export function registerTunnelCommands(
             Messages.TUNNEL_STARTED(
               tunnelToStart.label,
               hostname,
-              parseInt(port, 10),
+              targetUrl,
             ),
           );
         } catch (error) {

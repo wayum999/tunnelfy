@@ -43,15 +43,22 @@ export function registerQuickTunnelCommands(
 
         // Get port number
         const portInput = await vscode.window.showInputBox({
-          prompt: "Enter the local port to create a quick tunnel",
-          placeHolder: "8080",
+          prompt: Messages.ADDRESS_INPUT_PROMPT,
+          placeHolder: "http://localhost:8080",
           ignoreFocusOut: true,
           validateInput: (value) => {
-            const port = parseInt(value, 10);
-            if (isNaN(port) || port < 1 || port > 65535) {
-              return "Please enter a valid port number (1-65535)";
+            // First try to parse as URL
+            try {
+              new URL(value);
+              return null; // Valid URL
+            } catch (error) {
+              // If not a valid URL, check if it's a valid port number
+              const port = parseInt(value, 10);
+              if (isNaN(port) || port < 1 || port > 65535) {
+                return Messages.ADDRESS_INPUT_VALIDATION_ERROR;
+              }
+              return null; // Valid port number
             }
-            return null;
           },
         });
 
@@ -60,9 +67,25 @@ export function registerQuickTunnelCommands(
           return;
         }
 
-        const portNumber = parseInt(portInput, 10);
-        if (isNaN(portNumber) || portNumber < 1 || portNumber > 65535) {
+        // Check if input is a port number or a full URL
+        let portNumber: number | undefined;
+
+        try {
+          // Try to parse as URL first
+          new URL(portInput);
+          // If it's a valid URL, pass it directly to the quick tunnel provider
+          logger.info(
+            LogComponent.COMMAND,
+            `Creating quick tunnel${name ? ` "${name}"` : ""} with URL ${portInput}`,
+          );
+          await quickTunnelProvider.addQuickTunnel(portInput as any, name);
           return;
+        } catch (error) {
+          // Not a valid URL, try to parse as port number
+          portNumber = parseInt(portInput, 10);
+          if (isNaN(portNumber) || portNumber < 1 || portNumber > 65535) {
+            return;
+          }
         }
 
         // Only proceed with tunnel creation if we have both inputs

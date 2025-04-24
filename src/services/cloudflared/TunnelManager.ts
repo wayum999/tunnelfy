@@ -904,6 +904,10 @@ export class TunnelManager {
       
       if (typeof portOrUrl === 'number') {
         // For backward compatibility - if a number is passed, assume it's localhost
+        // Validate port number
+        if (portOrUrl < 1 || portOrUrl > 65535) {
+          throw new Error(`Invalid port number: ${portOrUrl}. Must be between 1 and 65535.`);
+        }
         port = portOrUrl;
         targetUrl = `http://localhost:${port}`;
       } else {

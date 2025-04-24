@@ -313,11 +313,13 @@
     "debug": "vscode-test --debug",
     "passing-tests": "npm run pretest && node scripts/runPassingTests.js",
     "test-explorer": "npm run clean-tests && npm run compile && npm run compile-tests && vscode-test",
+    "test-coverage": "nyc npm run test",
     "lint": "eslint src --ext ts",
     "package": "vsce package",
     "publish": "vsce publish"
   },
   "devDependencies": {
+    "@istanbuljs/nyc-config-typescript": "^1.0.2",
     "@types/chai": "^5.0.1",
     "@types/glob": "^8.1.0",
     "@types/mocha": "^10.0.10",
@@ -334,6 +336,7 @@
     "eslint": "^8.56.0",
     "glob": "^10.4.5",
     "mocha": "^10.8.2",
+    "nyc": "^15.1.0",
     "proxyquire": "^2.1.3",
     "rimraf": "^6.0.1",
     "sinon": "^19.0.2",

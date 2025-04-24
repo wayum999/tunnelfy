@@ -186,10 +186,10 @@ export class QuickTunnelTreeDataProvider
 
   /**
    * Creates a new quick tunnel
-   * @param port Port number to tunnel
+   * @param portOrUrl Port number or full URL to tunnel (e.g., "http://localhost:8080")
    * @param name Optional name for the tunnel
    */
-  async addQuickTunnel(port: number, name?: string): Promise<void> {
+  async addQuickTunnel(portOrUrl: number | string, name?: string): Promise<void> {
     try {
       // Check for cloudflared installation first
       try {
@@ -240,7 +240,7 @@ export class QuickTunnelTreeDataProvider
       }
 
       // Create the tunnel if cloudflared is installed
-      await this.tunnelManager.createQuickTunnel(port, name);
+      await this.tunnelManager.createQuickTunnel(portOrUrl, name);
       this.refresh();
     } catch (error) {
       this.logger.error(

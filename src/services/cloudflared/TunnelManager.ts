@@ -949,7 +949,7 @@ export class TunnelManager {
       // Test cloudflared version
       try {
         const { stdout } = await util.promisify(cp.exec)(
-          `${cloudflaredPath} --version`,
+          `${JSON.stringify(cloudflaredPath)} --version`,
         );
         this.logger.debug(
           LogComponent.TUNNEL,
@@ -965,7 +965,7 @@ export class TunnelManager {
 
       // Build the command arguments
       const args = ["tunnel", "--url", targetUrl];
-      const cmdString = `${cloudflaredPath} ${args.join(" ")}`;
+      const cmdString = `${JSON.stringify(cloudflaredPath)} ${args.join(" ")}`;
       this.logger.info(LogComponent.TUNNEL, `Running command: ${cmdString}`);
 
       // Create process with full stdio

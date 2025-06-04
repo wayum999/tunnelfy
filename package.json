@@ -47,6 +47,11 @@
           "minimum": 5,
           "maximum": 300,
           "description": "Interval in seconds between automatic refreshes (min: 5s, max: 300s)"
+        },
+        "tunnelfy.checkCloudflared": {
+          "type": "boolean",
+          "default": true,
+          "description": "Check for cloudflared installation on startup. Disable this if you have cloudflared installed in a custom location."
         }
       }
     },

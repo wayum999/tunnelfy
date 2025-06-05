@@ -13,3 +13,9 @@ vsc-extension-quickstart.md
 **/*.ts
 **/.vscode-test.*
 _DEV/**
+.claude/**
+.cursor/**
+CLAUDE.md
+coverage/**
+logs/**
+*.bak

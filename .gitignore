@@ -141,3 +141,7 @@ images/readme/services/zSystem_Service.gif
 images/readme/overview/zTunnelfy_Cloudflare_Overview.gif
 
 *.bak
+.claude/mcp-servers.json
+.gitignore
+.claude/run_claude.sh
+CLAUDE.md

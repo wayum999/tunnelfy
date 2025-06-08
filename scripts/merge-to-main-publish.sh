@@ -63,8 +63,8 @@ git push origin "$RELEASE_TAG"
 echo -e "${YELLOW}Publishing to VS Code Marketplace...${NC}"
 vsce publish
 
-# echo -e "${YELLOW}Publishing to Open VSX Registry...${NC}"
-# ovsx publish
+echo -e "${YELLOW}Publishing to Open VSX Registry...${NC}"
+ovsx publish
 
 # Switch back to development branch
 echo -e "${YELLOW}Switching back to development branch...${NC}"

@@ -2,7 +2,7 @@
   "name": "tunnelfy",
   "displayName": "Tunnelfy",
   "description": "Manage Cloudflare tunnels from this VS Code extension. Streamline your development workflow by controlling your perisistent and quick tunnels without leaving the IDE.",
-  "version": "0.0.8",
+  "version": "0.1.91",
   "publisher": "Willbot",
   "icon": "images/icon.png",
   "galleryBanner": {
@@ -47,6 +47,11 @@
           "minimum": 5,
           "maximum": 300,
           "description": "Interval in seconds between automatic refreshes (min: 5s, max: 300s)"
+        },
+        "tunnelfy.checkCloudflared": {
+          "type": "boolean",
+          "default": true,
+          "description": "Check for cloudflared installation on startup. Disable this if you have cloudflared installed in a custom location."
         }
       }
     },
@@ -70,18 +75,21 @@
           "type": "tree",
           "id": "tunnelfy-profiles",
           "name": "Profiles",
+          "icon": "$(account)",
           "when": "true"
         },
         {
           "type": "tree",
           "id": "tunnelfy-tunnels",
           "name": "Persistent Tunnels",
+          "icon": "$(cloud)",
           "when": "true"
         },
         {
           "type": "tree",
           "id": "tunnelfy-quick-tunnels",
           "name": "Quick Tunnels",
+          "icon": "$(zap)",
           "when": "true"
         }
       ]

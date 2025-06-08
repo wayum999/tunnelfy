@@ -15,17 +15,40 @@ export function setCloudflaredStatusBarItem(statusBarItem: vscode.StatusBarItem)
  * @returns true if cloudflared is installed, false otherwise
  */
 export async function checkAndPromptCloudflared(logger: Logger): Promise<boolean> {
-    try {
-        const execAsync = promisify(cp.exec);
-        const { stdout } = await execAsync('cloudflared --version');
-        logger.debug(LogComponent.EXTENSION, `Cloudflared version: ${stdout.trim()}`);
-        
-        // Update status bar if it exists
-        if (cloudflaredStatusBarItem) {
-            cloudflaredStatusBarItem.text = `$(cloud)`;
-            cloudflaredStatusBarItem.tooltip = `Cloudflared ${stdout.trim()} is installed`;
+    const execAsync = promisify(cp.exec);
+    
+    // On Linux, check common installation paths if the direct command fails
+    const checkPaths = process.platform === 'linux' ? [
+        'cloudflared',
+        '/usr/local/bin/cloudflared',
+        '/usr/bin/cloudflared',
+        '/opt/cloudflared/bin/cloudflared',
+        `${process.env.HOME}/.local/bin/cloudflared`,
+        '/snap/bin/cloudflared'
+    ] : ['cloudflared'];
+    
+    for (const cloudflaredPath of checkPaths) {
+        try {
+            const { stdout } = await execAsync(`${cloudflaredPath} --version`);
+            logger.debug(LogComponent.EXTENSION, `Cloudflared found at ${cloudflaredPath}: ${stdout.trim()}`);
+            
+            // Update status bar if it exists
+            if (cloudflaredStatusBarItem) {
+                cloudflaredStatusBarItem.text = `$(cloud)`;
+                cloudflaredStatusBarItem.tooltip = `Cloudflared ${stdout.trim()} is installed${cloudflaredPath !== 'cloudflared' ? ` at ${cloudflaredPath}` : ''}`;
+            }
+            
+            return true;
+        } catch (error) {
+            // Continue to next path
+            continue;
         }
-        
+    }
+    
+    // If we get here, cloudflared was not found in any location
+    try {
+        // This will always fail, but keeps the original error handling logic
+        await execAsync('cloudflared --version');
         return true;
     } catch (error: unknown) {
         const platform = process.platform;

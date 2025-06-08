@@ -108,8 +108,18 @@ export async function activate(context: vscode.ExtensionContext) {
             })
         );
 
-        // Check for cloudflared installation
-        await checkAndPromptCloudflared(logger);
+        // Check for cloudflared installation if enabled in settings
+        const config = vscode.workspace.getConfiguration('tunnelfy');
+        const checkCloudflared = config.get<boolean>('checkCloudflared', true);
+        
+        if (checkCloudflared) {
+            await checkAndPromptCloudflared(logger);
+        } else {
+            logger.debug(LogComponent.EXTENSION, 'Cloudflared check disabled by configuration');
+            // Update status bar to indicate check is disabled
+            cloudflaredStatusBarItem.text = `$(cloud)`;
+            cloudflaredStatusBarItem.tooltip = 'Cloudflared check disabled in settings';
+        }
 
         // Show the status bar item
         cloudflaredStatusBarItem.show();

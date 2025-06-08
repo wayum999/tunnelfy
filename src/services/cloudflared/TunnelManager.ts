@@ -249,6 +249,23 @@ export class TunnelManager {
     try {
       return await which(cloudflaredName);
     } catch {
+      // On Linux, check common installation paths
+      if (platform === "linux") {
+        const commonPaths = [
+          '/usr/local/bin/cloudflared',
+          '/usr/bin/cloudflared',
+          '/opt/cloudflared/bin/cloudflared',
+          `${process.env.HOME}/.local/bin/cloudflared`,
+          '/snap/bin/cloudflared'
+        ];
+        
+        for (const checkPath of commonPaths) {
+          if (fs.existsSync(checkPath)) {
+            return checkPath;
+          }
+        }
+      }
+      
       throw new CloudflaredNotFoundError();
     }
   }
@@ -949,7 +966,7 @@ export class TunnelManager {
       // Test cloudflared version
       try {
         const { stdout } = await util.promisify(cp.exec)(
-          `${cloudflaredPath} --version`,
+          `${JSON.stringify(cloudflaredPath)} --version`,
         );
         this.logger.debug(
           LogComponent.TUNNEL,
@@ -965,7 +982,7 @@ export class TunnelManager {
 
       // Build the command arguments
       const args = ["tunnel", "--url", targetUrl];
-      const cmdString = `${cloudflaredPath} ${args.join(" ")}`;
+      const cmdString = `${JSON.stringify(cloudflaredPath)} ${args.join(" ")}`;
       this.logger.info(LogComponent.TUNNEL, `Running command: ${cmdString}`);
 
       // Create process with full stdio

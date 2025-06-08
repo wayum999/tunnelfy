@@ -2,6 +2,9 @@
 
 All notable changes to the "tunnelfy" extension will be documented in this file.
 
+## [0.0.91]
+- FIXED: Cloudflared check on Linux not working
+
 ## [0.0.9]
 
 - ADDED: Configuration option `tunnelfy.checkCloudflared` to control cloudflared installation checks on startup.

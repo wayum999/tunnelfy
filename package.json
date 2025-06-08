@@ -75,18 +75,21 @@
           "type": "tree",
           "id": "tunnelfy-profiles",
           "name": "Profiles",
+          "icon": "$(account)",
           "when": "true"
         },
         {
           "type": "tree",
           "id": "tunnelfy-tunnels",
           "name": "Persistent Tunnels",
+          "icon": "$(cloud)",
           "when": "true"
         },
         {
           "type": "tree",
           "id": "tunnelfy-quick-tunnels",
           "name": "Quick Tunnels",
+          "icon": "$(zap)",
           "when": "true"
         }
       ]

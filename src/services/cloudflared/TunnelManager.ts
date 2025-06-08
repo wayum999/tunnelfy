@@ -249,6 +249,23 @@ export class TunnelManager {
     try {
       return await which(cloudflaredName);
     } catch {
+      // On Linux, check common installation paths
+      if (platform === "linux") {
+        const commonPaths = [
+          '/usr/local/bin/cloudflared',
+          '/usr/bin/cloudflared',
+          '/opt/cloudflared/bin/cloudflared',
+          `${process.env.HOME}/.local/bin/cloudflared`,
+          '/snap/bin/cloudflared'
+        ];
+        
+        for (const checkPath of commonPaths) {
+          if (fs.existsSync(checkPath)) {
+            return checkPath;
+          }
+        }
+      }
+      
       throw new CloudflaredNotFoundError();
     }
   }

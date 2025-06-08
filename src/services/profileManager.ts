@@ -407,17 +407,29 @@ export class ProfileManager {
      * @returns true if cloudflared is installed and accessible
      */
     async isCloudflaredInstalled(): Promise<boolean> {
-        try {
-            await exec('cloudflared --version');
-            this.logger.info(LogComponent.PROFILE, 'Cloudflared is installed');
-            return true;
-        } catch (error: unknown) {
-            if (error instanceof Error) {
-                this.logger.error(LogComponent.PROFILE, 'Cloudflared is not installed', error.message);
-            } else {
-                this.logger.error(LogComponent.PROFILE, 'Cloudflared is not installed', String(error));
+        // On Linux, check common installation paths if the direct command fails
+        const checkPaths = process.platform === 'linux' ? [
+            'cloudflared',
+            '/usr/local/bin/cloudflared',
+            '/usr/bin/cloudflared',
+            '/opt/cloudflared/bin/cloudflared',
+            `${process.env.HOME}/.local/bin/cloudflared`,
+            '/snap/bin/cloudflared'
+        ] : ['cloudflared'];
+        
+        for (const cloudflaredPath of checkPaths) {
+            try {
+                await exec(`${cloudflaredPath} --version`);
+                this.logger.info(LogComponent.PROFILE, `Cloudflared is installed${cloudflaredPath !== 'cloudflared' ? ` at ${cloudflaredPath}` : ''}`);
+                return true;
+            } catch (error) {
+                // Continue to next path
+                continue;
             }
-            return false;
         }
+        
+        // If we get here, cloudflared was not found in any location
+        this.logger.error(LogComponent.PROFILE, 'Cloudflared is not installed', 'Not found in PATH or common locations');
+        return false;
     }
 }

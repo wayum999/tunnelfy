@@ -61,8 +61,10 @@ git push origin "$RELEASE_TAG"
 
 # Run publish script
 echo -e "${YELLOW}Publishing to VS Code Marketplace...${NC}"
+npm i -g vsce
 vsce publish
 
+npm i -g ovsx
 echo -e "${YELLOW}Publishing to Open VSX Registry...${NC}"
 ovsx publish
 

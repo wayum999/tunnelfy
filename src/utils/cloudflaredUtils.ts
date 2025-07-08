@@ -81,7 +81,7 @@ export async function checkAndPromptCloudflared(logger: Logger): Promise<boolean
             Messages.CLOUDFLARED_NOT_FOUND.message,
             { 
                 modal: true, 
-                detail: `${installInstructions}\n\nNote: You can re-enable cloudflared checking in the extension settings (tunnelfy.checkCloudflared) if you change your mind.`
+                detail: installInstructions
             },
             Messages.CLOUDFLARED_INSTALL_ACTION,
             Messages.CLOUDFLARED_DISMISS_ACTION
@@ -94,6 +94,11 @@ export async function checkAndPromptCloudflared(logger: Logger): Promise<boolean
             const config = vscode.workspace.getConfiguration('tunnelfy');
             await config.update('checkCloudflared', false, vscode.ConfigurationTarget.Global);
             logger.info(LogComponent.EXTENSION, 'Cloudflared checking disabled by user');
+            
+            // Show secondary dialog with information about re-enabling
+            await vscode.window.showInformationMessage(
+                "Note: You can re-enable the cloudflared check in the Tunnelfy extension settings (tunnelfy.checkCloudflared) if you change your mind."
+            );
         }
         
         const errorMessage = error instanceof Error ? error.message : String(error);

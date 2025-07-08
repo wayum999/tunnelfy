@@ -92,6 +92,7 @@ export class Messages {
     detail: "Please install cloudflared to use tunnel features",
   };
   static readonly CLOUDFLARED_INSTALL_ACTION = "Installation Instructions";
+  static readonly CLOUDFLARED_DISMISS_ACTION = "Do not remind me";
   static readonly CLOUDFLARED_INSTALL_DARWIN =
     "To install with homebrew, run: `brew install cloudflared`";
   static readonly CLOUDFLARED_INSTALL_WIN32 =

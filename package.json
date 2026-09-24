@@ -322,7 +322,7 @@
     "passing-tests": "npm run pretest && node scripts/runPassingTests.js",
     "test-explorer": "npm run clean-tests && npm run compile && npm run compile-tests && vscode-test",
     "test-coverage": "nyc npm run test",
-    "lint": "eslint src --ext ts",
+    "lint": "eslint src",
     "package": "vsce package",
     "publish": "vsce publish"
   },

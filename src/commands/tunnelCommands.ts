@@ -27,6 +27,18 @@ type DnsRecordQuickPickItem = {
   };
 };
 
+/**
+ * Arguments for `tunnelfy.generateService` when invoked from a tunnel tree item:
+ * the item's id and name, so the command skips the tunnel picker. Without an item
+ * both are undefined and the command falls back to the picker.
+ */
+export function serviceCommandArgs(
+  item: TunnelTreeItem | undefined,
+  serviceType: ServiceType,
+): [string | undefined, string | undefined, ServiceType] {
+  return [item?.tunnelId, item?.label, serviceType];
+}
+
 export function registerTunnelCommands(
   context: vscode.ExtensionContext,
   tunnelManager: TunnelManager,
@@ -708,7 +720,10 @@ export function registerTunnelCommands(
     vscode.commands.registerCommand(
       "tunnelfy.generateDockerCompose",
       async (item?: TunnelTreeItem) => {
-        return vscode.commands.executeCommand("tunnelfy.generateService", item, "docker");
+        return vscode.commands.executeCommand(
+          "tunnelfy.generateService",
+          ...serviceCommandArgs(item, "docker"),
+        );
       }
     )
   );
@@ -717,7 +732,10 @@ export function registerTunnelCommands(
     vscode.commands.registerCommand(
       "tunnelfy.generateSystemService",
       async (item?: TunnelTreeItem) => {
-        return vscode.commands.executeCommand("tunnelfy.generateService", item, "system");
+        return vscode.commands.executeCommand(
+          "tunnelfy.generateService",
+          ...serviceCommandArgs(item, "system"),
+        );
       }
     )
   );

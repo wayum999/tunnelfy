@@ -66,6 +66,16 @@ suite("processIdentity Test Suite", () => {
         assertSafeCalls(calls);
       });
 
+      test("exit 0 with no output is unknown, not dead", async () => {
+        const calls: RecordedCall[] = [];
+        const result = await probe(4321, {
+          platform,
+          execFile: fakeExecFile({ error: null, stdout: "" }, calls),
+        });
+        assert.strictEqual(result.state, "unknown");
+        assertSafeCalls(calls);
+      });
+
       test("garbage output is unknown", async () => {
         const calls: RecordedCall[] = [];
         const result = await probe(4321, {
@@ -123,11 +133,12 @@ suite("processIdentity Test Suite", () => {
 
     test("alive: PowerShell 7 ISO format and wrapped value", () => {
       const iso = parseCimOutput('{"Name":"cloudflared.exe","CreationDate":"2026-09-24T21:18:53.5+00:00"}');
-      assert.strictEqual(iso.state, "alive");
+      assert.ok(iso.state === "alive");
       assert.strictEqual(iso.startTimeMs, Date.parse("2026-09-24T21:18:53.5Z"));
       const wrapped = parseCimOutput(
         '{"Name":"cloudflared.exe","CreationDate":{"value":"\\/Date(1790000000000)\\/","DateTime":"x"}}',
       );
+      assert.ok(wrapped.state === "alive");
       assert.strictEqual(wrapped.startTimeMs, 1790000000000);
     });
 

@@ -123,6 +123,8 @@ export class TunnelManager {
   private readonly quickTunnelUrlTimeoutMs: number;
   /** Quick tunnels announced as running in this session: tunnel id -> URL and name */
   private readonly announcedQuickTunnels = new Map<string, { tunnelUrl: string; name?: string }>();
+  /** Last millisecond used in a quick tunnel id, so two attempts never share an id */
+  private lastQuickTunnelMs = 0;
 
   constructor(
     private context: vscode.ExtensionContext,
@@ -224,7 +226,8 @@ export class TunnelManager {
   async deleteTunnel(tunnelId: string): Promise<void> {
     try {
       const stopped = await this.stopTunnel(tunnelId);
-      if (stopped.outcome === "failed") {
+      // identity-mismatch means the recorded process is already gone, so nothing is left running
+      if (stopped.outcome === "failed" && stopped.reason !== "identity-mismatch") {
         throw new Error(`Could not stop tunnel before deleting it: ${stopped.reason}`);
       }
       await this.apiService.deleteTunnel(tunnelId);
@@ -422,7 +425,7 @@ export class TunnelManager {
         port
       });
 
-      return owned.child!;
+      return owned.child;
     } catch (error) {
       this.logger.error(LogComponent.TUNNEL, `Failed to run tunnel: ${error}`);
       throw error;
@@ -696,8 +699,9 @@ export class TunnelManager {
       const cmdString = `${JSON.stringify(cloudflaredPath)} ${args.join(" ")}`;
       this.logger.info(LogComponent.TUNNEL, `Running command: ${cmdString}`);
 
-      const quickTunnelId = `quick-${port}-${Date.now()}`;
-      attemptId = quickTunnelId;
+      const idMs = Math.max(Date.now(), this.lastQuickTunnelMs + 1);
+      this.lastQuickTunnelMs = idMs;
+      const quickTunnelId = `quick-${port}-${idMs}`;
 
       let outputBuffer = "";
       let errorBuffer = "";
@@ -787,6 +791,8 @@ export class TunnelManager {
         },
         onExit,
       });
+      // Only now is there a child of this attempt's own to clean up on failure
+      attemptId = quickTunnelId;
 
       this.logger.info(
         LogComponent.TUNNEL,

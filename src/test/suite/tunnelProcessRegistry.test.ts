@@ -363,7 +363,7 @@ suite("TunnelProcessRegistry Test Suite", () => {
       await registry.reconcile();
       assert.strictEqual(registry.isOwned("quick-8080-1"), true);
       assert.strictEqual(registry.isAdopted("quick-8080-1"), true);
-      assert.deepStrictEqual(events.map((e) => [e.type, e.adopted]), [["start", true]]);
+      assert.deepStrictEqual(events.map((e) => [e.type, e.type === "error" ? undefined : e.adopted]), [["start", true]]);
 
       const result = await registry.stop("quick-8080-1", 500);
       await registry.flush();

@@ -226,6 +226,28 @@ suite("TunnelManager Test Suite", () => {
       assert.strictEqual(tunnels[0].is_running_locally, true);
     });
 
+    test("deleteTunnel refuses to delete a tunnel whose local process did not stop", async () => {
+      const apiDelete = sinon.spy(mockApiService, "deleteTunnel");
+      sinon.stub(registry, "stop").resolves({
+        tunnelId: "test-tunnel-id",
+        outcome: "failed",
+        reason: "still-running-after-kill",
+      });
+      await assert.rejects(manager.deleteTunnel("test-tunnel-id"), /Could not stop tunnel before deleting it/);
+      assert.strictEqual(apiDelete.callCount, 0, "deleted the Cloudflare tunnel while cloudflared runs");
+    });
+
+    test("deleteTunnel proceeds when the recorded process is already gone (identity-mismatch)", async () => {
+      const apiDelete = sinon.spy(mockApiService, "deleteTunnel");
+      sinon.stub(registry, "stop").resolves({
+        tunnelId: "test-tunnel-id",
+        outcome: "failed",
+        reason: "identity-mismatch",
+      });
+      await manager.deleteTunnel("test-tunnel-id");
+      assert.strictEqual(apiDelete.callCount, 1);
+    });
+
     test("child output goes to the tunnel log, not through a pipe (10.1)", async () => {
       await manager.runTunnel("test-tunnel-id", 8080);
       const child = spawn.children[0];

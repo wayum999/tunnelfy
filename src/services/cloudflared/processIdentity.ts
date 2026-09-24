@@ -6,13 +6,16 @@ import * as cp from "child_process";
  * - `dead`: no process has this pid
  * - `unknown`: the probe could not decide (command failed, timed out or printed something unparseable)
  */
-export interface ProbeResult {
-  state: "alive" | "dead" | "unknown";
-  /** Executable basename, e.g. `cloudflared` or `cloudflared.exe` */
-  executable?: string;
-  /** OS-reported process start time, epoch milliseconds */
-  startTimeMs?: number;
-}
+export type ProbeResult =
+  | {
+      state: "alive";
+      /** Executable basename, e.g. `cloudflared` or `cloudflared.exe` */
+      executable: string;
+      /** OS-reported process start time, epoch milliseconds */
+      startTimeMs: number;
+    }
+  | { state: "dead" }
+  | { state: "unknown" };
 
 export type ExecFileFn = (
   file: string,

@@ -158,7 +158,8 @@ export function startReconcile(manager: Pick<TunnelManager, 'reconcileOwned'>, l
  */
 export async function stopOwnedTunnels(
     manager: Pick<TunnelManager, 'stopAllOwned'> | undefined,
-    timeoutMs: number = DEACTIVATE_STOP_TIMEOUT_MS
+    timeoutMs: number = DEACTIVATE_STOP_TIMEOUT_MS,
+    logger: Pick<Logger, 'warn'> = Logger.getInstance()
 ): Promise<void> {
     if (!manager) {
         return;
@@ -169,7 +170,24 @@ export async function stopOwnedTunnels(
     });
     try {
         await Promise.race([
-            manager.stopAllOwned(timeoutMs).then(() => undefined, () => undefined),
+            manager.stopAllOwned(timeoutMs).then(
+                (results) => {
+                    const unconfirmed = results.filter((result) => result.outcome === 'failed');
+                    if (unconfirmed.length > 0) {
+                        logger.warn(
+                            LogComponent.EXTENSION,
+                            `${unconfirmed.length} owned tunnel(s) not confirmed stopped on deactivate: ` +
+                                unconfirmed.map((result) => `${result.tunnelId} (${result.reason})`).join(', ')
+                        );
+                    }
+                },
+                (error: unknown) => {
+                    logger.warn(
+                        LogComponent.EXTENSION,
+                        `Stopping owned tunnels on deactivate failed: ${error instanceof Error ? error.message : String(error)}`
+                    );
+                }
+            ),
             bound,
         ]);
     } finally {

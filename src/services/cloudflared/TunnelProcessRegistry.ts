@@ -33,27 +33,51 @@ export interface OwnedTunnelRecord {
   target: string;
 }
 
-export interface OwnedTunnel {
+/** A child this session spawned: the registry holds its ChildProcess */
+export interface SpawnedTunnel {
   record: OwnedTunnelRecord;
-  /** Present when spawned in this session; absent when adopted from a previous one */
-  child?: cp.ChildProcess;
-  adopted: boolean;
+  adopted: false;
+  child: cp.ChildProcess;
 }
+
+/** A record adopted from an earlier session: verified by identity, with no child handle */
+export interface AdoptedTunnel {
+  record: OwnedTunnelRecord;
+  adopted: true;
+}
+
+export type OwnedTunnel = SpawnedTunnel | AdoptedTunnel;
+
+/** Why a stop failed; Messages.describeStopFailure explains each to the user */
+export type StopFailureReason =
+  | "identity-mismatch"
+  | "identity-unverified"
+  | "still-running-after-kill"
+  | "timeout"
+  | `kill-error: ${string}`
+  | `error: ${string}`;
 
 export interface StopResult {
   tunnelId: string;
   outcome: "stopped" | "not-owned" | "failed";
-  /** For "failed": e.g. "identity-mismatch", "identity-unverified", "still-running-after-kill", "kill-error: EPERM" */
-  reason?: string;
+  /** Set when outcome is "failed" */
+  reason?: StopFailureReason;
 }
 
-export interface RegistryEvent {
-  type: "start" | "stop" | "error";
-  tunnelId: string;
-  message: string;
-  kind?: TunnelKind;
-  adopted?: boolean;
-}
+export type RegistryEvent =
+  | {
+      type: "start" | "stop";
+      tunnelId: string;
+      message: string;
+      kind: TunnelKind;
+      adopted: boolean;
+    }
+  | {
+      type: "error";
+      tunnelId: string;
+      message: string;
+      kind?: TunnelKind;
+    };
 
 export interface StartRequest {
   tunnelId: string;
@@ -94,10 +118,9 @@ export interface TunnelProcessRegistryOptions {
   probeTimeoutMs?: number;
 }
 
-interface OwnedEntry extends OwnedTunnel {
-  /** Resolves when the spawned child exits; absent for adopted records */
-  exited?: Promise<void>;
-}
+/** A spawned entry also carries a promise that resolves when its child exits */
+type SpawnedEntry = SpawnedTunnel & { exited: Promise<void> };
+type OwnedEntry = SpawnedEntry | AdoptedTunnel;
 
 type Verification = "verified" | "dead" | "mismatch" | "unknown";
 
@@ -199,7 +222,7 @@ export class TunnelProcessRegistry implements vscode.Disposable {
    * Resolves on the child's spawn event with a valid pid. Rejects, recording nothing,
    * when spawn throws, the child emits error first, or no pid is available.
    */
-  async start(req: StartRequest): Promise<OwnedTunnel> {
+  async start(req: StartRequest): Promise<SpawnedTunnel> {
     const { tunnelId } = req;
     if (this.starting.has(tunnelId) || this.owned.has(tunnelId)) {
       throw new TunnelAlreadyRunningError(tunnelId);
@@ -255,7 +278,7 @@ export class TunnelProcessRegistry implements vscode.Disposable {
         kind: req.kind,
         target: req.target,
       };
-      const entry: OwnedEntry = { record, child, adopted: false, exited };
+      const entry: SpawnedEntry = { record, child, adopted: false, exited };
       this.owned.set(tunnelId, entry);
 
       child.on("error", (error) => {
@@ -411,9 +434,9 @@ export class TunnelProcessRegistry implements vscode.Disposable {
     }
   }
 
-  private async stopSpawned(entry: OwnedEntry, deadline: number): Promise<StopResult> {
+  private async stopSpawned(entry: SpawnedEntry, deadline: number): Promise<StopResult> {
     const { tunnelId, pid } = entry.record;
-    const exited = entry.exited ?? Promise.resolve();
+    const { exited } = entry;
     const graceDeadline = this.now() + (deadline - this.now()) * GRACEFUL_SHARE;
 
     const term = this.signal(pid, false);
@@ -434,7 +457,7 @@ export class TunnelProcessRegistry implements vscode.Disposable {
     return { tunnelId, outcome: "failed", reason: "still-running-after-kill" };
   }
 
-  private async stopAdopted(entry: OwnedEntry, deadline: number): Promise<StopResult> {
+  private async stopAdopted(entry: AdoptedTunnel, deadline: number): Promise<StopResult> {
     const { tunnelId, pid } = entry.record;
     const identity = await this.verify(entry.record, deadline);
     if (identity === "dead") {
@@ -513,7 +536,7 @@ export class TunnelProcessRegistry implements vscode.Disposable {
     if (result.state === "dead") {
       return "dead";
     }
-    if (result.state !== "alive" || !result.executable || result.startTimeMs === undefined) {
+    if (result.state !== "alive") {
       return "unknown";
     }
     if (!CLOUDFLARED_EXECUTABLE.test(result.executable)) {
@@ -537,10 +560,10 @@ export class TunnelProcessRegistry implements vscode.Disposable {
         records.map(async (record) => ({ record, identity: await this.verify(record) })),
       );
       const dropped: OwnedTunnelRecord[] = [];
-      const adopted: OwnedEntry[] = [];
+      const adopted: AdoptedTunnel[] = [];
       for (const { record, identity } of checked) {
         if (identity === "verified" && !this.owned.has(record.tunnelId)) {
-          const entry: OwnedEntry = { record, adopted: true };
+          const entry: AdoptedTunnel = { record, adopted: true };
           this.owned.set(record.tunnelId, entry);
           adopted.push(entry);
         } else {

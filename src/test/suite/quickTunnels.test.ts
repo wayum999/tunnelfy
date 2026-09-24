@@ -1,6 +1,7 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import * as path from "path";
+import * as fs from "fs";
 import {
   TunnelManager,
   TunnelEvent,
@@ -333,6 +334,71 @@ suite("Quick Tunnels Test Suite", () => {
         tunnelId: "quick-8080-0",
         outcome: "not-owned",
       });
+    });
+
+    test("two attempts on one port in the same millisecond get distinct ids", async function () {
+      this.timeout(10000);
+      sinon.stub(Date, "now").returns(1790000000000);
+      const healthy = await startHealthy(8080);
+      const pending = manager.createQuickTunnel(8080);
+      const failing = await nextChild(1);
+      await assert.rejects(pending, /Timed out/);
+      const ids = manager.listOwnedTunnels().map((r) => r.tunnelId);
+      assert.deepStrictEqual(ids, [healthy.tunnelId], "the failed attempt's cleanup reached the healthy tunnel");
+      assert.deepStrictEqual(kill.calls.map((c) => c.pid), [failing.pid]);
+    });
+
+    test("a quick tunnel that exits in the same tick as its URL is not announced", async () => {
+      const pending = manager.createQuickTunnel(8080);
+      const child = await nextChild(0);
+      child.write(`INF |  ${URL_A}  |`, "stderr");
+      child.exit(1);
+      await assert.rejects(pending, /exited right after reporting its URL/);
+      assert.ok(!events.some((e) => e.type === "start"), "dead tunnel announced");
+      assert.ok(!infos.some((m) => m.includes(URL_A)), "dead tunnel shown as running");
+      assert.deepStrictEqual(await manager.getQuickTunnels(), []);
+    });
+
+    test("an adopted quick tunnel is listed with the URL from an earlier session's log", async () => {
+      const startedAt = new Date(2026, 8, 24, 9, 0, 0).getTime();
+      const memento = new TestMemento();
+      await memento.update("tunnelfy.ownedTunnels", [
+        { tunnelId: "quick-7070-1", pid: 700, startedAt, kind: "quick", target: "http://localhost:7070" },
+        { tunnelId: "quick-7171-2", pid: 701, startedAt, kind: "quick", target: "http://localhost:7171" },
+      ]);
+      const adoptingRegistry = new TunnelProcessRegistry({
+        memento,
+        logger: mockLogger,
+        spawn: spawn.spawn,
+        kill: kill.kill,
+        probe: async () => ({ state: "alive", executable: "cloudflared", startTimeMs: startedAt }),
+      });
+      const adoptingManager = new TunnelManager(
+        mockContext,
+        mockLogger,
+        mockApiService,
+        mockProfileManager,
+        adoptingRegistry,
+      );
+      const logDir = path.join(mockContext.globalStoragePath, "logs", "tunnels");
+      // The URL is only in a rotated file; the second tunnel's log has none
+      const rotated = path.join(logDir, "quick-7070-1.2.log");
+      const noUrl = path.join(logDir, "quick-7171-2.log");
+      await fs.promises.writeFile(rotated, "INF |  https://from-last-session.trycloudflare.com  |\n");
+      await fs.promises.writeFile(noUrl, "INF starting\n");
+      try {
+        await adoptingManager.reconcileOwned();
+        assert.strictEqual(adoptingManager.listOwnedTunnels("quick").length, 2);
+        const listed = await adoptingManager.getQuickTunnels();
+        assert.deepStrictEqual(
+          listed.map((t) => [t.tunnelId, t.port, t.url, t.tunnelUrl]),
+          [["quick-7070-1", 7070, "http://localhost:7070", "https://from-last-session.trycloudflare.com"]],
+        );
+      } finally {
+        await fs.promises.rm(rotated, { force: true });
+        await fs.promises.rm(noUrl, { force: true });
+        adoptingRegistry.dispose();
+      }
     });
 
     test("a quick tunnel that exits on its own fires stop and leaves the list (6.1)", async () => {

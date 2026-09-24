@@ -9,13 +9,13 @@
  * - TunnelLogger: Manages tunnel-specific logging and rotation
  * - TunnelConfig: Handles tunnel configuration storage and validation
  * - ProfileManager: Manages different Cloudflare profiles (e.g., development, production)
- * - TokenService: Securely stores and manages tunnel tokens
+ * - TokenAuditService: Records token copy events
  * - Logger: Provides persistent logging with rotation
  */
 
 import * as vscode from 'vscode';
 import { CloudflareApiService } from './services/cloudflareApi';
-import { TokenService } from './services/tokenService';
+import { TokenAuditService } from './services/tokenAuditService';
 import { ProfileManager } from './services/profileManager';
 import { ProfilesProvider } from './views/profilesView';
 import { TunnelTreeDataProvider } from './views/tunnelTreeView';
@@ -60,7 +60,7 @@ export async function activate(context: vscode.ExtensionContext) {
         // Initialize core services
         const profileManager = new ProfileManager(context);
         const apiService = new CloudflareApiService(context, profileManager);
-        const tokenService = new TokenService(context);
+        const tokenAuditService = new TokenAuditService(context);
         const tunnelManager = new TunnelManager(context, logger, apiService, profileManager);
         const serviceGenerator = new ServiceGenerator(tunnelManager, apiService);
 
@@ -79,7 +79,7 @@ export async function activate(context: vscode.ExtensionContext) {
             context,
             tunnelManager,
             apiService,
-            tokenService,
+            tokenAuditService,
             profileManager,
             tunnelProvider,
             serviceGenerator,

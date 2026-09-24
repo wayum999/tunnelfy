@@ -1,16 +1,18 @@
 import * as vscode from "vscode";
 import { TunnelManager } from "../services/cloudflared";
 import { CloudflareApiService } from "../services/cloudflareApi";
-import { TokenService } from "../services/tokenService";
+import { TokenAuditService } from "../services/tokenAuditService";
+import { copyTokenToClipboard } from "../utils/clipboard";
 import { TunnelTreeItem } from "../views/tunnelTreeView";
 import { ProfileManager } from "../services/profileManager";
 import { TunnelTreeDataProvider } from "../views/tunnelTreeView";
 import { Messages } from "../utils/messages";
 import { DockerComposeGenerator } from "../services/dockerComposeGenerator";
 import { SystemServiceGenerator } from "../services/systemServiceGenerator";
-import { Logger } from "../utils/logger";
+import { Logger, LogComponent } from "../utils/logger";
 import { checkAndPromptCloudflared } from "../utils/cloudflaredUtils";
 import { ServiceGenerator, ServiceType } from "../services/serviceGenerator";
+import { tunnelNameError } from "../services/serviceFiles";
 
 // Type for DNS record QuickPick items
 type DnsRecordQuickPickItem = {
@@ -29,7 +31,7 @@ export function registerTunnelCommands(
   context: vscode.ExtensionContext,
   tunnelManager: TunnelManager,
   apiService: CloudflareApiService,
-  tokenService: TokenService,
+  tokenAuditService: TokenAuditService,
   profileManager: ProfileManager,
   tunnelProvider: TunnelTreeDataProvider,
   serviceGenerator: ServiceGenerator,
@@ -50,7 +52,7 @@ export function registerTunnelCommands(
           if (item?.tunnelId) {
             const token = await apiService.getTunnelToken(item.tunnelId);
             if (token) {
-              const disposable = await tokenService.copyTokenToClipboard(token);
+              const disposable = await copyTokenToClipboard(token, tokenAuditService);
               context.subscriptions.push(disposable);
               await Messages.showInfo(Messages.TOKEN_COPIED);
             }
@@ -83,7 +85,7 @@ export function registerTunnelCommands(
           if (selected) {
             const token = await apiService.getTunnelToken(selected.tunnelId);
             if (token) {
-              const disposable = await tokenService.copyTokenToClipboard(token);
+              const disposable = await copyTokenToClipboard(token, tokenAuditService);
               context.subscriptions.push(disposable);
               await Messages.showInfo(Messages.TOKEN_COPIED);
             }
@@ -101,6 +103,7 @@ export function registerTunnelCommands(
       const name = await vscode.window.showInputBox({
         prompt: "Enter a name for the new tunnel",
         placeHolder: "my-tunnel",
+        validateInput: (value) => tunnelNameError(value),
       });
 
             if (name) {
@@ -225,12 +228,14 @@ export function registerTunnelCommands(
 
           // Get all tunnels and filter for stopped ones
           const allTunnels = await apiService.listTunnels();
-          console.log("All tunnels:", allTunnels);
           const stoppedTunnels = allTunnels.filter((tunnel) => {
             // A tunnel is considered stopped if it has no active connections
             return !tunnel.connections || tunnel.connections.length === 0;
           });
-          console.log("Stopped tunnels:", stoppedTunnels);
+          logger.debug(
+            LogComponent.COMMAND,
+            `startTunnel: ${stoppedTunnels.length} of ${allTunnels.length} tunnels stopped`,
+          );
 
           if (stoppedTunnels.length === 0) {
             await Messages.showInfo("No stopped tunnels available to start.");
@@ -254,7 +259,6 @@ export function registerTunnelCommands(
                   ignoreFocusOut: true,
                 },
               );
-          console.log("Selected tunnel:", tunnelToStart);
 
           if (!tunnelToStart) {
             return;
@@ -280,7 +284,6 @@ export function registerTunnelCommands(
               }
             },
           });
-          console.log("Selected address:", addressInput);
 
           if (!addressInput) {
             return;
@@ -305,7 +308,6 @@ export function registerTunnelCommands(
 
           // Get zones (domains) from Cloudflare
           const zones = await apiService.listZones();
-          console.log("Available zones:", zones);
           if (!zones || zones.length === 0) {
             throw new Error("No domains found in your Cloudflare account");
           }
@@ -322,7 +324,6 @@ export function registerTunnelCommands(
               ignoreFocusOut: true,
             },
           );
-          console.log("Selected zone:", selectedZone);
 
           if (!selectedZone) {
             return;
@@ -330,7 +331,6 @@ export function registerTunnelCommands(
 
           // Get DNS records for the selected zone
           const records = await apiService.listDnsRecords(selectedZone.zone.id);
-          console.log("DNS records:", records);
 
           // Add option to create a new subdomain and filter out TXT records
           const quickPickItems: DnsRecordQuickPickItem[] = [
@@ -357,7 +357,6 @@ export function registerTunnelCommands(
               ignoreFocusOut: true,
             },
           );
-          console.log("Selected record:", selectedRecord);
 
           if (!selectedRecord) {
             return;
@@ -394,18 +393,15 @@ export function registerTunnelCommands(
           } else {
             // Using existing CNAME record
             hostname = selectedRecord.record!.name;
-            console.log("Using existing hostname:", hostname);
 
             // Check if the CNAME needs to be updated
             const tunnelDomain = `${tunnelToStart.tunnelId}.cfargotunnel.com`;
-            console.log("Tunnel domain:", tunnelDomain);
             if (selectedRecord.record!.content !== tunnelDomain) {
               const confirm = await Messages.showModal(
                 `The CNAME record "${hostname}" currently points to "${selectedRecord.record!.content}". Would you like to update it?`,
                 "Update",
                 "Cancel",
               );
-              console.log("Update CNAME confirmation:", confirm);
 
               if (confirm === "Update") {
                 await apiService.updateCnameRecord(
@@ -421,32 +417,20 @@ export function registerTunnelCommands(
 
           // Get account ID from active profile
           const activeProfile = await profileManager.getActiveProfile();
-          console.log("Active profile:", activeProfile);
           if (!activeProfile) {
             throw new Error("No active profile found");
           }
           const accountId =
             await profileManager.getProfileAccountId(activeProfile);
-          console.log("Account ID:", accountId);
           if (!accountId) {
             throw new Error("No account ID found in active profile");
           }
 
-          // Get tunnel token
-          const tunnelToken = await apiService.getTunnelToken(
-            tunnelToStart.tunnelId,
-          );
-          console.log("Got tunnel token:", !!tunnelToken);
-
-          // Update tunnel configuration
+          // Update tunnel configuration. Credentials are left as stored; the token is never part of it.
           const config = {
             accountId,
             tunnelId: tunnelToStart.tunnelId,
             tunnelName: tunnelToStart.label,
-            credentials: {
-              accountTag: "", // Will be populated from token
-              tunnelSecret: tunnelToken,
-            },
             ingress: [
               {
                 hostname,
@@ -457,22 +441,20 @@ export function registerTunnelCommands(
               },
             ],
           };
-          console.log("Tunnel config:", config);
-
-          console.log("Calling updateTunnelConfig...");
           await tunnelManager.updateTunnelConfig(
             tunnelToStart.tunnelId,
             config,
           );
-          console.log("updateTunnelConfig completed");
 
           // Start the tunnel
-          console.log("Starting tunnel...");
           await tunnelManager.runTunnel(
             tunnelToStart.tunnelId,
             targetUrl as any, // Type cast to avoid TypeScript error
           );
-          console.log("Tunnel started");
+          logger.debug(
+            LogComponent.COMMAND,
+            `startTunnel: started tunnel ${tunnelToStart.tunnelId}`,
+          );
           await tunnelProvider.refresh();
 
           await Messages.showInfo(
@@ -483,7 +465,10 @@ export function registerTunnelCommands(
             ),
           );
         } catch (error) {
-          console.error("Error in startTunnel:", error);
+          logger.error(
+            LogComponent.COMMAND,
+            `startTunnel failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
           await Messages.showError(Messages.ERROR_START_TUNNEL(error));
         }
       },

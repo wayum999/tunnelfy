@@ -18,7 +18,6 @@ export function run(): Promise<void> {
       .then((files: string[]) => {
         // List of tests to skip because of stubbing issues
         const problemTests = [
-          "tokenService.test.js", 
           "tokenAuditService.test.js",
           "systemServiceGenerator.test.js",
           "serviceGenerator.test.js",

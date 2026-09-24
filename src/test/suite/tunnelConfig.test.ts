@@ -45,7 +45,6 @@ suite("TunnelConfig Test Suite", () => {
     tunnelName: "Test Tunnel",
     credentials: {
       accountTag: "test-tag",
-      tunnelSecret: "test-secret",
     },
     ingress: [
       {
@@ -154,5 +153,63 @@ suite("TunnelConfig Test Suite", () => {
       ],
     };
     assert.strictEqual(await tunnelConfig.validateConfig(invalidConfig), false);
+  });
+
+  test("saveTunnelConfig never writes a tunnel secret, even when handed one", async () => {
+    const withSecret = {
+      ...sampleConfig,
+      credentials: { accountTag: "test-tag", tunnelSecret: "fake-secret-value" },
+    } as unknown as TunnelConfigData;
+
+    await tunnelConfig.saveTunnelConfig("test-tunnel", withSecret);
+
+    const raw = fs.readFileSync(path.join(configDir, "test-tunnel.json"), "utf8");
+    assert.ok(!raw.includes("tunnelSecret"), "tunnelSecret key written to disk");
+    assert.ok(!raw.includes("fake-secret-value"), "secret value written to disk");
+    // The caller's object is not mutated
+    assert.strictEqual((withSecret.credentials as any).tunnelSecret, "fake-secret-value");
+  });
+
+  test("loadTunnelConfig strips a legacy tunnelSecret and rewrites the file", async () => {
+    const configPath = path.join(configDir, "legacy.json");
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        ...sampleConfig,
+        credentials: { accountTag: "test-tag", tunnelSecret: "fake-legacy-secret" },
+      }),
+    );
+
+    const loaded = await tunnelConfig.loadTunnelConfig("legacy");
+
+    assert.deepStrictEqual(loaded?.credentials, { accountTag: "test-tag" });
+    const raw = fs.readFileSync(configPath, "utf8");
+    assert.ok(!raw.includes("tunnelSecret"), "legacy secret still on disk after load");
+  });
+
+  test("constructing TunnelConfig scrubs legacy secrets from every stored config", () => {
+    const legacyA = path.join(configDir, "legacy-a.json");
+    const legacyB = path.join(configDir, "legacy-b.json");
+    for (const file of [legacyA, legacyB]) {
+      fs.writeFileSync(
+        file,
+        JSON.stringify({
+          ...sampleConfig,
+          credentials: { accountTag: "test-tag", tunnelSecret: "fake-legacy-secret" },
+        }),
+      );
+    }
+    const unparsable = path.join(configDir, "broken.json");
+    fs.writeFileSync(unparsable, "{not json");
+
+    new TunnelConfig(mockContext, mockLogger, testWorkspaceDir);
+
+    for (const file of [legacyA, legacyB]) {
+      const raw = fs.readFileSync(file, "utf8");
+      assert.ok(!raw.includes("tunnelSecret"), `${path.basename(file)} still holds a secret`);
+      assert.strictEqual(JSON.parse(raw).credentials.accountTag, "test-tag");
+    }
+    // A file it cannot parse is left alone rather than aborting the sweep
+    assert.strictEqual(fs.readFileSync(unparsable, "utf8"), "{not json");
   });
 });

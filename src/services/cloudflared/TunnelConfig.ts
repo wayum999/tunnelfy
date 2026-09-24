@@ -14,12 +14,13 @@ export interface TunnelConfigData {
     tunnelId: string;
     /** User-friendly name for the tunnel */
     tunnelName: string;
-    /** Credentials used for tunnel authentication */
+    /**
+     * Non-secret tunnel identity. The tunnel token is deliberately NOT stored here:
+     * cloudflared never reads this file, and the token is fetched from the API when needed.
+     */
     credentials: {
         /** Account tag from Cloudflare */
         accountTag: string;
-        /** Secret token for tunnel authentication */
-        tunnelSecret: string;
     };
     /** Array of ingress rules defining how traffic is routed */
     ingress: Array<{
@@ -59,6 +60,45 @@ export class TunnelConfig {
     ) {
         this.configDir = path.join(this.workspaceDir, '.tunnelfy', 'configs');
         this.ensureConfigDirectory();
+        this.scrubStoredSecrets();
+    }
+
+    /**
+     * Removes a legacy `credentials.tunnelSecret` from a parsed config.
+     * @returns true if a secret was present and removed
+     */
+    private static stripSecret(config: any): boolean {
+        if (config?.credentials && typeof config.credentials === 'object' && 'tunnelSecret' in config.credentials) {
+            delete config.credentials.tunnelSecret;
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Migration: earlier versions wrote the tunnel token into every config file.
+     * Rewrites each stored config without it, once per activation.
+     */
+    private scrubStoredSecrets(): void {
+        let files: string[];
+        try {
+            files = fs.readdirSync(this.configDir).filter(file => file.endsWith('.json'));
+        } catch (error) {
+            this.logger.error(LogComponent.TUNNEL, `Failed to list tunnel configs for token migration: ${error}`);
+            return;
+        }
+        for (const file of files) {
+            const filePath = path.join(this.configDir, file);
+            try {
+                const config = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+                if (TunnelConfig.stripSecret(config)) {
+                    fs.writeFileSync(filePath, JSON.stringify(config, null, 2), 'utf8');
+                    this.logger.info(LogComponent.TUNNEL, `Removed stored tunnel token from config ${file}`);
+                }
+            } catch (error) {
+                this.logger.error(LogComponent.TUNNEL, `Failed to migrate tunnel config ${file}: ${error}`);
+            }
+        }
     }
 
     /**
@@ -79,10 +119,13 @@ export class TunnelConfig {
      */
     async saveTunnelConfig(tunnelId: string, config: TunnelConfigData): Promise<void> {
         const configPath = this.getTunnelConfigPath(tunnelId);
+        // Never persist a token, whatever the caller handed us.
+        const sanitized = { ...config, credentials: { ...config.credentials } };
+        TunnelConfig.stripSecret(sanitized);
         try {
             await fs.promises.writeFile(
                 configPath,
-                JSON.stringify(config, null, 2),
+                JSON.stringify(sanitized, null, 2),
                 'utf8'
             );
             this.logger.info(LogComponent.TUNNEL, `Saved config for tunnel ${tunnelId}`);
@@ -101,7 +144,16 @@ export class TunnelConfig {
         const configPath = this.getTunnelConfigPath(tunnelId);
         try {
             const configData = await fs.promises.readFile(configPath, 'utf8');
-            return JSON.parse(configData) as TunnelConfigData;
+            const config = JSON.parse(configData);
+            if (TunnelConfig.stripSecret(config)) {
+                try {
+                    await fs.promises.writeFile(configPath, JSON.stringify(config, null, 2), 'utf8');
+                    this.logger.info(LogComponent.TUNNEL, `Removed stored tunnel token from config for tunnel ${tunnelId}`);
+                } catch (writeError) {
+                    this.logger.error(LogComponent.TUNNEL, `Failed to remove stored tunnel token for tunnel ${tunnelId}: ${writeError}`);
+                }
+            }
+            return config as TunnelConfigData;
         } catch (error) {
             if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
                 this.logger.error(LogComponent.TUNNEL, `Failed to load tunnel config: ${error}`);
@@ -197,7 +249,7 @@ export class TunnelConfig {
         }
 
         // Validate credentials
-        if (!config.credentials.accountTag || !config.credentials.tunnelSecret) {
+        if (!config.credentials.accountTag) {
             this.logger.error(
                 LogComponent.TUNNEL,
                 'Invalid tunnel config: Missing credential fields'

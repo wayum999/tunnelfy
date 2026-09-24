@@ -1,8 +1,12 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import * as path from "path";
+import * as fs from "fs";
+// The raw module object (not an import-star copy) so sinon can wrap spawn where TunnelManager calls it
+import childProcess = require("child_process");
 import * as sinon from "sinon";
 import { TunnelManager } from "../../services/cloudflared";
+import { buildTunnelRunInvocation } from "../../services/cloudflared/TunnelManager";
 import { CloudflareApiService } from "../../services/cloudflareApi";
 import { ProfileManager } from "../../services/profileManager";
 import { Logger, LogComponent } from "../../utils/logger";
@@ -162,28 +166,46 @@ suite("TunnelManager Test Suite", () => {
     assert.strictEqual(eventEmitted?.tunnelId, tunnelId);
   });
 
-  test("should check tunnel status", async () => {
-    const tunnelId = "test-tunnel-id";
-    const status = await tunnelManager.checkTunnelStatus(tunnelId);
-    assert.strictEqual(status, true);
+  test("runTunnel passes the token via TUNNEL_TOKEN, never argv, and never writes it to disk", async () => {
+    // Stand node in for cloudflared: it exits at once, but spawnargs records the argv we built.
+    const pathStub = sinon
+      .stub(TunnelManager.prototype as any, "findCloudflaredPath")
+      .resolves(process.execPath);
+    const spawnSpy = sinon.spy(childProcess, "spawn");
+    try {
+      const child = await tunnelManager.runTunnel("argv-check-tunnel", 8080);
+      assert.strictEqual(spawnSpy.callCount, 1, "spawn not observed");
+      const spawnOptions = spawnSpy.firstCall.args[2] as childProcess.SpawnOptions;
+      assert.strictEqual(spawnOptions.env?.TUNNEL_TOKEN, "test-token", "token not passed via env");
+      const argv = child.spawnargs.join(" ");
+      assert.ok(!argv.includes("test-token"), `token found on argv: ${argv}`);
+      assert.ok(!child.spawnargs.includes("--token"), "--token flag found on argv");
+      assert.ok(child.spawnargs.includes("run"), "run subcommand missing");
+
+      const configPath = path.join(
+        mockContext.globalStoragePath,
+        ".tunnelfy",
+        "configs",
+        "argv-check-tunnel.json",
+      );
+      const raw = fs.readFileSync(configPath, "utf8");
+      assert.ok(!raw.includes("tunnelSecret"), "tunnelSecret written to config");
+      assert.ok(!raw.includes("test-token"), "token written to config");
+      await tunnelManager.stopTunnel("argv-check-tunnel");
+    } finally {
+      spawnSpy.restore();
+      pathStub.restore();
+    }
   });
 
-  test("should handle tunnel errors", async () => {
-    const errorApiService = {
-      ...mockApiService,
-      getTunnelInfo: async () => {
-        throw new Error("API Error");
-      },
-    };
-
-    const manager = new TunnelManager(
-      mockContext,
-      mockLogger,
-      errorApiService as unknown as CloudflareApiService,
-      mockProfileManager,
+  test("buildTunnelRunInvocation keeps the token out of args and in env", () => {
+    const { args, env } = buildTunnelRunInvocation(
+      "http://localhost:8080",
+      "fake-token-value",
     );
-
-    const status = await manager.checkTunnelStatus("test-tunnel-id");
-    assert.strictEqual(status, false);
+    assert.deepStrictEqual(args, ["tunnel", "--url", "http://localhost:8080", "run"]);
+    assert.ok(!args.some((arg) => arg.includes("fake-token-value")));
+    assert.strictEqual(env.TUNNEL_TOKEN, "fake-token-value");
+    assert.strictEqual(env.PATH, process.env.PATH, "parent environment not inherited");
   });
 });

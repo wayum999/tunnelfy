@@ -1,9 +1,14 @@
 import * as vscode from "vscode";
 import * as fs from "fs";
-import * as path from "path";
 import { TunnelManager } from "./cloudflared";
 import { CloudflareApiService } from "./cloudflareApi";
 import { Logger, LogComponent } from "../utils/logger";
+import {
+  assertValidTunnelName,
+  offerGitignoreEntry,
+  resolveInsideWorkspace,
+  writeServiceFiles,
+} from "./serviceFiles";
 
 export class DockerComposeGenerator {
   private readonly logger = Logger.getInstance();
@@ -12,6 +17,13 @@ export class DockerComposeGenerator {
     private readonly tunnelManager: TunnelManager,
     private readonly apiService: CloudflareApiService,
   ) {}
+
+  /**
+   * The workspace folder generated files are written into (overridable in tests).
+   */
+  protected getWorkspaceFolder(): vscode.WorkspaceFolder | undefined {
+    return vscode.workspace.workspaceFolders?.[0];
+  }
 
   /**
    * Generates a Docker Compose file for a specific tunnel
@@ -26,6 +38,8 @@ export class DockerComposeGenerator {
     port: number,
   ): Promise<string> {
     try {
+      assertValidTunnelName(tunnelName);
+
       // Show confirmation dialog
       const generateButton: vscode.MessageItem = { title: "Generate" };
       const cancelButton: vscode.MessageItem = { title: "Cancel" };
@@ -63,17 +77,15 @@ export class DockerComposeGenerator {
       const envContent = `TUNNEL_TOKEN=${token}\n`;
 
       // Get the workspace folder
-      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+      const workspaceFolder = this.getWorkspaceFolder();
 
       if (workspaceFolder) {
         // If we have a workspace, create both files there
+        const workspaceRoot = workspaceFolder.uri.fsPath;
         const composeFileName = `docker-compose.${tunnelName}.yml`;
         const envFileName = `cloudflare.${tunnelName}.env`;
-        const composePath = path.join(
-          workspaceFolder.uri.fsPath,
-          composeFileName,
-        );
-        const envPath = path.join(workspaceFolder.uri.fsPath, envFileName);
+        const composePath = resolveInsideWorkspace(workspaceRoot, composeFileName);
+        const envPath = resolveInsideWorkspace(workspaceRoot, envFileName);
 
         // Check if files already exist
         if (fs.existsSync(composePath) || fs.existsSync(envPath)) {
@@ -91,20 +103,18 @@ export class DockerComposeGenerator {
           }
         }
 
-        fs.writeFileSync(composePath, composeContent);
-        fs.writeFileSync(envPath, envContent);
+        writeServiceFiles(workspaceRoot, {
+          serviceFileName: composeFileName,
+          serviceContent: composeContent,
+          envFileName,
+          envContent,
+        });
 
-        // Open both files in the editor
-        const composeUri = vscode.Uri.file(composePath);
-        const envUri = vscode.Uri.file(envPath);
-
+        // Open only the compose file; the env file holds the token
         await vscode.window.showTextDocument(
-          await vscode.workspace.openTextDocument(composeUri),
+          await vscode.workspace.openTextDocument(vscode.Uri.file(composePath)),
         );
-        await vscode.window.showTextDocument(
-          await vscode.workspace.openTextDocument(envUri),
-          { viewColumn: vscode.ViewColumn.Beside },
-        );
+        await offerGitignoreEntry(workspaceRoot, envPath);
 
         return composePath;
       } else {

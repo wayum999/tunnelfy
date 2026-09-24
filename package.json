@@ -179,12 +179,12 @@
         },
         {
           "command": "tunnelfy.startTunnel",
-          "when": "view == tunnelfy-tunnels && viewItem =~ /^tunnel-stopped(-remote)?(-owned)?$/",
+          "when": "view == tunnelfy-tunnels && viewItem =~ /^tunnel-stopped(-remote)?$/",
           "group": "inline@6"
         },
         {
           "command": "tunnelfy.stopTunnel",
-          "when": "view == tunnelfy-tunnels && viewItem =~ /^tunnel-running(-remote)?-owned$/",
+          "when": "view == tunnelfy-tunnels && viewItem =~ /^tunnel-(running|stopped)(-remote)?-owned$/",
           "group": "inline@5"
         },
         {

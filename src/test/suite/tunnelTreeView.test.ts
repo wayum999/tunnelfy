@@ -309,17 +309,29 @@ suite("TunnelTreeView Test Suite", () => {
       }
     });
 
-    test("Stop is offered only for owned running items", () => {
+    test("Stop is offered on ownership alone, whatever Cloudflare reports, and never for an unowned item", () => {
       assert.deepStrictEqual(matching("tunnelfy.stopTunnel"), [
         "tunnel-running-owned",
         "tunnel-running-remote-owned",
+        "tunnel-stopped-owned",
+        "tunnel-stopped-remote-owned",
       ]);
+      assert.ok(
+        ALL_VALUES.filter((v) => !v.endsWith("-owned")).every((v) => !menuRegex("tunnelfy.stopTunnel").test(v)),
+        "Stop offered for a tunnel the extension does not own",
+      );
+    });
+
+    test("Start is offered only for stopped items the extension does not own", () => {
+      assert.deepStrictEqual(matching("tunnelfy.startTunnel"), ["tunnel-stopped", "tunnel-stopped-remote"]);
+      // A just-started tunnel Cloudflare has not seen yet gets Stop, not Start
+      assert.ok(menuRegex("tunnelfy.stopTunnel").test("tunnel-stopped-owned"));
+      assert.ok(!menuRegex("tunnelfy.startTunnel").test("tunnel-stopped-owned"));
     });
 
     test("the other tunnel menus still match the items they matched before", () => {
       const withoutOwned = (values: string[]) => values.filter((v) => !v.endsWith("-owned"));
       const expectations: Record<string, string[]> = {
-        "tunnelfy.startTunnel": ["tunnel-stopped", "tunnel-stopped-remote"],
         "tunnelfy.copyToken": ["tunnel-running", "tunnel-running-remote", "tunnel-stopped", "tunnel-stopped-remote"],
         "tunnelfy.deleteTunnel": ["tunnel-stopped", "tunnel-stopped-remote"],
       };

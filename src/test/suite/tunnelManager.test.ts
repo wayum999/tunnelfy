@@ -178,11 +178,16 @@ suite("TunnelManager Test Suite", () => {
       assert.strictEqual(spawn.children.length, 1);
     });
 
-    test("two concurrent starts of one tunnel spawn once (9.1)", async () => {
+    test("two concurrent starts of one tunnel spawn once, and the second does no work (9.1)", async () => {
+      const tokenFetch = sinon.spy(mockApiService, "getTunnelToken");
+      const infoFetch = sinon.spy(mockApiService, "getTunnelInfo");
       const first = manager.runTunnel("test-tunnel-id", 8080);
       const second = manager.runTunnel("test-tunnel-id", 8080);
+      // Refused before any await: the second call fetched nothing
+      assert.strictEqual(infoFetch.callCount, 1, "second start reached the API");
       await assert.rejects(second, /already running or starting/);
       await first;
+      assert.strictEqual(tokenFetch.callCount, 1, "second start fetched a token");
       assert.strictEqual(spawn.children.length, 1);
       assert.deepStrictEqual(manager.listOwnedTunnels("named").map((r) => r.tunnelId), ["test-tunnel-id"]);
     });

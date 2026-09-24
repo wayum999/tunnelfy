@@ -36,5 +36,15 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # Some suites check for the binary and spawn it with a mock token, which
+      # cloudflared rejects as invalid; no tunnel is opened.
+      - name: Install cloudflared
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL -o "$HOME/.local/bin/cloudflared" https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          chmod +x "$HOME/.local/bin/cloudflared"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/cloudflared" --version
+
       - name: Test
         run: xvfb-run -a npm test

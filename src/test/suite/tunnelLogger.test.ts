@@ -319,4 +319,57 @@ suite("TunnelLogger Test Suite", () => {
       );
     });
   });
+
+  test("appendOutput survives rotation under load and loses no line (10.1, 10.2)", async function () {
+    this.timeout(20000);
+    const tunnelId = "rotating-tunnel";
+    const smallLogger = new TunnelLogger(mockLogger, testWorkspaceDir, { maxLogSize: 4096 });
+    const lineCount = 300; // ~14 KB: three or four rotations, within maxLogFiles
+    try {
+      for (let i = 0; i < lineCount; i++) {
+        assert.doesNotThrow(() => smallLogger.appendOutput(tunnelId, `output-line-${i.toString().padStart(4, "0")} ${"x".repeat(30)}\n`));
+        if (i % 10 === 0) {
+          // Let pending rotations interleave with the writes
+          await new Promise((resolve) => setImmediate(resolve));
+        }
+        const streams: Map<string, fs.WriteStream> = (smallLogger as any).activeStreams;
+        for (const stream of streams.values()) {
+          assert.ok(stream.listenerCount("error") > 0, "stream without an error listener");
+        }
+      }
+      // Wait for any rotation still in flight, then flush
+      for (let i = 0; i < 50 && (smallLogger as any).rotationBuffers.size > 0; i++) {
+        await wait(50);
+      }
+      await smallLogger.closeStream(tunnelId);
+
+      const files = (await readdir(logDir)).filter((f) => f.startsWith(`${tunnelId}.`));
+      assert.ok(files.length >= 2, `expected a rotation, got ${files.join(", ")}`);
+      const content = (
+        await Promise.all(files.map((f) => fs.promises.readFile(path.join(logDir, f), "utf8")))
+      ).join("");
+      for (let i = 0; i < lineCount; i++) {
+        const line = `output-line-${i.toString().padStart(4, "0")}`;
+        assert.ok(content.includes(line), `${line} lost during rotation`);
+      }
+      assert.ok(
+        !loggedMessages.some((m) => m.level === "error"),
+        `errors logged: ${loggedMessages.filter((m) => m.level === "error").map((m) => m.message).join("; ")}`,
+      );
+    } finally {
+      await smallLogger.dispose();
+    }
+  });
+
+  test("a stream error is logged without log contents and does not throw (10.3)", async () => {
+    const stream = tunnelLogger.createLogStream("err-tunnel");
+    assert.ok(stream.listenerCount("error") > 0, "createLogStream attached no error listener");
+    stream.emit("error", Object.assign(new Error("secret-chunk-content"), { code: "EIO" }));
+    const errorLine = loggedMessages.find((m) => m.level === "error");
+    assert.ok(errorLine && errorLine.message.includes("EIO"), "stream error not logged");
+    assert.ok(!errorLine.message.includes("secret-chunk-content"));
+    await tunnelLogger.closeStream("err-tunnel");
+    assert.doesNotThrow(() => tunnelLogger.appendOutput("err-tunnel", "after close\n"));
+    await tunnelLogger.closeStream("err-tunnel");
+  });
 });

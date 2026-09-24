@@ -276,9 +276,14 @@ suite("Quick Tunnels Test Suite", () => {
     });
   });
 
-  // Group tunnel operation tests
+  // Group tunnel operation tests.
+  // These open real public quick tunnels against Cloudflare, so they only run
+  // when TUNNELFY_NETWORK_TESTS=1 is set; CI leaves it unset.
   suite("Tunnel Operations", () => {
     setup(async function () {
+      if (process.env.TUNNELFY_NETWORK_TESTS !== "1") {
+        this.skip();
+      }
       this.timeout(60000); // Increase timeout
       // Ensure cleanup before each test
       await tunnelManager.cleanup();

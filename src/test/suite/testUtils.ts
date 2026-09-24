@@ -106,7 +106,7 @@ export class TestExtensionContext implements vscode.ExtensionContext {
   }
 }
 
-class TestMemento implements vscode.Memento {
+export class TestMemento implements vscode.Memento {
   private storage = new Map<string, any>();
 
   get<T>(key: string): T | undefined;

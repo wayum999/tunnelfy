@@ -179,22 +179,22 @@
         },
         {
           "command": "tunnelfy.startTunnel",
-          "when": "view == tunnelfy-tunnels && (viewItem == tunnel-stopped || viewItem == tunnel-stopped-remote)",
+          "when": "view == tunnelfy-tunnels && viewItem =~ /^tunnel-stopped(-remote)?(-owned)?$/",
           "group": "inline@6"
         },
         {
           "command": "tunnelfy.stopTunnel",
-          "when": "view == tunnelfy-tunnels && (viewItem == tunnel-running || viewItem == tunnel-running-remote)",
+          "when": "view == tunnelfy-tunnels && viewItem =~ /^tunnel-running(-remote)?-owned$/",
           "group": "inline@5"
         },
         {
           "command": "tunnelfy.copyToken",
-          "when": "view == tunnelfy-tunnels && (viewItem == tunnel-stopped || viewItem == tunnel-running || viewItem == tunnel-stopped-remote || viewItem == tunnel-running-remote)",
+          "when": "view == tunnelfy-tunnels && viewItem =~ /^tunnel-(running|stopped)(-remote)?(-owned)?$/",
           "group": "inline@4"
         },
         {
           "command": "tunnelfy.deleteTunnel",
-          "when": "view == tunnelfy-tunnels && (viewItem == tunnel-stopped || viewItem == tunnel-stopped-remote)",
+          "when": "view == tunnelfy-tunnels && viewItem =~ /^tunnel-stopped(-remote)?(-owned)?$/",
           "group": "inline@1"
         },
         {

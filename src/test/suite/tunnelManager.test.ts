@@ -10,6 +10,9 @@ import { buildTunnelRunInvocation } from "../../services/cloudflared/TunnelManag
 import { CloudflareApiService } from "../../services/cloudflareApi";
 import { ProfileManager } from "../../services/profileManager";
 import { Logger, LogComponent } from "../../utils/logger";
+import { TunnelProcessRegistry } from "../../services/cloudflared/TunnelProcessRegistry";
+import { TestMemento } from "./testUtils";
+import { createFakeKill, createFakeSpawn, FakeSpawn } from "./fakeProcess";
 
 suite("TunnelManager Test Suite", () => {
   let tunnelManager: TunnelManager;
@@ -139,31 +142,92 @@ suite("TunnelManager Test Suite", () => {
     assert.strictEqual(tunnels[0].name, "test-tunnel");
   });
 
-  test("should prevent running duplicate tunnels", async () => {
-    const tunnelId = "test-tunnel-id";
+  suite("with a fake cloudflared", () => {
+    let spawn: FakeSpawn;
+    let registry: TunnelProcessRegistry;
+    let manager: TunnelManager;
+    let events: string[];
 
-    // First run should succeed
-    await tunnelManager.runTunnel(tunnelId, 8080);
+    setup(() => {
+      spawn = createFakeSpawn();
+      const kill = createFakeKill(() => spawn.children);
+      registry = new TunnelProcessRegistry({
+        memento: new TestMemento(),
+        logger: mockLogger,
+        spawn: spawn.spawn,
+        kill: kill.kill,
+        probe: async () => ({ state: "dead" }),
+      });
+      sinon.stub(TunnelManager.prototype as any, "findCloudflaredPath").resolves("/fake/bin/cloudflared");
+      manager = new TunnelManager(mockContext, mockLogger, mockApiService, mockProfileManager, registry);
+      events = [];
+      manager.onTunnelEvent((event) => events.push(`${event.type}:${event.tunnelId}`));
+    });
 
-    // Second run should throw
-    await assert.rejects(
-      tunnelManager.runTunnel(tunnelId, 8080),
-      /Tunnel .* is already running/,
-    );
-  });
+    teardown(() => {
+      sinon.restore();
+      registry.dispose();
+    });
 
-  test("should stop running tunnel", async () => {
-    const tunnelId = "test-tunnel-id";
+    test("should prevent running duplicate tunnels", async () => {
+      await manager.runTunnel("test-tunnel-id", 8080);
+      await assert.rejects(
+        manager.runTunnel("test-tunnel-id", 8080),
+        /Tunnel .* is already running/,
+      );
+      assert.strictEqual(spawn.children.length, 1);
+    });
 
-    // Start the tunnel
-    await tunnelManager.runTunnel(tunnelId, 8080);
+    test("two concurrent starts of one tunnel spawn once (9.1)", async () => {
+      const first = manager.runTunnel("test-tunnel-id", 8080);
+      const second = manager.runTunnel("test-tunnel-id", 8080);
+      await assert.rejects(second, /already running or starting/);
+      await first;
+      assert.strictEqual(spawn.children.length, 1);
+      assert.deepStrictEqual(manager.listOwnedTunnels("named").map((r) => r.tunnelId), ["test-tunnel-id"]);
+    });
 
-    // Stop the tunnel
-    await tunnelManager.stopTunnel(tunnelId);
+    test("a spawn error leaves no owned record and frees the id (8.1, 9.2)", async () => {
+      spawn.queue.push("error");
+      await assert.rejects(manager.runTunnel("test-tunnel-id", 8080), /ENOENT/);
+      assert.deepStrictEqual(manager.listOwnedTunnels(), []);
+      assert.ok(events.includes("error:test-tunnel-id"), "no error event");
+      assert.ok(!events.includes("start:test-tunnel-id"), "failed spawn announced as started");
 
-    // Verify event was emitted
-    assert.strictEqual(eventEmitted?.type, "stop");
-    assert.strictEqual(eventEmitted?.tunnelId, tunnelId);
+      await manager.runTunnel("test-tunnel-id", 8080);
+      assert.strictEqual(manager.listOwnedTunnels().length, 1);
+    });
+
+    test("should stop running tunnel", async () => {
+      await manager.runTunnel("test-tunnel-id", 8080);
+      const result = await manager.stopTunnel("test-tunnel-id");
+      assert.strictEqual(result.outcome, "stopped");
+      assert.ok(events.includes("stop:test-tunnel-id"));
+      assert.deepStrictEqual(manager.listOwnedTunnels(), []);
+    });
+
+    test("stopping a tunnel the extension does not own reports not-owned", async () => {
+      assert.deepStrictEqual(await manager.stopTunnel("someone-elses"), {
+        tunnelId: "someone-elses",
+        outcome: "not-owned",
+      });
+    });
+
+    test("listTunnels marks only owned tunnels as running locally (11.4)", async () => {
+      let tunnels = await manager.listTunnels();
+      assert.strictEqual(tunnels[0].is_running_locally, false);
+      await manager.runTunnel("test-tunnel-id", 8080);
+      tunnels = await manager.listTunnels();
+      assert.strictEqual(tunnels[0].is_running_locally, true);
+    });
+
+    test("child output goes to the tunnel log, not through a pipe (10.1)", async () => {
+      await manager.runTunnel("test-tunnel-id", 8080);
+      const child = spawn.children[0];
+      assert.strictEqual(child.stdout.listenerCount("data"), 1);
+      assert.strictEqual((child.stdout as any)._readableState.pipes.length, 0, "stdout piped");
+      assert.strictEqual((child.stderr as any)._readableState.pipes.length, 0, "stderr piped");
+    });
   });
 
   test("runTunnel passes the token via TUNNEL_TOKEN, never argv, and never writes it to disk", async () => {

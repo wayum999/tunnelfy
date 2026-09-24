@@ -9,8 +9,17 @@ import {
 import { CloudflareApiService } from "../../services/cloudflareApi";
 import { ProfileManager } from "../../services/profileManager";
 import { Logger, LogComponent } from "../../utils/logger";
-import { EventEmitter } from "events";
 import * as sinon from "sinon";
+import { TunnelProcessRegistry } from "../../services/cloudflared/TunnelProcessRegistry";
+import { Messages } from "../../utils/messages";
+import { TestMemento } from "./testUtils";
+import {
+  createFakeKill,
+  createFakeSpawn,
+  FakeChild,
+  FakeKill,
+  FakeSpawn,
+} from "./fakeProcess";
 
 // Helper function to wait between operations
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -55,11 +64,8 @@ function isTunnelEvent(event: any): event is TunnelEvent {
 suite("Quick Tunnels Test Suite", () => {
   let tunnelManager: TunnelManager;
   let eventEmitted: TunnelEvent | null = null;
-  let sharedTunnel: { port: number; url?: string; tunnelUrl?: string } | null =
+  let sharedTunnel: { tunnelId: string; port: number; url?: string; tunnelUrl?: string } | null =
     null;
-  // Track running tunnels at suite level
-  const runningPorts = new Set<number>();
-  let originalSpawn: any;
 
   const mockContext = {
     extensionPath: __dirname,
@@ -99,156 +105,46 @@ suite("Quick Tunnels Test Suite", () => {
     deleteProfile: async () => {},
   } as unknown as ProfileManager;
 
+  // Set up mock API service with proper profile handling
+  const mockApiService = {
+    createTunnel: async () => {
+      throw new Error("Should not be called for quick tunnels");
+    },
+    deleteTunnel: async () => {
+      throw new Error("Should not be called for quick tunnels");
+    },
+    listTunnels: async () => [],
+    getTunnelToken: async () => {
+      throw new Error("Should not be called for quick tunnels");
+    },
+    getTunnelInfo: async () => {
+      throw new Error("Should not be called for quick tunnels");
+    },
+    setApiKey: async () => {},
+    listAccounts: async () => [
+      {
+        id: "test-account",
+        name: "Test Account",
+      },
+    ],
+  } as unknown as CloudflareApiService;
+
   setup(async function () {
-    this.timeout(60000);
-
     eventEmitted = null;
-
-    // Set up mock API service with proper profile handling
-    const mockApiService = {
-      createTunnel: async () => {
-        throw new Error("Should not be called for quick tunnels");
-      },
-      deleteTunnel: async () => {
-        throw new Error("Should not be called for quick tunnels");
-      },
-      listTunnels: async () => [],
-      getTunnelToken: async () => {
-        throw new Error("Should not be called for quick tunnels");
-      },
-      getTunnelInfo: async () => {
-        throw new Error("Should not be called for quick tunnels");
-      },
-      setApiKey: async () => {},
-      listAccounts: async () => [
-        {
-          id: "test-account",
-          name: "Test Account",
-        },
-      ],
-    } as unknown as CloudflareApiService;
-
     tunnelManager = new TunnelManager(
       mockContext,
       mockLogger,
       mockApiService,
       mockProfileManager,
     );
-
-    // Mock the child_process.spawn to avoid actual cloudflared calls
-    const mockSpawn = (command: string, args: string[]) => {
-      const mockProcess = new EventEmitter() as any;
-      mockProcess.stdout = new EventEmitter();
-      mockProcess.stderr = new EventEmitter();
-      mockProcess.pid = 12345;
-
-      // Extract port from args
-      const portArg = args.find((arg) => arg.includes("localhost:"));
-      const port = portArg ? parseInt(portArg.split(":")[1]) : null;
-
-      console.log(
-        `Mock spawn called for port ${port}, running ports:`,
-        Array.from(runningPorts),
-      ); // Debug log
-
-      // Check if port is already in use
-      if (port && runningPorts.has(port)) {
-        console.log(`Port ${port} is already in use`); // Debug log
-        process.nextTick(() => {
-          mockProcess.stderr.emit(
-            "data",
-            Buffer.from("Error: Port already in use"),
-          );
-          mockProcess.emit("exit", 1, null);
-        });
-        return mockProcess;
-      }
-
-      if (port) {
-        console.log(`Adding port ${port} to running ports`); // Debug log
-        runningPorts.add(port);
-      }
-
-      mockProcess.kill = () => {
-        if (port) {
-          console.log(`Removing port ${port} from running ports`); // Debug log
-          runningPorts.delete(port);
-        }
-        mockProcess.emit("exit", 0, null);
-      };
-
-      // Simulate cloudflared output with proper timing
-      process.nextTick(() => {
-        mockProcess.stdout.emit("data", Buffer.from("Starting tunnel..."));
-        setTimeout(() => {
-          if (port && !runningPorts.has(port)) {
-            console.log(`Port ${port} is no longer running during startup`); // Debug log
-            mockProcess.stderr.emit(
-              "data",
-              Buffer.from("Error: Port already in use"),
-            );
-            mockProcess.emit("exit", 1, null);
-            return;
-          }
-          mockProcess.stdout.emit(
-            "data",
-            Buffer.from("Registered tunnel connection"),
-          );
-          mockProcess.stdout.emit(
-            "data",
-            Buffer.from("https://mock-tunnel.trycloudflare.com"),
-          );
-          mockProcess.emit("spawn");
-        }, 100);
-      });
-
-      return mockProcess;
-    };
-
-    // Store original spawn and replace with mock
-    const cp = require("child_process");
-    originalSpawn = cp.spawn;
-    cp.spawn = mockSpawn;
-
-    // Reset event tracking
-    eventEmitted = null;
     tunnelManager.onTunnelEvent((event) => {
-      console.log("Event received:", event); // Debug logging
       eventEmitted = event;
     });
-
-    // Ensure cleanup of any existing tunnels
-    runningPorts.clear(); // Clear running ports at start of each test
-    if (sharedTunnel) {
-      try {
-        await tunnelManager.stopQuickTunnel(sharedTunnel.port);
-        await wait(2000);
-      } catch (error) {
-        // Ignore cleanup errors
-      }
-      sharedTunnel = null;
-    }
-    await tunnelManager.cleanup();
-    await wait(1000);
   });
 
   teardown(async function () {
-    this.timeout(5000); // Increase timeout for cleanup
-
-    // Restore original spawn function
-    const cp = require("child_process");
-    cp.spawn = originalSpawn;
-
-    // Clear running ports
-    runningPorts.clear();
-
-    // Cleanup any remaining tunnels
-    try {
-      await tunnelManager.cleanup();
-      await wait(1000);
-    } catch (error) {
-      console.error("Error during teardown cleanup:", error);
-    }
+    this.timeout(10000);
+    await tunnelManager.stopAllOwned();
   });
 
   // Group validation tests that don't need actual tunnel creation
@@ -276,6 +172,178 @@ suite("Quick Tunnels Test Suite", () => {
     });
   });
 
+  // Every behaviour of a quick-tunnel attempt, against a fake cloudflared: no real
+  // process starts and nothing contacts Cloudflare (12.1, 12.2).
+  suite("Attempt lifecycle with a fake cloudflared", () => {
+    const URL_A = "https://alpha-bravo.trycloudflare.com";
+    const URL_LATE = "https://late-arrival.trycloudflare.com";
+    let spawn: FakeSpawn;
+    let kill: FakeKill;
+    let registry: TunnelProcessRegistry;
+    let manager: TunnelManager;
+    let events: TunnelEvent[];
+    let infos: string[];
+    let errors: unknown[];
+
+    async function nextChild(index: number): Promise<FakeChild> {
+      for (let i = 0; i < 500 && spawn.children.length <= index; i++) {
+        await wait(10);
+      }
+      assert.ok(spawn.children[index], `child ${index} never spawned`);
+      // Let the registry see the spawn event and record the child
+      await wait(5);
+      return spawn.children[index];
+    }
+
+    async function startHealthy(port: number): Promise<{ tunnelId: string; child: FakeChild }> {
+      const index = spawn.children.length;
+      const pending = manager.createQuickTunnel(port);
+      const child = await nextChild(index);
+      child.write(`INF |  ${URL_A}  |`, "stderr");
+      const result = await pending;
+      assert.ok(result);
+      return { tunnelId: result.tunnelId, child };
+    }
+
+    setup(() => {
+      spawn = createFakeSpawn();
+      kill = createFakeKill(() => spawn.children);
+      registry = new TunnelProcessRegistry({
+        memento: new TestMemento(),
+        logger: mockLogger,
+        spawn: spawn.spawn,
+        kill: kill.kill,
+        probe: async () => ({ state: "dead" }),
+      });
+      // node stands in for cloudflared only for the `--version` check; spawn is faked
+      sinon.stub(TunnelManager.prototype as any, "findCloudflaredPath").resolves(process.execPath);
+      infos = [];
+      errors = [];
+      sinon.stub(Messages, "showInfo").callsFake(async (message: string) => {
+        infos.push(message);
+      });
+      sinon.stub(Messages, "showError").callsFake(async (message: unknown) => {
+        errors.push(message);
+        return undefined;
+      });
+      manager = new TunnelManager(
+        mockContext,
+        mockLogger,
+        mockApiService,
+        mockProfileManager,
+        registry,
+        { quickTunnelUrlTimeoutMs: 200 },
+      );
+      events = [];
+      manager.onTunnelEvent((event) => events.push(event));
+    });
+
+    teardown(async function () {
+      this.timeout(10000);
+      kill.ignore.clear();
+      await manager.stopAllOwned(500);
+      sinon.restore();
+      registry.dispose();
+    });
+
+    test("a found URL announces the tunnel once and lists it", async () => {
+      const { tunnelId } = await startHealthy(8080);
+      assert.ok(tunnelId.startsWith("quick-8080-"));
+      assert.deepStrictEqual(events.map((e) => e.type), ["start"]);
+      assert.ok(infos.includes(Messages.QUICK_TUNNEL_RUNNING(URL_A)));
+      const listed = await manager.getQuickTunnels();
+      assert.deepStrictEqual(listed.map((t) => [t.tunnelId, t.port, t.tunnelUrl]), [[tunnelId, 8080, URL_A]]);
+    });
+
+    test("a URL timeout stops the attempt's own child before the error reaches the caller (4.1)", async function () {
+      this.timeout(10000);
+      const pending = manager.createQuickTunnel(8080);
+      const child = await nextChild(0);
+      await assert.rejects(pending, /Timed out waiting for quick tunnel URL/);
+      assert.deepStrictEqual(kill.calls, [{ pid: child.pid, signal: "SIGTERM" }]);
+      assert.notStrictEqual(child.signalCode, null, "child still running");
+      assert.deepStrictEqual(manager.listOwnedTunnels(), []);
+      assert.ok(!events.some((e) => e.type === "start"), "failed attempt announced");
+    });
+
+    test("a URL after failure creates no record, no start event and no running message (4.2, 4.3)", async function () {
+      this.timeout(15000);
+      const setIntervalSpy = sinon.spy(global, "setInterval");
+      const clearIntervalSpy = sinon.spy(global, "clearInterval");
+      // The child ignores every signal, so it is still around to print a late URL
+      kill.ignore.add("SIGTERM");
+      kill.ignore.add("SIGKILL");
+      const pending = manager.createQuickTunnel(8080);
+      const child = await nextChild(0);
+      await assert.rejects(pending, /Timed out/);
+
+      child.write(`INF |  ${URL_LATE}  |`, "stderr");
+      await wait(250);
+      assert.ok(!events.some((e) => e.type === "start"), "late URL fired start");
+      assert.ok(!infos.some((m) => m.includes(URL_LATE)), "late URL announced");
+      assert.deepStrictEqual(await manager.getQuickTunnels(), [], "late URL listed");
+
+      const pollIntervals = setIntervalSpy.getCalls().filter((call) => call.args[1] === 100);
+      assert.strictEqual(pollIntervals.length, 1, "URL poll not started exactly once");
+      const cleared = clearIntervalSpy.getCalls().map((call) => call.args[0]);
+      assert.ok(cleared.includes(pollIntervals[0].returnValue), "URL poll interval not cleared on settle");
+    });
+
+    test("an exit before the URL rejects with the specific error, after the child is gone", async () => {
+      const pending = manager.createQuickTunnel(8080);
+      const child = await nextChild(0);
+      child.write("ERR 429 Too Many Requests", "stderr");
+      child.exit(1);
+      await assert.rejects(pending, /Rate limit exceeded/);
+      assert.deepStrictEqual(errors, [Messages.QUICK_TUNNEL_RATE_LIMIT]);
+      assert.deepStrictEqual(manager.listOwnedTunnels(), []);
+      assert.strictEqual(kill.calls.length, 0, "an exited child was signalled");
+    });
+
+    test("a spawn error rejects and leaves nothing owned (8.1)", async () => {
+      spawn.queue.push("error");
+      await assert.rejects(manager.createQuickTunnel(8080), /ENOENT/);
+      assert.deepStrictEqual(manager.listOwnedTunnels(), []);
+      assert.strictEqual(kill.calls.length, 0);
+    });
+
+    test("a failed attempt leaves a healthy tunnel on the same port alone (5.1)", async function () {
+      this.timeout(10000);
+      const healthy = await startHealthy(8080);
+      const pending = manager.createQuickTunnel(8080);
+      const failing = await nextChild(1);
+      await assert.rejects(pending, /Timed out/);
+
+      assert.deepStrictEqual(kill.calls.map((c) => c.pid), [failing.pid], "a pid other than the attempt's was signalled");
+      assert.strictEqual(healthy.child.signalCode, null);
+      assert.deepStrictEqual(manager.listOwnedTunnels().map((r) => r.tunnelId), [healthy.tunnelId]);
+      assert.deepStrictEqual((await manager.getQuickTunnels()).map((t) => t.tunnelId), [healthy.tunnelId]);
+    });
+
+    test("two quick tunnels on one port are stopped independently by id (5.2)", async () => {
+      const first = await startHealthy(8080);
+      const second = await startHealthy(8080);
+      assert.notStrictEqual(first.tunnelId, second.tunnelId);
+
+      const result = await manager.stopQuickTunnel(first.tunnelId);
+      assert.strictEqual(result.outcome, "stopped");
+      assert.deepStrictEqual(kill.calls.map((c) => c.pid), [first.child.pid]);
+      assert.deepStrictEqual((await manager.getQuickTunnels()).map((t) => t.tunnelId), [second.tunnelId]);
+      assert.deepStrictEqual(await manager.stopQuickTunnel("quick-8080-0"), {
+        tunnelId: "quick-8080-0",
+        outcome: "not-owned",
+      });
+    });
+
+    test("a quick tunnel that exits on its own fires stop and leaves the list (6.1)", async () => {
+      const { tunnelId, child } = await startHealthy(8080);
+      child.exit(0);
+      assert.ok(events.some((e) => e.type === "stop" && e.tunnelId === tunnelId), "no stop event");
+      assert.deepStrictEqual(await manager.getQuickTunnels(), []);
+      assert.deepStrictEqual(manager.listOwnedTunnels(), []);
+    });
+  });
+
   // Group tunnel operation tests.
   // These open real public quick tunnels against Cloudflare, so they only run
   // when TUNNELFY_NETWORK_TESTS=1 is set; CI leaves it unset.
@@ -286,7 +354,7 @@ suite("Quick Tunnels Test Suite", () => {
       }
       this.timeout(60000); // Increase timeout
       // Ensure cleanup before each test
-      await tunnelManager.cleanup();
+      await tunnelManager.stopAllOwned();
       await wait(5000); // Wait longer for cleanup
 
       // Create a shared tunnel for tests that need it
@@ -306,6 +374,9 @@ suite("Quick Tunnels Test Suite", () => {
               5,
               10000,
             ); // More retries, longer delay
+            if (!result) {
+              throw new Error("Quick tunnel was not created");
+            }
             sharedTunnel = { port, ...result };
             await wait(5000); // Additional wait after creation
             break;
@@ -381,7 +452,7 @@ suite("Quick Tunnels Test Suite", () => {
       );
 
       // Cleanup
-      await tunnelManager.stopQuickTunnel(port);
+      await tunnelManager.stopQuickTunnel(tunnel.tunnelId);
       await wait(1000);
     });
   });
@@ -391,9 +462,9 @@ suite("Quick Tunnels Test Suite", () => {
   suiteTeardown(async () => {
     // Ensure cleanup
     if (sharedTunnel) {
-      await tunnelManager.stopQuickTunnel(sharedTunnel.port);
+      await tunnelManager.stopQuickTunnel(sharedTunnel.tunnelId);
       sharedTunnel = null;
     }
-    await tunnelManager.cleanup();
+    await tunnelManager.stopAllOwned();
   });
 });

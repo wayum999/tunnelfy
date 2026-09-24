@@ -7,6 +7,14 @@ import { CloudflareApiService } from '../cloudflareApi';
 import { ProfileManager } from '../profileManager';
 import { TunnelLogger } from './TunnelLogger';
 import { TunnelConfig } from './TunnelConfig';
+import {
+  TunnelProcessRegistry,
+  RegistryEvent,
+  StopResult,
+  OwnedTunnelRecord,
+  TunnelKind,
+  DEFAULT_STOP_TIMEOUT_MS,
+} from './TunnelProcessRegistry';
 import * as util from 'util';
 import { Messages } from '../../utils/messages';
 import { CloudflareTunnel as ApiTunnel } from '../cloudflareApi/types';
@@ -80,6 +88,8 @@ export function buildTunnelRunInvocation(
   };
 }
 
+const QUICK_TUNNEL_URL = /https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/;
+
 /** Types of events that can be emitted by the tunnel manager */
 export type TunnelEventType = "start" | "stop" | "error" | "status";
 
@@ -95,40 +105,32 @@ export interface TunnelEvent {
  * TunnelManager - Core service for managing Cloudflare tunnels
  *
  * This service is responsible for:
- * 1. Creating and managing tunnel processes
- * 2. Handling tunnel lifecycle (start, stop, delete)
+ * 1. Starting and stopping named and quick tunnels
+ * 2. Handling tunnel lifecycle (create, run, stop, delete)
  * 3. Managing tunnel configurations
- * 4. Monitoring tunnel status and health
- * 5. Emitting tunnel events for UI updates
+ * 4. Emitting tunnel events for UI updates
  *
- * Features:
- * - Process management for both persistent and quick tunnels
- * - Automatic cleanup of orphaned processes
- * - Event-based status updates
- * - Cross-platform support (Windows, macOS, Linux)
- * - Graceful shutdown handling
+ * Every cloudflared child is owned by the TunnelProcessRegistry: it spawns,
+ * records, persists, reconciles and stops them. TunnelManager keeps the API,
+ * config and quick-tunnel URL handling and delegates process work to it.
  */
 export class TunnelManager {
-  private readonly runningTunnels: Map<
-    string,
-    {
-      process: cp.ChildProcess;
-      pid: number;
-      logStreams: fs.WriteStream[];
-      name?: string;
-    }
-  > = new Map();
-
   private readonly _onTunnelEvent = new vscode.EventEmitter<TunnelEvent>();
   readonly onTunnelEvent = this._onTunnelEvent.event;
   private readonly tunnelLogger: TunnelLogger;
   private readonly tunnelConfig: TunnelConfig;
+  private readonly registry: TunnelProcessRegistry;
+  private readonly quickTunnelUrlTimeoutMs: number;
+  /** Quick tunnels announced as running in this session: tunnel id -> URL and name */
+  private readonly announcedQuickTunnels = new Map<string, { tunnelUrl: string; name?: string }>();
 
   constructor(
     private context: vscode.ExtensionContext,
     private logger: Logger,
     private apiService: CloudflareApiService,
     private profileManager: ProfileManager,
+    registry?: TunnelProcessRegistry,
+    options: { quickTunnelUrlTimeoutMs?: number } = {},
   ) {
     this.tunnelLogger = new TunnelLogger(logger, context.globalStoragePath);
     this.tunnelConfig = new TunnelConfig(
@@ -136,6 +138,34 @@ export class TunnelManager {
       logger,
       context.globalStoragePath,
     );
+    this.registry =
+      registry ??
+      new TunnelProcessRegistry({ memento: context.globalState, logger });
+    this.quickTunnelUrlTimeoutMs = options.quickTunnelUrlTimeoutMs ?? 15000;
+    this.registry.onDidChange((event) => this.onRegistryEvent(event));
+  }
+
+  private onRegistryEvent(event: RegistryEvent): void {
+    const { tunnelId } = event;
+    switch (event.type) {
+      case "start":
+        // A quick tunnel is announced only once its URL is known (createQuickTunnel)
+        if (event.kind === "quick" && !event.adopted) {
+          return;
+        }
+        this._onTunnelEvent.fire({ type: "start", tunnelId, message: event.message });
+        return;
+      case "stop":
+        this.announcedQuickTunnels.delete(tunnelId);
+        void this.tunnelLogger
+          .logTunnelEvent(tunnelId, "stopped", { preserveFocus: true })
+          .then(() => this.tunnelLogger.closeStream(tunnelId));
+        this._onTunnelEvent.fire({ type: "stop", tunnelId, message: event.message });
+        return;
+      case "error":
+        this._onTunnelEvent.fire({ type: "error", tunnelId, message: event.message });
+        return;
+    }
   }
 
     /**
@@ -193,7 +223,10 @@ export class TunnelManager {
    */
   async deleteTunnel(tunnelId: string): Promise<void> {
     try {
-      await this.stopTunnel(tunnelId);
+      const stopped = await this.stopTunnel(tunnelId);
+      if (stopped.outcome === "failed") {
+        throw new Error(`Could not stop tunnel before deleting it: ${stopped.reason}`);
+      }
       await this.apiService.deleteTunnel(tunnelId);
       await this.tunnelConfig.deleteTunnelConfig(tunnelId);
       this.logger.info(LogComponent.TUNNEL, `Deleted tunnel: ${tunnelId}`);
@@ -215,10 +248,10 @@ export class TunnelManager {
         try {
             const tunnels = await this.apiService.listTunnels();
             
-            // Update is_running_locally based on our runningTunnels Map
+            // Running locally means a cloudflared child this extension owns
             return tunnels.map(tunnel => ({
                 ...tunnel,
-                is_running_locally: this.runningTunnels.has(tunnel.id)
+                is_running_locally: this.registry.isOwned(tunnel.id)
             }));
         } catch (error) {
             this.logger.error(LogComponent.TUNNEL, `Failed to list tunnels: ${error}`);
@@ -288,12 +321,11 @@ export class TunnelManager {
    * @param tunnelId ID of the tunnel to run
    * @param portOrUrl Local port number or full URL to tunnel (e.g., "http://localhost:8080" or "http://127.0.0.1:3000")
    * @returns Child process running the tunnel
-   * @throws Error if tunnel start fails
+   * @throws Error if tunnel start fails, or the tunnel is already running or starting
    */
   async runTunnel(tunnelId: string, portOrUrl: number | string): Promise<cp.ChildProcess> {
-    if (this.runningTunnels.has(tunnelId)) {
-      throw new Error(`Tunnel ${tunnelId} is already running`);
-    }
+    // Reserved before any await, so a second start for this id spawns nothing
+    const release = this.registry.reserve(tunnelId);
 
     try {
       // Parse port or URL
@@ -375,154 +407,65 @@ export class TunnelManager {
       // The token goes through the environment, never argv (argv is visible in `ps`)
       const { args, env } = buildTunnelRunInvocation(targetUrl, token);
 
-      const process = cp.spawn(cloudflaredPath, args, {
-        stdio: ["ignore", "pipe", "pipe"],
+      const owned = await this.registry.start({
+        tunnelId,
+        kind: "named",
+        target: targetUrl,
+        command: cloudflaredPath,
+        args,
         env,
+        onOutput: (chunk) => this.tunnelLogger.appendOutput(tunnelId, chunk),
       });
 
-      const logStream = this.tunnelLogger.createLogStream(tunnelId);
-      process.stdout.pipe(logStream);
-      process.stderr.pipe(logStream);
-
-      this.runningTunnels.set(tunnelId, {
-        process,
-        pid: process.pid!,
-        logStreams: [logStream],
-        name: tunnelInfo.name,
-      });
-
-      // Handle process events
-      process.on("error", (error) => {
-        this.logger.error(
-          LogComponent.TUNNEL,
-          `Tunnel process error: ${error}`,
-        );
-        this._onTunnelEvent.fire({
-          type: "error",
-          tunnelId,
-          message: error.message,
-        });
-      });
-
-      process.on("exit", (code, signal) => {
-        this.logger.info(
-          LogComponent.TUNNEL,
-          `Tunnel process exited with code ${code}, signal ${signal}`,
-        );
-        this.cleanupTunnelProcess(tunnelId);
-      });
-
-      // Log and emit start event
-      await this.tunnelLogger.logTunnelEvent(tunnelId, "started", { 
+      await this.tunnelLogger.logTunnelEvent(tunnelId, "started", {
         targetUrl,
         port
       });
-      this._onTunnelEvent.fire({
-        type: "start",
-        tunnelId,
-        message: `Tunnel started for ${targetUrl}`,
-      });
 
-      return process;
+      return owned.child!;
     } catch (error) {
       this.logger.error(LogComponent.TUNNEL, `Failed to run tunnel: ${error}`);
       throw error;
+    } finally {
+      // Once started, the registry's ownership blocks a second start instead
+      release();
     }
   }
 
   /**
-   * Cleans up resources for a stopped tunnel
-   * @param tunnelId ID of the tunnel to clean up
-   * @private
+   * Stops a tunnel this extension owns, by its recorded pid
+   * @param tunnelId ID of the tunnel to stop
+   * @returns stopped, not-owned (nothing was signalled) or failed with a reason
    */
-  private async cleanupTunnelProcess(tunnelId: string): Promise<void> {
-    const runningTunnel = this.runningTunnels.get(tunnelId);
-    if (!runningTunnel) {
-      return;
-    }
-
-    // Close log streams
-    for (const stream of runningTunnel.logStreams) {
-      stream.end();
-    }
-
-    this.runningTunnels.delete(tunnelId);
-    await this.tunnelLogger.logTunnelEvent(tunnelId, "stopped", {
+  async stopTunnel(tunnelId: string): Promise<StopResult> {
+    this.logger.info(LogComponent.TUNNEL, `Stopping TUNNEL: ${tunnelId}`, {
       preserveFocus: true,
     });
-    this._onTunnelEvent.fire({
-      type: "stop",
-      tunnelId,
-      message: "Tunnel stopped",
-    });
+    return this.registry.stop(tunnelId);
   }
 
   /**
-   * Stops a running tunnel
-   * @param tunnelId ID of the tunnel to stop
-   * @throws Error if stop operation fails
+   * Stops every owned tunnel concurrently within one bounded wait
+   * Called during extension deactivation
    */
-  async stopTunnel(tunnelId: string): Promise<void> {
-    try {
-      const runningTunnel = this.runningTunnels.get(tunnelId);
-      if (!runningTunnel) {
-        this.logger.warn(
-          LogComponent.TUNNEL,
-          `No running tunnel found for ID: ${tunnelId}`,
-          { preserveFocus: true },
-        );
-        return;
-      }
+  async stopAllOwned(timeoutMs: number = DEFAULT_STOP_TIMEOUT_MS): Promise<StopResult[]> {
+    return this.registry.stopAll(timeoutMs);
+  }
 
-      this.logger.info(LogComponent.TUNNEL, `Stopping TUNNEL: ${tunnelId}`, {
-        preserveFocus: true,
-      });
+  /**
+   * Checks tunnels recorded by an earlier session against live processes, adopting the
+   * ones that are still the children that were recorded. Never throws.
+   */
+  async reconcileOwned(): Promise<void> {
+    await this.registry.reconcile();
+  }
 
-      // Kill the process
-      if (process.platform === "win32") {
-        try {
-          process.kill(runningTunnel.pid);
-        } catch (error) {
-          this.logger.warn(
-            LogComponent.TUNNEL,
-            `Failed to kill process: ${error}`,
-            { preserveFocus: true },
-          );
-        }
-      } else {
-        try {
-          process.kill(runningTunnel.pid, "SIGTERM");
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-          try {
-            process.kill(runningTunnel.pid, 0);
-            // Process still running, try SIGKILL
-            process.kill(runningTunnel.pid, "SIGKILL");
-          } catch (error) {
-            // Process is already dead
-          }
-        } catch (error) {
-          this.logger.warn(
-            LogComponent.TUNNEL,
-            `Failed to kill process: ${error}`,
-            { preserveFocus: true },
-          );
-        }
-      }
-
-      // Clean up resources
-      await this.cleanupTunnelProcess(tunnelId);
-
-      this.logger.info(LogComponent.TUNNEL, `TUNNEL: ${tunnelId} stopped`, {
-        preserveFocus: true,
-      });
-    } catch (error) {
-      this.logger.error(
-        LogComponent.TUNNEL,
-        `Failed to stop tunnel: ${error}`,
-        { preserveFocus: true },
-      );
-      throw error;
-    }
+  /**
+   * Lists the tunnels this extension owns
+   * @param kind Optional filter, "named" or "quick"
+   */
+  listOwnedTunnels(kind?: TunnelKind): OwnedTunnelRecord[] {
+    return this.registry.list(kind);
   }
 
   /**
@@ -593,82 +536,95 @@ export class TunnelManager {
   }
 
   /**
-   * Gets all currently running quick tunnels
+   * Gets the running quick tunnels this extension owns and has a URL for
    * @returns Array of quick tunnel information
    */
   async getQuickTunnels(): Promise<
-    Array<{ port: number; url: string; tunnelUrl: string; name?: string }>
+    Array<{ tunnelId: string; port: number; url: string; tunnelUrl: string; name?: string }>
   > {
     const quickTunnels: Array<{
+      tunnelId: string;
       port: number;
       url: string;
       tunnelUrl: string;
       name?: string;
     }> = [];
 
-    for (const [tunnelId, tunnel] of this.runningTunnels.entries()) {
-      if (tunnelId.startsWith("quick-")) {
-        const portMatch = tunnelId.match(/quick-(\d+)-/);
-        if (portMatch) {
-          const port = parseInt(portMatch[1], 10);
-          const url = `http://localhost:${port}`;
-          // Get the tunnel URL from the process output
-          const logFile = path.join(
-            this.context.globalStoragePath,
-            "logs",
-            "tunnels",
-            `${tunnelId}.log`,
-          );
-          try {
-            if (fs.existsSync(logFile)) {
-              const logContent = fs.readFileSync(logFile, "utf8");
-              const urlMatch = logContent.match(
-                /https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/,
-              );
-              if (urlMatch) {
-                quickTunnels.push({
-                  port,
-                  url,
-                  tunnelUrl: urlMatch[0],
-                  name: tunnel.name,
-                });
-              }
-            }
-          } catch (error) {
-            this.logger.error(
-              LogComponent.TUNNEL,
-              `Error reading quick tunnel log: ${error}`,
-            );
-          }
-        }
+    for (const record of this.registry.list("quick")) {
+      const portMatch = record.tunnelId.match(/^quick-(\d+)-/);
+      if (!portMatch) {
+        continue;
+      }
+      const port = parseInt(portMatch[1], 10);
+      const announced = this.announcedQuickTunnels.get(record.tunnelId);
+      if (announced) {
+        quickTunnels.push({ tunnelId: record.tunnelId, port, url: record.target, ...announced });
+        continue;
+      }
+      // An attempt still waiting for its URL (or one that failed) is not listed
+      if (!this.registry.isAdopted(record.tunnelId)) {
+        continue;
+      }
+      // Adopted from an earlier session: the URL is in that session's log
+      const tunnelUrl = this.readQuickTunnelUrlFromLog(record.tunnelId);
+      if (tunnelUrl) {
+        quickTunnels.push({ tunnelId: record.tunnelId, port, url: record.target, tunnelUrl });
       }
     }
 
     return quickTunnels;
   }
 
-  /**
-   * Cleans up all running tunnels
-   * Called during extension deactivation
-   */
-  async cleanup(): Promise<void> {
-    // Stop all running tunnels
-    for (const [tunnelId] of this.runningTunnels) {
-      await this.stopTunnel(tunnelId);
+  private readQuickTunnelUrlFromLog(tunnelId: string): string | undefined {
+    const logDir = path.join(this.context.globalStoragePath, "logs", "tunnels");
+    const candidates = [`${tunnelId}.log`, ...[1, 2, 3, 4, 5].map((i) => `${tunnelId}.${i}.log`)];
+    for (const file of candidates) {
+      const logFile = path.join(logDir, file);
+      try {
+        if (!fs.existsSync(logFile)) {
+          continue;
+        }
+        const urlMatch = fs.readFileSync(logFile, "utf8").match(QUICK_TUNNEL_URL);
+        if (urlMatch) {
+          return urlMatch[0];
+        }
+      } catch (error) {
+        this.logger.error(
+          LogComponent.TUNNEL,
+          `Error reading quick tunnel log: ${error}`,
+        );
+      }
     }
+    return undefined;
   }
 
   /**
    * Creates a quick tunnel for temporary use
    * @param portOrUrl Local port number or full URL to tunnel (e.g., "http://localhost:8080" or "http://127.0.0.1:3000")
    * @param name Optional name for the tunnel
-   * @returns Object containing local and tunnel URLs
-   * @throws Error if quick tunnel creation fails
+   * @returns Object containing local and tunnel URLs and the tunnel id
+   * @throws Error if quick tunnel creation fails; the attempt's own child is stopped first
    */
   async createQuickTunnel(
     portOrUrl: number | string,
     name?: string,
-  ): Promise<{ url: string; tunnelUrl: string; name?: string } | null> {
+  ): Promise<{ tunnelId: string; url: string; tunnelUrl: string; name?: string } | null> {
+    // This attempt's id; failure cleanup targets it and nothing else
+    let attemptId: string | undefined;
+    let settled = false;
+    let timeout: NodeJS.Timeout | undefined;
+    let interval: NodeJS.Timeout | undefined;
+    let failureMessage: { message: string; detail?: string } | string | undefined;
+    const settle = (): boolean => {
+      if (settled) {
+        return false;
+      }
+      settled = true;
+      clearTimeout(timeout);
+      clearInterval(interval);
+      return true;
+    };
+
     try {
       // Parse port or URL
       let port: number;
@@ -740,210 +696,153 @@ export class TunnelManager {
       const cmdString = `${JSON.stringify(cloudflaredPath)} ${args.join(" ")}`;
       this.logger.info(LogComponent.TUNNEL, `Running command: ${cmdString}`);
 
-      // Create process with full stdio
-      const process = cp.spawn(cloudflaredPath, args, {
-        stdio: ["ignore", "pipe", "pipe"],
-        detached: false,
-      });
+      const quickTunnelId = `quick-${port}-${Date.now()}`;
+      attemptId = quickTunnelId;
 
-      if (!process.pid) {
-        throw new Error("Failed to start cloudflared process");
-      }
+      let outputBuffer = "";
+      let errorBuffer = "";
+      let resolveUrl!: (url: string) => void;
+      let rejectUrl!: (error: Error) => void;
+      const urlPromise = new Promise<string>((resolve, reject) => {
+        resolveUrl = resolve;
+        rejectUrl = reject;
+      });
+      // Handled through `await urlPromise` below; this keeps an early rejection from being unhandled
+      urlPromise.catch(() => undefined);
+
+      const fail = (error: Error, message?: { message: string; detail?: string } | string) => {
+        if (settle()) {
+          failureMessage = message;
+          rejectUrl(error);
+        }
+      };
+
+      const checkBufferForUrl = () => {
+        if (settled) {
+          return;
+        }
+        const match = outputBuffer.match(QUICK_TUNNEL_URL);
+        if (match && settle()) {
+          resolveUrl(match[0]);
+        }
+      };
+
+      const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+        if (settled) {
+          return;
+        }
+        this.logger.info(
+          LogComponent.TUNNEL,
+          `Quick tunnel process exited with code ${code}, signal ${signal} before reporting a URL`,
+        );
+        if (errorBuffer) {
+          this.logger.error(
+            LogComponent.TUNNEL,
+            `Error output from cloudflared:\n${errorBuffer}`,
+          );
+          if (errorBuffer.includes("429 Too Many Requests")) {
+            fail(new Error("Rate limit exceeded for quick tunnels"), Messages.QUICK_TUNNEL_RATE_LIMIT);
+            return;
+          }
+          if (errorBuffer.includes("bind: address already in use")) {
+            fail(new Error(`Port ${port} is already in use`), Messages.QUICK_TUNNEL_PORT_IN_USE(port));
+            return;
+          }
+          if (
+            errorBuffer.includes("connection refused") ||
+            errorBuffer.includes("cannot connect to")
+          ) {
+            fail(new Error("Failed to connect to Cloudflare"), Messages.QUICK_TUNNEL_CONNECTION_ERROR);
+            return;
+          }
+        }
+        const errorMessage = errorBuffer
+          ? errorBuffer.trim()
+          : "Unknown error occurred";
+        fail(
+          new Error(
+            `Quick tunnel process exited with code ${code}${errorBuffer ? `: ${errorBuffer.trim()}` : ""}`,
+          ),
+          Messages.ERROR_GENERIC(errorMessage),
+        );
+      };
+
+      const owned = await this.registry.start({
+        tunnelId: quickTunnelId,
+        kind: "quick",
+        target: targetUrl,
+        command: cloudflaredPath,
+        args,
+        onOutput: (chunk, source) => {
+          this.tunnelLogger.appendOutput(quickTunnelId, chunk);
+          // After the attempt settles, output is only logged: a late URL announces nothing
+          if (settled) {
+            return;
+          }
+          outputBuffer += chunk;
+          if (source === "stderr") {
+            errorBuffer += chunk;
+          }
+          checkBufferForUrl();
+        },
+        onExit,
+      });
 
       this.logger.info(
         LogComponent.TUNNEL,
-        `Started cloudflared process with PID: ${process.pid}`,
+        `Started cloudflared process with PID: ${owned.record.pid}`,
       );
 
-      // Create a unique ID for the quick tunnel
-      const quickTunnelId = `quick-${port}-${Date.now()}`;
-      const logStream = this.tunnelLogger.createLogStream(quickTunnelId);
-
-      // Create a promise that resolves when we find the URL
-      const urlPromise = new Promise<string>((resolve, reject) => {
-        let outputBuffer = "";
-        let errorBuffer = "";
-
-        // Function to check the entire buffer for a URL
-        const checkBufferForUrl = () => {
-          const match = outputBuffer.match(
-            /https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/,
-          );
-          if (match) {
-            const tunnelUrl = match[0];
-            this.logger.info(
-              LogComponent.TUNNEL,
-              `Found quick tunnel URL: ${tunnelUrl}`,
-            );
-
-            // Store the tunnel info immediately when we find the URL
-            if (!process.pid) {
-              reject(new Error("Process PID is undefined"));
-              return;
-            }
-
-            // Store the running tunnel first
-            this.runningTunnels.set(quickTunnelId, {
-              process,
-              pid: process.pid,
-              logStreams: [logStream],
-              name,
-            });
-
-            // Then fire events and resolve
-            this._onTunnelEvent.fire({
-              type: "start",
-              tunnelId: quickTunnelId,
-              message: `Quick tunnel${name ? ` "${name}"` : ""} started for ${targetUrl}`,
-            });
-            Messages.showInfo(Messages.QUICK_TUNNEL_RUNNING(tunnelUrl, name));
-            resolve(tunnelUrl);
-            return true;
-          }
-          return false;
-        };
-
-        // Process stdout to find the tunnel URL
-        process.stdout.on("data", (data: Buffer) => {
-          const output = data.toString();
-          outputBuffer += output;
-          logStream.write(output);
-
-          this.logger.debug(
-            LogComponent.TUNNEL,
-            `Quick tunnel stdout received ${data.length} bytes`,
-          );
-          checkBufferForUrl();
-        });
-
-        // Process stderr for error messages and logging
-        process.stderr.on("data", (data: Buffer) => {
-          const output = data.toString();
-          errorBuffer += output; // Store error messages
-          outputBuffer += output;
-          logStream.write(output);
-          this.logger.debug(
-            LogComponent.TUNNEL,
-            `Quick tunnel stderr: ${output}`,
-          );
-        });
-
-        // Handle process events
-        process.on("error", (error) => {
-          this.logger.error(
-            LogComponent.TUNNEL,
-            `Quick tunnel process error: ${error}`,
-          );
-          reject(error);
-        });
-
-        process.on("exit", (code, signal) => {
-          this.logger.info(
-            LogComponent.TUNNEL,
-            `Quick tunnel process exited with code ${code}, signal ${signal}`,
-          );
-          if (code !== 0) {
-            // Log the error buffer if we have one
-            if (errorBuffer) {
-              this.logger.error(
-                LogComponent.TUNNEL,
-                `Error output from cloudflared:\n${errorBuffer}`,
-              );
-
-              // Check for specific error types
-              if (errorBuffer.includes("429 Too Many Requests")) {
-                Messages.showError(Messages.QUICK_TUNNEL_RATE_LIMIT);
-                reject(new Error("Rate limit exceeded for quick tunnels"));
-                return;
-              }
-
-              // Check for port already in use
-              if (errorBuffer.includes("bind: address already in use")) {
-                Messages.showError(Messages.QUICK_TUNNEL_PORT_IN_USE(port));
-                reject(new Error(`Port ${port} is already in use`));
-                return;
-              }
-
-              // Check for connection errors
-              if (
-                errorBuffer.includes("connection refused") ||
-                errorBuffer.includes("cannot connect to")
-              ) {
-                Messages.showError(Messages.QUICK_TUNNEL_CONNECTION_ERROR);
-                reject(new Error("Failed to connect to Cloudflare"));
-                return;
-              }
-            }
-
-            // Generic error with the full error message
-            const errorMessage = errorBuffer
-              ? errorBuffer.trim()
-              : "Unknown error occurred";
-            Messages.showError(Messages.ERROR_GENERIC(errorMessage));
-            reject(
-              new Error(
-                `Quick tunnel process exited with code ${code}${errorBuffer ? `: ${errorBuffer.trim()}` : ""}`,
-              ),
-            );
-          }
-        });
-
-        // Set a timeout for URL detection
-        const timeout = setTimeout(() => {
+      if (!settled) {
+        timeout = setTimeout(() => {
           this.logger.error(
             LogComponent.TUNNEL,
             "Timed out waiting for tunnel URL. Full output buffer:",
             outputBuffer,
           );
-          if (errorBuffer) {
-            this.logger.error(
-              LogComponent.TUNNEL,
-              "Error output:",
-              errorBuffer,
-            );
-          }
-          reject(new Error("Timed out waiting for quick tunnel URL"));
-        }, 15000); // 15 seconds timeout
+          fail(new Error("Timed out waiting for quick tunnel URL"));
+        }, this.quickTunnelUrlTimeoutMs);
+        // Safety net in case a chunk boundary split the URL across events
+        interval = setInterval(checkBufferForUrl, 100);
+      }
 
-        // Check the buffer periodically in case we missed the URL in the event handlers
-        const interval = setInterval(() => {
-          if (checkBufferForUrl()) {
-            clearInterval(interval);
-            clearTimeout(timeout);
-          }
-        }, 100); // Check every 100ms
-
-        // Clean up interval on reject/resolve
-        process.on("exit", () => {
-          clearInterval(interval);
-          clearTimeout(timeout);
-        });
-      });
-
-      // Wait for the URL
       const tunnelUrl = await urlPromise;
+      if (!this.registry.isOwned(quickTunnelId)) {
+        throw new Error("Quick tunnel exited right after reporting its URL");
+      }
+
+      this.logger.info(
+        LogComponent.TUNNEL,
+        `Found quick tunnel URL: ${tunnelUrl}`,
+      );
+      this.announcedQuickTunnels.set(quickTunnelId, { tunnelUrl, name });
+      this._onTunnelEvent.fire({
+        type: "start",
+        tunnelId: quickTunnelId,
+        message: `Quick tunnel${name ? ` "${name}"` : ""} started for ${targetUrl}`,
+      });
+      Messages.showInfo(Messages.QUICK_TUNNEL_RUNNING(tunnelUrl, name));
 
       return {
+        tunnelId: quickTunnelId,
         url: targetUrl,
         tunnelUrl,
         name
       };
     } catch (error) {
-      // Clean up on error
-      if (typeof portOrUrl === 'number') {
-        await this.stopQuickTunnel(portOrUrl);
-      } else {
-        try {
-          const url = new URL(portOrUrl);
-          const port = url.port ? parseInt(url.port, 10) : (url.protocol === 'https:' ? 443 : 80);
-          await this.stopQuickTunnel(port);
-        } catch (e) {
-          // If we can't parse the URL, try to extract port from error message or just log the error
+      settle();
+      // Stop this attempt's own child before the error reaches the user, so the port is not left public
+      if (attemptId) {
+        const stopped = await this.registry.stop(attemptId);
+        if (stopped.outcome === "failed") {
           this.logger.error(
             LogComponent.TUNNEL,
-            `Failed to stop quick tunnel after error: ${e}`,
+            `Failed to stop quick tunnel ${attemptId} after error: ${stopped.reason}`,
           );
         }
+      }
+      if (failureMessage) {
+        Messages.showError(failureMessage);
       }
       this.logger.error(
         LogComponent.TUNNEL,
@@ -954,19 +853,15 @@ export class TunnelManager {
   }
 
   /**
-   * Stops a quick tunnel
-   * @param port Port number of the quick tunnel to stop
+   * Stops a quick tunnel by its tunnel id (never by port, so two quick tunnels on one
+   * port are stopped independently)
+   * @param tunnelId ID of the quick tunnel to stop
    */
-  async stopQuickTunnel(port: number): Promise<void> {
-    // Find the quick tunnel process for this port
-    const quickTunnelId = Array.from(this.runningTunnels.entries()).find(
-      ([id, _]) => id.startsWith(`quick-${port}-`),
-    )?.[0];
-
-    if (quickTunnelId) {
-      await this.stopTunnel(quickTunnelId);
+  async stopQuickTunnel(tunnelId: string): Promise<StopResult> {
+    if (!this.registry.list("quick").some((record) => record.tunnelId === tunnelId)) {
+      return { tunnelId, outcome: "not-owned" };
     }
-    // No need to log anything if tunnel not found - it's already stopped
+    return this.registry.stop(tunnelId);
   }
 
   /**

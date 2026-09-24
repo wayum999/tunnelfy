@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { TunnelManager } from "../services/cloudflared";
+import { TunnelManager, StopResult } from "../services/cloudflared";
 import { CloudflareApiService } from "../services/cloudflareApi";
 import { TokenAuditService } from "../services/tokenAuditService";
 import { copyTokenToClipboard } from "../utils/clipboard";
@@ -37,6 +37,60 @@ export function serviceCommandArgs(
   serviceType: ServiceType,
 ): [string | undefined, string | undefined, ServiceType] {
   return [item?.tunnelId, item?.label, serviceType];
+}
+
+/**
+ * Tells the user what a stop actually did. The "stopped" message appears only for
+ * a stopped outcome; a tunnel the extension does not own, or a failed stop, says so.
+ */
+export async function reportTunnelStop(result: StopResult, name: string): Promise<void> {
+  switch (result.outcome) {
+    case "stopped":
+      await Messages.showInfo(Messages.TUNNEL_STOPPED(name));
+      return;
+    case "not-owned":
+      await Messages.showWarning(Messages.TUNNEL_NOT_OWNED(name));
+      return;
+    case "failed":
+      await Messages.showError(Messages.TUNNEL_STOP_FAILED(name, result.reason));
+      return;
+  }
+}
+
+/**
+ * Pick-list entries for the command-palette Stop: only named tunnels this extension
+ * owns, never every tunnel that has Cloudflare connections.
+ */
+export async function ownedTunnelStopItems(
+  tunnelManager: Pick<TunnelManager, "listOwnedTunnels">,
+  apiService: Pick<CloudflareApiService, "listTunnels">,
+): Promise<Array<vscode.QuickPickItem & { tunnelId: string; name: string }>> {
+  const owned = tunnelManager.listOwnedTunnels("named");
+  if (owned.length === 0) {
+    return [];
+  }
+  const names = new Map<string, string>();
+  try {
+    for (const tunnel of await apiService.listTunnels()) {
+      names.set(tunnel.id, tunnel.name);
+    }
+  } catch (error) {
+    // Names are cosmetic here; the ids are enough to stop the tunnels
+    Logger.getInstance().warn(
+      LogComponent.COMMAND,
+      `Could not load tunnel names for the stop list: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  return owned.map((record) => {
+    const name = names.get(record.tunnelId) ?? record.tunnelId;
+    return {
+      label: name,
+      description: `ID: ${record.tunnelId}`,
+      detail: `Target: ${record.target}`,
+      tunnelId: record.tunnelId,
+      name,
+    };
+  });
 }
 
 export function registerTunnelCommands(
@@ -506,30 +560,22 @@ export function registerTunnelCommands(
               return;
             }
 
-            await tunnelManager.stopTunnel(item.tunnelId);
+            const result = await tunnelManager.stopTunnel(item.tunnelId);
             await tunnelProvider.refresh();
-            await Messages.showInfo(Messages.TUNNEL_STOPPED(item.label));
+            await reportTunnelStop(result, item.label);
             return;
           }
 
-          // If called from command palette, show QuickPick
-          const allTunnels = await apiService.listTunnels();
-          const runningTunnels = allTunnels.filter(
-            (tunnel) => tunnel.connections && tunnel.connections.length > 0,
-          );
+          // If called from command palette, list only the tunnels this extension owns
+          const ownedTunnels = await ownedTunnelStopItems(tunnelManager, apiService);
 
-          if (!runningTunnels || runningTunnels.length === 0) {
-            await Messages.showInfo("No running tunnels available to stop.");
+          if (ownedTunnels.length === 0) {
+            await Messages.showInfo(Messages.NO_OWNED_TUNNELS);
             return;
           }
 
           const selected = await vscode.window.showQuickPick(
-            runningTunnels.map((tunnel) => ({
-              label: tunnel.name,
-              description: `ID: ${tunnel.id}`,
-              detail: `${tunnel.connections?.length || 0} active connection(s)`,
-              tunnelId: tunnel.id,
-            })),
+            ownedTunnels,
             {
               placeHolder: "Select a tunnel to stop",
               ignoreFocusOut: true,
@@ -548,9 +594,9 @@ export function registerTunnelCommands(
               return;
             }
 
-            await tunnelManager.stopTunnel(selected.tunnelId);
+            const result = await tunnelManager.stopTunnel(selected.tunnelId);
             await tunnelProvider.refresh();
-            await Messages.showInfo(Messages.TUNNEL_STOPPED(selected.label));
+            await reportTunnelStop(result, selected.name);
           }
         } catch (error) {
           await Messages.showError(Messages.ERROR_STOP_TUNNEL(error));

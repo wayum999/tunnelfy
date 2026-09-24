@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { TunnelManager, TunnelEvent } from "../services/cloudflared";
+import { TunnelManager, TunnelEvent, StopResult } from "../services/cloudflared";
 import { Logger, LogComponent } from "../utils/logger";
 import { Messages } from "../utils/messages";
 
@@ -9,6 +9,8 @@ import { Messages } from "../utils/messages";
  */
 export class QuickTunnelTreeItem extends vscode.TreeItem {
   constructor(
+    /** Addresses this tunnel for stop; two quick tunnels can share a port */
+    public readonly tunnelId: string,
     public readonly port: number,
     public readonly status: string,
     public readonly url?: string,
@@ -73,6 +75,7 @@ export class QuickTunnelTreeItem extends vscode.TreeItem {
 }
 
 interface QuickTunnel {
+  tunnelId: string;
   port: number;
   url: string;
   tunnelUrl: string;
@@ -164,6 +167,7 @@ export class QuickTunnelTreeDataProvider
         // Ensure name is properly trimmed and not empty
         const tunnelName = tunnel.name?.trim() || undefined;
         return new QuickTunnelTreeItem(
+          tunnel.tunnelId,
           tunnel.port,
           "running",
           tunnel.url,
@@ -253,12 +257,14 @@ export class QuickTunnelTreeDataProvider
 
   /**
    * Stops and removes a quick tunnel
-   * @param port Port number of the tunnel to remove
+   * @param tunnelId ID of the quick tunnel to stop
+   * @returns what the stop actually did
    */
-  async removeQuickTunnel(port: number): Promise<void> {
+  async removeQuickTunnel(tunnelId: string): Promise<StopResult> {
     try {
-      await this.tunnelManager.stopQuickTunnel(port);
+      const result = await this.tunnelManager.stopQuickTunnel(tunnelId);
       this.refresh();
+      return result;
     } catch (error) {
       this.logger.error(
         LogComponent.EXTENSION,

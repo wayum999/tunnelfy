@@ -74,10 +74,16 @@ export async function activate(context: vscode.ExtensionContext) {
         const tunnelProvider = new TunnelTreeDataProvider(manager, profileManager);
         const quickTunnelProvider = new QuickTunnelTreeDataProvider(manager);
 
-        // Register views
-        vscode.window.registerTreeDataProvider('tunnelfy-profiles', profilesProvider);
-        vscode.window.registerTreeDataProvider('tunnelfy-tunnels', tunnelProvider);
-        vscode.window.registerTreeDataProvider('tunnelfy-quick-tunnels', quickTunnelProvider);
+        // Register views, each exactly once: the tunnel and quick tunnel providers
+        // create their own tree views, so only the profiles view is registered here.
+        // Every provider is disposed with the extension, taking its timers and listeners.
+        context.subscriptions.push(
+            vscode.window.registerTreeDataProvider('tunnelfy-profiles', profilesProvider),
+            profilesProvider,
+            tunnelProvider,
+            quickTunnelProvider
+        );
+
 
         // Register all command handlers
         const tunnelCommandDisposables = registerTunnelCommands(

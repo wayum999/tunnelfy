@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { TunnelManager, TunnelEvent } from "../services/cloudflared";
 import { ProfileManager } from "../services/profileManager";
 import { Logger, LogComponent } from "../utils/logger";
+import { Messages } from "../utils/messages";
 import { CloudflareTunnel } from "../services/cloudflareApi/types";
 
 /**
@@ -60,6 +61,24 @@ export class TunnelTreeItem extends vscode.TreeItem {
         new vscode.ThemeColor("descriptionForeground"),
       );
     }
+  }
+}
+
+/**
+ * Shown in a group when the tunnel list could not be loaded, so a failure is
+ * never mistaken for an account with no tunnels. It offers no tunnel actions.
+ */
+export class TunnelListErrorItem extends TunnelTreeItem {
+  constructor(error: unknown, management_type: "remote" | "local") {
+    const message = Messages.TUNNEL_LIST_FAILED(error);
+    super(message, "list-error", "stopped", management_type, false);
+    this.contextValue = "tunnel-list-error";
+    this.description = undefined;
+    this.tooltip = message;
+    this.iconPath = new vscode.ThemeIcon(
+      "error",
+      new vscode.ThemeColor("errorForeground"),
+    );
   }
 }
 
@@ -291,7 +310,11 @@ export class TunnelTreeDataProvider
           LogComponent.EXTENSION,
           `Failed to get tunnels: ${error}`,
         );
-        return [];
+        // Drop this group's stale items so no action targets a tunnel we could not confirm
+        this.currentItems = this.currentItems.filter(
+          (item) => item.management_type !== element.management_type,
+        );
+        return [new TunnelListErrorItem(error, element.management_type)];
       }
     }
 

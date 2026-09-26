@@ -5,10 +5,54 @@ import {
   TunnelTreeItem,
   TunnelGroupItem,
   TunnelTreeDataProvider,
+  TunnelListErrorItem,
 } from "../../views/tunnelTreeView";
 import { TunnelManager } from "../../services/cloudflared";
 import { ProfileManager } from "../../services/profileManager";
 import { Logger } from "../../utils/logger";
+
+interface MenuEntry {
+  command: string;
+  when?: string;
+}
+
+/** Reads the view/item/context menus from the extension's own package.json */
+function readManifestItemMenus(): MenuEntry[] {
+  const extension = vscode.extensions.getExtension("Willbot.tunnelfy");
+  assert.ok(extension, "extension not found");
+  return extension.packageJSON.contributes.menus["view/item/context"];
+}
+
+/**
+ * Evaluates a menu when clause for one view and viewItem. Covers the forms the
+ * manifest uses (==, =~ /regex/, &&, ||, !, parentheses) and fails on any other key.
+ */
+function whenClauseMatches(when: string, view: string, viewItem: string): boolean {
+  const keys: Record<string, string> = { view, viewItem };
+  const expression = when
+    .replace(
+      /\b(\w+)\s*=~\s*\/((?:\\\/|[^/])+)\/([a-z]*)/g,
+      (_match, key: string, source: string, flags: string) => {
+        if (!(key in keys)) {
+          throw new Error(`unsupported when key "${key}" in: ${when}`);
+        }
+        return String(new RegExp(source, flags).test(keys[key]));
+      },
+    )
+    .replace(
+      /\b(\w+)\s*(==|!=)\s*([\w.-]+)/g,
+      (_match, key: string, operator: string, value: string) => {
+        if (!(key in keys)) {
+          throw new Error(`unsupported when key "${key}" in: ${when}`);
+        }
+        return String((keys[key] === value) === (operator === "=="));
+      },
+    );
+  if (!/^[\s()!&|]*(?:(?:true|false)[\s()!&|]*)*$/.test(expression)) {
+    throw new Error(`unsupported when clause: ${when}`);
+  }
+  return new Function(`return (${expression});`)() as boolean;
+}
 
 suite("TunnelTreeView Test Suite", () => {
   let tunnelTreeDataProvider: TunnelTreeDataProvider;
@@ -147,6 +191,58 @@ suite("TunnelTreeView Test Suite", () => {
         "Item should indicate no profile is set up",
       );
     });
+  });
+
+  test("an API failure shows an error item and logs it, not an empty list (TUNNEL-84)", async () => {
+    (mockTunnelManager.listTunnels as sinon.SinonStub).rejects(
+      new Error("Cloudflare API request timed out after 15s: GET /accounts/x/tunnels"),
+    );
+    const logError = sinon.spy(Logger.getInstance(), "error");
+
+    const rootItems = await tunnelTreeDataProvider.getChildren();
+    for (const group of rootItems) {
+      const children = await tunnelTreeDataProvider.getChildren(group);
+      assert.strictEqual(children.length, 1, "expected one error item, not []");
+      const item = children[0];
+      assert.ok(item instanceof TunnelListErrorItem, "not an error item");
+      assert.strictEqual(item.contextValue, "tunnel-list-error");
+      assert.strictEqual(
+        item.label,
+        "Could not load tunnels from Cloudflare: Cloudflare API request timed out after 15s: GET /accounts/x/tunnels",
+      );
+      assert.strictEqual((item.iconPath as vscode.ThemeIcon).id, "error");
+    }
+    assert.ok(
+      logError.getCalls().some((call) => String(call.args[1]).includes("Failed to get tunnels")),
+      "failure was not logged",
+    );
+    assert.strictEqual(tunnelTreeDataProvider.findTunnelById("list-error"), undefined);
+  });
+
+  test("the list-error item matches no tunnel item menu in package.json (TUNNEL-84)", () => {
+    const menus = readManifestItemMenus();
+    const tunnelMenus = menus.filter((entry) =>
+      (entry.when ?? "").includes("view == tunnelfy-tunnels"),
+    );
+    assert.ok(tunnelMenus.length >= 4, "expected the tunnel item menus in package.json");
+    // The evaluator must see a real tunnel item's menus, or a no-match proves nothing
+    assert.ok(
+      tunnelMenus.some((entry) =>
+        whenClauseMatches(entry.when!, "tunnelfy-tunnels", "tunnel-stopped"),
+      ),
+      "no menu matched tunnel-stopped; the when evaluator is broken",
+    );
+
+    const errorItem = new TunnelListErrorItem(new Error("boom"), "local");
+    for (const entry of menus) {
+      for (const view of ["tunnelfy-tunnels", "tunnelfy-profiles", "tunnelfy-quick-tunnels"]) {
+        assert.strictEqual(
+          whenClauseMatches(entry.when ?? "true", view, errorItem.contextValue!),
+          false,
+          `${entry.command} is offered on the list-error item in ${view}`,
+        );
+      }
+    }
   });
 
   test("getChildren should return tunnel items for active profile", async () => {

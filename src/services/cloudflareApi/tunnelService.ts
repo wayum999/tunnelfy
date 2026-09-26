@@ -9,7 +9,7 @@ import { LogComponent } from "../../utils/logger";
 export class TunnelService extends BaseCloudflareService {
   /**
    * Lists all tunnels for the account
-   * Filters out deleted tunnels and sorts by name
+   * Reads every page, asks the API to leave deleted tunnels out, and sorts by name
    * @returns Array of active tunnels
    * @throws Error if listing fails
    */
@@ -26,16 +26,16 @@ export class TunnelService extends BaseCloudflareService {
       }
 
       const accountId = await this.getAccountId();
-      const tunnels = await this.makeRequest<CloudflareTunnel[]>(
+      // The API leaves deleted tunnels out, so no client-side filter is needed
+      const tunnels = await this.makePaginatedRequest<CloudflareTunnel>(
         `/accounts/${accountId}/tunnels`,
+        { is_deleted: "false" },
       );
 
-      // Filter out deleted tunnels and sort by name
-      const activeTunnels = tunnels
-        .filter((tunnel: CloudflareTunnel) => !tunnel.deleted_at)
-        .sort((a: CloudflareTunnel, b: CloudflareTunnel) =>
+      const activeTunnels = tunnels.sort(
+        (a: CloudflareTunnel, b: CloudflareTunnel) =>
           a.name.toLowerCase().localeCompare(b.name.toLowerCase()),
-        );
+      );
 
       this.logger.debug(
         LogComponent.API,

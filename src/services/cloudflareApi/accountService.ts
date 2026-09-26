@@ -14,7 +14,7 @@ export class AccountService extends BaseCloudflareService {
    */
   async listAccounts(): Promise<CloudflareAccount[]> {
     try {
-      return await this.makeRequest<CloudflareAccount[]>("/accounts");
+      return await this.makePaginatedRequest<CloudflareAccount>("/accounts");
     } catch (error) {
       this.logger.error(LogComponent.API, "Failed to list accounts:", error);
       throw error;

@@ -49,6 +49,8 @@ export class Messages {
   static readonly TUNNEL_URL_COPIED = "Tunnel URL copied to clipboard";
   static readonly NO_TUNNEL_URL = "No tunnel URL available";
   static readonly TUNNELS_REFRESHED = "Tunnel list has been refreshed.";
+  static readonly TUNNEL_LIST_FAILED = (error: unknown) =>
+    `Could not load tunnels from Cloudflare: ${error instanceof Error ? error.message : String(error)}`;
   static readonly ERROR_REFRESH_TUNNELS = (error: unknown) =>
     `Failed to refresh tunnel list: ${error instanceof Error ? error.message : String(error)}`;
 

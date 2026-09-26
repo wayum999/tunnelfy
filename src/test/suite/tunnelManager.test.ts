@@ -135,6 +135,21 @@ suite("TunnelManager Test Suite", () => {
     assert.strictEqual(deleteCalled, true);
   });
 
+  test("listTunnels rethrows an API failure instead of returning [] (TUNNEL-84)", async () => {
+    const manager = new TunnelManager(
+      mockContext,
+      mockLogger,
+      {
+        ...mockApiService,
+        listTunnels: async () => {
+          throw new Error("API down");
+        },
+      } as unknown as CloudflareApiService,
+      mockProfileManager,
+    );
+    await assert.rejects(manager.listTunnels(), /API down/);
+  });
+
   test("should list tunnels", async () => {
     const tunnels = await tunnelManager.listTunnels();
     assert.strictEqual(tunnels.length, 1);

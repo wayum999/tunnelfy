@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { TunnelManager, TunnelEvent } from "../services/cloudflared";
 import { ProfileManager } from "../services/profileManager";
 import { Logger, LogComponent } from "../utils/logger";
+import { Messages } from "../utils/messages";
 import { CloudflareTunnel } from "../services/cloudflareApi/types";
 
 /**
@@ -64,6 +65,24 @@ export class TunnelTreeItem extends vscode.TreeItem {
 }
 
 /**
+ * Shown in a group when the tunnel list could not be loaded, so a failure is
+ * never mistaken for an account with no tunnels. It offers no tunnel actions.
+ */
+export class TunnelListErrorItem extends TunnelTreeItem {
+  constructor(error: unknown, management_type: "remote" | "local") {
+    const message = Messages.TUNNEL_LIST_FAILED(error);
+    super(message, "list-error", "stopped", management_type, false);
+    this.contextValue = "tunnel-list-error";
+    this.description = undefined;
+    this.tooltip = message;
+    this.iconPath = new vscode.ThemeIcon(
+      "error",
+      new vscode.ThemeColor("errorForeground"),
+    );
+  }
+}
+
+/**
  * Group item for organizing tunnels by management type
  */
 export class TunnelGroupItem extends vscode.TreeItem {
@@ -102,7 +121,12 @@ export class TunnelTreeDataProvider
   > = this._onDidChangeTreeData.event;
   private readonly logger = Logger.getInstance();
   private treeView: vscode.TreeView<TunnelTreeItem | TunnelGroupItem>;
+  private readonly tunnelEventSubscription: vscode.Disposable;
   private currentItems: TunnelTreeItem[] = [];
+  /** The in-flight listTunnels call, shared by the group nodes of one render */
+  private pendingTunnels:
+    | Promise<Array<CloudflareTunnel & { is_running_locally?: boolean }>>
+    | undefined;
 
   /**
    * Creates a new instance of TunnelTreeDataProvider
@@ -121,7 +145,7 @@ export class TunnelTreeDataProvider
     });
 
     // Subscribe to tunnel events for automatic updates
-    this.tunnelManager.onTunnelEvent((event: TunnelEvent) => {
+    this.tunnelEventSubscription = this.tunnelManager.onTunnelEvent((event: TunnelEvent) => {
       this.logger.debug(
         LogComponent.EXTENSION,
         `Tunnel event received: ${event.type} - ${event.tunnelId}`,
@@ -167,7 +191,8 @@ export class TunnelTreeDataProvider
     element?: TunnelTreeItem | TunnelGroupItem,
   ): Promise<Array<TunnelTreeItem | TunnelGroupItem>> {
     if (!element) {
-      // Root level - return groups
+      // Root level: a new render, so the groups fetch the tunnel list afresh
+      this.pendingTunnels = undefined;
       return [
         new TunnelGroupItem("Remote-Managed Tunnels", "remote"),
         new TunnelGroupItem("Locally-Managed Tunnels", "local"),
@@ -192,8 +217,8 @@ export class TunnelTreeDataProvider
           return [item];
         }
 
-        // Get tunnels from Cloudflare
-        const tunnels = await this.tunnelManager.listTunnels();
+        // Get tunnels from Cloudflare, once for both groups
+        const tunnels = await this.loadTunnels();
 
         this.logger.debug(
           LogComponent.EXTENSION,
@@ -202,7 +227,7 @@ export class TunnelTreeDataProvider
 
         // Filter tunnels based on group type
         const groupTunnels = (
-          tunnels as Array<CloudflareTunnel & { is_running_locally?: boolean }>
+          tunnels
         ).filter((tunnel) => {
           // Use remote_config to determine management type
           const tunnelManagementType = tunnel.remote_config
@@ -291,7 +316,11 @@ export class TunnelTreeDataProvider
           LogComponent.EXTENSION,
           `Failed to get tunnels: ${error}`,
         );
-        return [];
+        // Drop this group's stale items so no action targets a tunnel we could not confirm
+        this.currentItems = this.currentItems.filter(
+          (item) => item.management_type !== element.management_type,
+        );
+        return [new TunnelListErrorItem(error, element.management_type)];
       }
     }
 
@@ -302,7 +331,29 @@ export class TunnelTreeDataProvider
    * Refreshes the tree view to reflect current tunnel states
    */
   refresh(): void {
+    this.pendingTunnels = undefined;
     this._onDidChangeTreeData.fire();
+  }
+
+  /**
+   * Returns the tunnel list for the current render, calling the API only once
+   * however many group nodes ask. A failure is shared too, so every group shows it.
+   * The shared call is dropped once it settles, so a group expanded later fetches
+   * afresh instead of reusing an old list or a stale error.
+   */
+  private loadTunnels(): Promise<Array<CloudflareTunnel & { is_running_locally?: boolean }>> {
+    if (!this.pendingTunnels) {
+      const pending = this.tunnelManager.listTunnels();
+      this.pendingTunnels = pending;
+      const expire = () => {
+        // A refresh may already have started a newer call; leave that one alone
+        if (this.pendingTunnels === pending) {
+          this.pendingTunnels = undefined;
+        }
+      };
+      pending.then(expire, expire);
+    }
+    return this.pendingTunnels;
   }
 
   /**
@@ -318,7 +369,9 @@ export class TunnelTreeDataProvider
    * Disposes of the tree view and its resources
    */
   dispose(): void {
+    this.tunnelEventSubscription.dispose();
     this.treeView.dispose();
+    this._onDidChangeTreeData.dispose();
   }
 
   private getTunnelTooltip(tunnel: TunnelTreeItem): string {

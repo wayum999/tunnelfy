@@ -3,6 +3,44 @@ import { Logger, LogComponent } from "../../utils/logger";
 import { ProfileManager } from "../profileManager";
 import { CloudflareApiResponse, CloudflareAccount } from "./types";
 
+/** Upper bound on one Cloudflare API request, response body included */
+export const CLOUDFLARE_REQUEST_TIMEOUT_MS = 15_000;
+
+/** Page size for list calls; 50 is within every list endpoint's limit */
+export const CLOUDFLARE_PAGE_SIZE = 50;
+
+/** Stops a paging loop whose result_info never reaches its last page */
+export const CLOUDFLARE_MAX_PAGES = 1_000;
+
+/**
+ * Raised when a Cloudflare API request does not complete within its timeout.
+ * The message names the operation, never the request headers.
+ */
+export class CloudflareRequestTimeoutError extends Error {
+  constructor(
+    public readonly operation: string,
+    public readonly timeoutMs: number,
+  ) {
+    super(
+      `Cloudflare API request timed out after ${timeoutMs / 1000}s: ${operation}`,
+    );
+    this.name = "CloudflareRequestTimeoutError";
+  }
+}
+
+/**
+ * Raised when a successful list response carries a result that is not an array.
+ * The message names the operation, never the request headers.
+ */
+export class CloudflareMalformedResponseError extends Error {
+  constructor(public readonly operation: string) {
+    super(
+      `Cloudflare API returned a list response whose result is not an array: ${operation}`,
+    );
+    this.name = "CloudflareMalformedResponseError";
+  }
+}
+
 /**
  * Base service class for Cloudflare API interactions
  * Handles core functionality like authentication and request handling
@@ -12,6 +50,7 @@ export class BaseCloudflareService {
   protected readonly baseUrl = "https://api.cloudflare.com/client/v4";
   protected accountId: string | null = null;
   protected apiKey: string | null = null;
+  protected requestTimeoutMs = CLOUDFLARE_REQUEST_TIMEOUT_MS;
 
   constructor(
     protected readonly context: vscode.ExtensionContext,
@@ -114,6 +153,74 @@ export class BaseCloudflareService {
     method: string = "GET",
     body?: any,
   ): Promise<T> {
+    const data = await this.sendRequest<T>(endpoint, method, body);
+    return data.result;
+  }
+
+  /**
+   * Reads every page of a Cloudflare list endpoint
+   * Follows result_info until the last page, so no item past the first page is lost
+   * @param endpoint API endpoint to list, without paging parameters
+   * @param params Extra query parameters sent with every page
+   * @returns Items from all pages, in API order
+   * @throws Error if any page fails, or if paging does not end within CLOUDFLARE_MAX_PAGES
+   * @throws CloudflareMalformedResponseError if a page's result is not an array
+   * @protected
+   */
+  protected async makePaginatedRequest<T>(
+    endpoint: string,
+    params: Record<string, string> = {},
+  ): Promise<T[]> {
+    const items: T[] = [];
+    for (let page = 1; page <= CLOUDFLARE_MAX_PAGES; page++) {
+      const query = new URLSearchParams({
+        ...params,
+        page: String(page),
+        per_page: String(CLOUDFLARE_PAGE_SIZE),
+      });
+      const separator = endpoint.includes("?") ? "&" : "?";
+      const data = await this.sendRequest<T[]>(
+        `${endpoint}${separator}${query.toString()}`,
+      );
+      if (!Array.isArray(data.result)) {
+        const malformedError = new CloudflareMalformedResponseError(
+          `GET ${endpoint.split("?")[0]}`,
+        );
+        this.logger.error(LogComponent.API, malformedError.message);
+        throw malformedError;
+      }
+      const pageItems = data.result;
+      items.push(...pageItems);
+
+      const totalPages = data.result_info?.total_pages;
+      const isLastPage =
+        typeof totalPages === "number"
+          ? page >= totalPages
+          : pageItems.length < CLOUDFLARE_PAGE_SIZE;
+      if (isLastPage || pageItems.length === 0) {
+        return items;
+      }
+    }
+    throw new Error(
+      `Cloudflare API listing did not end after ${CLOUDFLARE_MAX_PAGES} pages: ${endpoint}`,
+    );
+  }
+
+  /**
+   * Sends one authenticated, time-bounded request and returns the whole response envelope
+   * @param endpoint API endpoint to call, query string included
+   * @param method HTTP method to use
+   * @param body Optional request body, sent as JSON
+   * @returns The parsed response envelope, including result_info
+   * @throws CloudflareRequestTimeoutError if the request exceeds the timeout
+   * @throws Error if the request fails or the response is not a successful JSON envelope
+   * @private
+   */
+  private async sendRequest<T>(
+    endpoint: string,
+    method: string = "GET",
+    body?: any,
+  ): Promise<CloudflareApiResponse<T>> {
     // Use temporary API key if set, otherwise get from active profile
     const apiKey = this.apiKey || (await this.getApiKey());
 
@@ -127,6 +234,7 @@ export class BaseCloudflareService {
         method,
         headers,
         body: body ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(this.requestTimeoutMs),
       });
 
       const contentType = response.headers.get("content-type");
@@ -159,8 +267,20 @@ export class BaseCloudflareService {
         throw new Error(errorMsg);
       }
 
-      return data.result;
+      return data;
     } catch (error) {
+      if (
+        error instanceof Error &&
+        (error.name === "TimeoutError" || error.name === "AbortError")
+      ) {
+        const timeoutError = new CloudflareRequestTimeoutError(
+          `${method} ${endpoint.split("?")[0]}`,
+          this.requestTimeoutMs,
+        );
+        this.logger.error(LogComponent.API, timeoutError.message);
+        throw timeoutError;
+      }
+
       // If this is our custom error about HTML response, suggest token refresh
       if (
         error instanceof Error &&
@@ -191,7 +311,8 @@ export class BaseCloudflareService {
    * @private
    */
   private async fetchAndStoreAccountId(profileName: string): Promise<string> {
-    const accounts = await this.makeRequest<CloudflareAccount[]>("/accounts");
+    const accounts =
+      await this.makePaginatedRequest<CloudflareAccount>("/accounts");
     if (!accounts || accounts.length === 0) {
       throw new Error("No Cloudflare accounts found");
     }

@@ -2,6 +2,7 @@ import * as assert from "assert";
 import {
   TunnelProcessRegistry,
   TunnelAlreadyRunningError,
+  MAX_HOST_PROBE_ATTEMPTS,
   OWNED_TUNNELS_KEY,
   OwnedTunnelRecord,
   RegistryEvent,
@@ -622,6 +623,196 @@ suite("TunnelProcessRegistry Test Suite", () => {
       assert.strictEqual(records.length, 2);
       assert.deepStrictEqual(records[0], record);
       assert.strictEqual(records[1].ownerPid, HOST_B_PID);
+    });
+  });
+
+  suite("ownership edge cases (TUNNEL-89)", () => {
+    const START = new Date(2026, 8, 24, 12, 0, 0).getTime();
+    /** A window that has since closed */
+    const DEAD_OWNER_PID = 4141;
+    const DEAD_OWNER_START = new Date(2026, 8, 24, 7, 0, 0).getTime();
+    const HOST_C_PID = 4444;
+    const HOST_C_START = new Date(2026, 8, 24, 9, 0, 0).getTime();
+    const extra: TunnelProcessRegistry[] = [];
+
+    function orphan(tunnelId: string, pid: number): OwnedTunnelRecord {
+      return {
+        tunnelId,
+        pid,
+        startedAt: START,
+        kind: "named",
+        target: "http://localhost:8080",
+        ownerPid: DEAD_OWNER_PID,
+        ownerStartedAt: DEAD_OWNER_START,
+      };
+    }
+
+    /** Another window on the same globalState, with its own log */
+    function makeWindow(ownerPid: number): { reg: TunnelProcessRegistry; lines: LoggedLine[] } {
+      const saved = lines;
+      const reg = makeRegistry({ ownerPid });
+      const windowLines = lines;
+      lines = saved;
+      extra.push(reg);
+      return { reg, lines: windowLines };
+    }
+
+    setup(() => {
+      probeAnswers.set(DEAD_OWNER_PID, { state: "dead" });
+      probeAnswers.set(HOST_B_PID, { state: "alive", executable: "code", startTimeMs: HOST_B_START });
+      probeAnswers.set(HOST_C_PID, { state: "alive", executable: "code", startTimeMs: HOST_C_START });
+    });
+
+    teardown(() => {
+      extra.splice(0).forEach((reg) => reg.dispose());
+    });
+
+    test("(1) two verified orphans with one tunnel id are both tracked and both stopped", async () => {
+      await memento.update(OWNED_TUNNELS_KEY, [orphan("t1", 500), orphan("t1", 501)]);
+      for (const pid of [500, 501]) {
+        probeAnswers.set(pid, [
+          { state: "alive", executable: "cloudflared", startTimeMs: START }, // reconcile
+          { state: "alive", executable: "cloudflared", startTimeMs: START }, // stop: re-verify
+          { state: "dead" }, // stop: after SIGTERM
+        ]);
+      }
+      await registry.reconcile();
+      await registry.flush();
+
+      assert.deepStrictEqual(
+        registry.list().map((r) => r.pid).sort(),
+        [500, 501],
+        "a verified live orphan with a duplicate tunnel id was dropped untracked",
+      );
+      assert.deepStrictEqual(
+        persisted().map((r) => [r.pid, r.ownerPid]).sort(),
+        [[500, HOST_PID], [501, HOST_PID]],
+      );
+      assert.deepStrictEqual(events.filter((e) => e.type === "start").length, 2);
+      assert.strictEqual(kill.calls.length, 0);
+
+      const result = await registry.stop("t1", 500);
+      await registry.flush();
+      assert.deepStrictEqual(result, { tunnelId: "t1", outcome: "stopped" });
+      assert.deepStrictEqual(
+        kill.calls.map((c) => [c.pid, c.signal]).sort(),
+        [[500, "SIGTERM"], [501, "SIGTERM"]],
+        "both processes of the tunnel id must be stopped",
+      );
+      assert.strictEqual(registry.isOwned("t1"), false);
+      assert.deepStrictEqual(persisted(), []);
+      assert.deepStrictEqual(events.filter((e) => e.type === "stop").length, 1, "stop announced once, after the last process");
+    });
+
+    test("(1) stopping a tunnel id reports the failure of any of its processes", async () => {
+      await memento.update(OWNED_TUNNELS_KEY, [orphan("t1", 500), orphan("t1", 501)]);
+      probeAnswers.set(500, [
+        { state: "alive", executable: "cloudflared", startTimeMs: START },
+        { state: "alive", executable: "cloudflared", startTimeMs: START },
+        { state: "dead" },
+      ]);
+      probeAnswers.set(501, [
+        { state: "alive", executable: "cloudflared", startTimeMs: START },
+        { state: "unknown" },
+      ]);
+      await registry.reconcile();
+      const result = await registry.stop("t1", 300);
+      assert.deepStrictEqual(result, { tunnelId: "t1", outcome: "failed", reason: "identity-unverified" });
+      assert.deepStrictEqual(kill.calls, [{ pid: 500, signal: "SIGTERM" }], "signalled an unverified pid");
+      assert.deepStrictEqual(registry.list().map((r) => r.pid), [501], "the unverified process must stay tracked");
+      assert.strictEqual(events.filter((e) => e.type === "stop").length, 0);
+    });
+
+    test("(1) an orphan sharing the id of a tunnel this window started is adopted, not dropped", async () => {
+      await registry.start(request("t1"));
+      await registry.flush();
+      const own = persisted()[0];
+      await memento.update(OWNED_TUNNELS_KEY, [own, orphan("t1", 500)]);
+      probeAnswers.set(500, { state: "alive", executable: "cloudflared", startTimeMs: START });
+      await registry.reconcile();
+      await registry.flush();
+      assert.deepStrictEqual(registry.list().map((r) => r.pid).sort(), [own.pid, 500].sort());
+      assert.strictEqual(persisted().length, 2);
+    });
+
+    test("(1) starting a tunnel id keeps an unchecked orphan record of the same id", async () => {
+      await memento.update(OWNED_TUNNELS_KEY, [orphan("t1", 500)]);
+      await registry.start(request("t1"));
+      await registry.flush();
+      assert.deepStrictEqual(persisted().map((r) => r.pid).sort(), [500, childFor("t1").pid!].sort());
+    });
+
+    test("(2) two windows reconciling the same orphan end with exactly one owner", async () => {
+      await memento.update(OWNED_TUNNELS_KEY, [orphan("t1", 500)]);
+      probeAnswers.set(500, { state: "alive", executable: "cloudflared", startTimeMs: START });
+      const b = makeWindow(HOST_B_PID);
+      const c = makeWindow(HOST_C_PID);
+
+      await Promise.all([b.reg.reconcile(), c.reg.reconcile()]);
+      await Promise.all([b.reg.flush(), c.reg.flush()]);
+
+      const owners = [b.reg, c.reg].filter((reg) => reg.isOwned("t1"));
+      assert.strictEqual(owners.length, 1, `expected exactly one owner, got ${owners.length}`);
+      const records = persisted();
+      assert.strictEqual(records.length, 1);
+      const winner = owners[0] === b.reg ? HOST_B_PID : HOST_C_PID;
+      assert.strictEqual(records[0].ownerPid, winner, "the persisted owner is not the window that adopted");
+      const loserLines = owners[0] === b.reg ? c.lines : b.lines;
+      assert.ok(loserLines.some((l) => l.message.includes("claimed by another window first")), "loser did not log");
+      assert.strictEqual(kill.calls.length, 0);
+    });
+
+    test("(2) a failed ownership write claims nothing", async () => {
+      await memento.update(OWNED_TUNNELS_KEY, [orphan("t1", 500)]);
+      probeAnswers.set(500, { state: "alive", executable: "cloudflared", startTimeMs: START });
+      memento.update = () => Promise.reject(new Error("storage full"));
+      await registry.reconcile();
+      assert.strictEqual(registry.isOwned("t1"), false);
+      assert.ok(lines.some((l) => l.level === "warn" && l.message.includes("could not be saved")));
+    });
+
+    test("(3) a failed host probe is retried, and a success afterwards lets adoption proceed", async () => {
+      probeAnswers.set(HOST_PID, [
+        { state: "unknown" }, // first use (start): recorded by pid alone
+        { state: "alive", executable: "code", startTimeMs: HOST_START }, // retried on the next use
+      ]);
+      await registry.start(request("t1"));
+      await registry.flush();
+      const pidOnly = persisted()[0];
+      assert.strictEqual(pidOnly.ownerPid, HOST_PID);
+      assert.strictEqual(pidOnly.ownerStartedAt, undefined);
+      probeAnswers.set(pidOnly.pid, { state: "alive", executable: "cloudflared", startTimeMs: pidOnly.startedAt });
+
+      // While this window's start time is unknown, another window stays hands off
+      const b = makeWindow(HOST_B_PID);
+      await b.reg.reconcile();
+      assert.strictEqual(b.reg.isOwned("t1"), false, "claimed a record of an undecidable owner");
+
+      const hostProbes = () => probeCalls.filter((pid) => pid === HOST_PID).length;
+      const before = hostProbes();
+      await registry.reconcile();
+      await registry.flush();
+      assert.strictEqual(hostProbes(), before + 1, "host probe not retried");
+      assert.strictEqual(persisted()[0].ownerStartedAt, HOST_START, "start time not backfilled");
+      assert.strictEqual(registry.list()[0].ownerStartedAt, HOST_START);
+
+      // This window closes and a long-lived process reuses its pid: adoption can now proceed
+      probeAnswers.set(HOST_PID, { state: "alive", executable: "node", startTimeMs: HOST_START + 3_600_000 });
+      const c = makeWindow(HOST_C_PID);
+      await c.reg.reconcile();
+      await c.reg.flush();
+      assert.strictEqual(c.reg.isAdopted("t1"), true, "orphan of a pid-reused owner not adopted");
+      assert.strictEqual(persisted()[0].ownerPid, HOST_C_PID);
+      assert.strictEqual(kill.calls.length, 0);
+    });
+
+    test("(3) the host probe is retried at most MAX_HOST_PROBE_ATTEMPTS times", async () => {
+      probeAnswers.set(HOST_PID, { state: "unknown" });
+      for (let i = 0; i < MAX_HOST_PROBE_ATTEMPTS + 2; i++) {
+        await registry.reconcile();
+      }
+      assert.strictEqual(probeCalls.filter((pid) => pid === HOST_PID).length, MAX_HOST_PROBE_ATTEMPTS);
+      assert.ok(lines.some((l) => l.level === "warn" && l.message.includes("from now on")));
     });
   });
 });

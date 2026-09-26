@@ -102,10 +102,10 @@ _DEV/cloudflare-tunnel-vscode-EXAMPLE
 !./versions
 
 
-# Compiled JavaScript files
-*.js
-!tunnelfy/esbuild.js
-*.js.map
+# Compiled output from tsc (esbuild writes to dist/, tests to out/, both ignored above)
+src/**/*.js
+src/**/*.js.map
+src/**/*.d.ts
 run_merge_branch_main.sh
 install_vscode.sh
 
@@ -145,3 +145,9 @@ images/readme/overview/zTunnelfy_Cloudflare_Overview.gif
 .gitignore
 .claude/run_claude.sh
 CLAUDE.md
+
+# Local agent tooling (orchestrator, Claude Code, Codex); never part of the repo
+.claude
+.codex
+.orchestrator
+AGENTS.md

@@ -39,6 +39,13 @@ export class Messages {
   };
   static readonly TUNNEL_STOPPED = (name: string) =>
     `Tunnel "${name}" has been stopped.`;
+  static readonly TUNNEL_NOT_OWNED = (name: string) =>
+    `Tunnelfy did not start tunnel "${name}", so it cannot stop it. Stop it where it was started.`;
+  static readonly TUNNEL_STOP_FAILED = (name: string, reason?: string) => ({
+    message: `Failed to stop tunnel "${name}"`,
+    detail: Messages.describeStopFailure(reason),
+  });
+  static readonly NO_OWNED_TUNNELS = "No running tunnels started by Tunnelfy to stop.";
   static readonly TUNNEL_URL_COPIED = "Tunnel URL copied to clipboard";
   static readonly NO_TUNNEL_URL = "No tunnel URL available";
   static readonly TUNNELS_REFRESHED = "Tunnel list has been refreshed.";
@@ -71,6 +78,8 @@ export class Messages {
     port?: string | number,
   ) =>
     `Quick tunnel${name ? ` "${name}"` : ""} on port ${port} stopped successfully`;
+  static readonly QUICK_TUNNEL_NOT_OWNED = (port?: string | number) =>
+    `Tunnelfy is not running a quick tunnel on port ${port}, so there is nothing to stop.`;
   static readonly QUICK_TUNNEL_RATE_LIMIT = {
     message: "Rate limit exceeded for quick tunnels",
     detail:
@@ -246,6 +255,22 @@ export class Messages {
       { modal: true, detail: messageObj.detail },
       ...items,
     );
+  }
+
+  /** Explains a StopResult failure reason in user terms */
+  static describeStopFailure(reason?: string): string {
+    switch (reason) {
+      case "identity-mismatch":
+        return "The recorded process is no longer the tunnel Tunnelfy started, so it was not signalled.";
+      case "identity-unverified":
+        return "Tunnelfy could not confirm that the recorded process is still its tunnel, so it was not signalled.";
+      case "still-running-after-kill":
+        return "The tunnel process is still running after it was told to stop.";
+      case "timeout":
+        return "The tunnel did not stop in time.";
+      default:
+        return reason ? `Reason: ${reason}` : "Unknown reason.";
+    }
   }
 
   // Helper to extract message string from message object or string

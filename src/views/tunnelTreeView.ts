@@ -22,8 +22,9 @@ export class TunnelTreeItem extends vscode.TreeItem {
   ) {
     super(label, vscode.TreeItemCollapsibleState.None);
 
-    // Set context value based on status and management type
-    this.contextValue = `tunnel-${status}${management_type === "remote" ? "-remote" : ""}`;
+    // Context value: tunnel-<status>[-remote][-owned]. "-owned" marks a tunnel this
+    // extension started, the only kind the Stop menu is offered for.
+    this.contextValue = `tunnel-${status}${management_type === "remote" ? "-remote" : ""}${is_running_locally ? "-owned" : ""}`;
 
     // Create description that includes management type and port info
     const managementInfo =

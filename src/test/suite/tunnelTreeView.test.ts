@@ -267,4 +267,80 @@ suite("TunnelTreeView Test Suite", () => {
     tunnelTreeDataProvider.refresh();
     assert.ok(eventFired);
   });
+
+  suite("ownership in contextValue and menus (11.1, 11.3)", () => {
+    const ALL_VALUES = ["running", "stopped"].flatMap((status) =>
+      ["", "-remote"].flatMap((remote) =>
+        ["", "-owned"].map((owned) => `tunnel-${status}${remote}${owned}`),
+      ),
+    );
+
+    function menuRegex(command: string): RegExp {
+      const extension = vscode.extensions.getExtension("Willbot.tunnelfy");
+      assert.ok(extension, "extension not found");
+      const entries = extension.packageJSON.contributes.menus["view/item/context"] as Array<{
+        command: string;
+        when: string;
+      }>;
+      const entry = entries.find((e) => e.command === command);
+      assert.ok(entry, `no view/item/context menu for ${command}`);
+      assert.ok(entry.when.startsWith("view == tunnelfy-tunnels && "), `unexpected when: ${entry.when}`);
+      const match = entry.when.match(/viewItem =~ \/(.+)\/$/);
+      assert.ok(match, `when clause is not a viewItem regex: ${entry.when}`);
+      return new RegExp(match[1]);
+    }
+
+    function matching(command: string): string[] {
+      const regex = menuRegex(command);
+      return ALL_VALUES.filter((value) => regex.test(value));
+    }
+
+    test("contextValue carries -owned only for tunnels the extension owns", () => {
+      const cases: Array<[TunnelTreeItem, string]> = [
+        [new TunnelTreeItem("a", "id", "running", "local", false), "tunnel-running"],
+        [new TunnelTreeItem("a", "id", "running", "local", true), "tunnel-running-owned"],
+        [new TunnelTreeItem("a", "id", "running", "remote", false), "tunnel-running-remote"],
+        [new TunnelTreeItem("a", "id", "running", "remote", true), "tunnel-running-remote-owned"],
+        [new TunnelTreeItem("a", "id", "stopped", "local", true), "tunnel-stopped-owned"],
+        [new TunnelTreeItem("a", "id", "stopped", "remote", false), "tunnel-stopped-remote"],
+      ];
+      for (const [item, expected] of cases) {
+        assert.strictEqual(item.contextValue, expected);
+      }
+    });
+
+    test("Stop is offered on ownership alone, whatever Cloudflare reports, and never for an unowned item", () => {
+      assert.deepStrictEqual(matching("tunnelfy.stopTunnel"), [
+        "tunnel-running-owned",
+        "tunnel-running-remote-owned",
+        "tunnel-stopped-owned",
+        "tunnel-stopped-remote-owned",
+      ]);
+      assert.ok(
+        ALL_VALUES.filter((v) => !v.endsWith("-owned")).every((v) => !menuRegex("tunnelfy.stopTunnel").test(v)),
+        "Stop offered for a tunnel the extension does not own",
+      );
+    });
+
+    test("Start is offered only for stopped items the extension does not own", () => {
+      assert.deepStrictEqual(matching("tunnelfy.startTunnel"), ["tunnel-stopped", "tunnel-stopped-remote"]);
+      // A just-started tunnel Cloudflare has not seen yet gets Stop, not Start
+      assert.ok(menuRegex("tunnelfy.stopTunnel").test("tunnel-stopped-owned"));
+      assert.ok(!menuRegex("tunnelfy.startTunnel").test("tunnel-stopped-owned"));
+    });
+
+    test("the other tunnel menus still match the items they matched before", () => {
+      const withoutOwned = (values: string[]) => values.filter((v) => !v.endsWith("-owned"));
+      const expectations: Record<string, string[]> = {
+        "tunnelfy.copyToken": ["tunnel-running", "tunnel-running-remote", "tunnel-stopped", "tunnel-stopped-remote"],
+        "tunnelfy.deleteTunnel": ["tunnel-stopped", "tunnel-stopped-remote"],
+      };
+      for (const [command, before] of Object.entries(expectations)) {
+        const now = matching(command);
+        assert.deepStrictEqual(withoutOwned(now), before, `${command} changed for unowned items`);
+        // ...and the same items keep matching once they carry the ownership marker
+        assert.deepStrictEqual(now.filter((v) => v.endsWith("-owned")), before.map((v) => `${v}-owned`), command);
+      }
+    });
+  });
 });

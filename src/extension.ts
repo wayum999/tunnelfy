@@ -31,6 +31,10 @@ import { ServiceGenerator } from './services/serviceGenerator';
 import { checkAndPromptCloudflared, setCloudflaredStatusBarItem } from './utils/cloudflaredUtils';
 
 let cloudflaredStatusBarItem: vscode.StatusBarItem;
+let tunnelManager: TunnelManager | undefined;
+
+/** Upper bound on how long deactivation waits for owned tunnels to stop */
+export const DEACTIVATE_STOP_TIMEOUT_MS = 3000;
 
 /**
  * Extension Activation Event
@@ -61,13 +65,14 @@ export async function activate(context: vscode.ExtensionContext) {
         const profileManager = new ProfileManager(context);
         const apiService = new CloudflareApiService(context, profileManager);
         const tokenAuditService = new TokenAuditService(context);
-        const tunnelManager = new TunnelManager(context, logger, apiService, profileManager);
-        const serviceGenerator = new ServiceGenerator(tunnelManager, apiService);
+        const manager = new TunnelManager(context, logger, apiService, profileManager);
+        tunnelManager = manager;
+        const serviceGenerator = new ServiceGenerator(manager, apiService);
 
         // Initialize UI providers
         const profilesProvider = new ProfilesProvider(profileManager);
-        const tunnelProvider = new TunnelTreeDataProvider(tunnelManager, profileManager);
-        const quickTunnelProvider = new QuickTunnelTreeDataProvider(tunnelManager);
+        const tunnelProvider = new TunnelTreeDataProvider(manager, profileManager);
+        const quickTunnelProvider = new QuickTunnelTreeDataProvider(manager);
 
         // Register views
         vscode.window.registerTreeDataProvider('tunnelfy-profiles', profilesProvider);
@@ -77,7 +82,7 @@ export async function activate(context: vscode.ExtensionContext) {
         // Register all command handlers
         const tunnelCommandDisposables = registerTunnelCommands(
             context,
-            tunnelManager,
+            manager,
             apiService,
             tokenAuditService,
             profileManager,
@@ -108,6 +113,9 @@ export async function activate(context: vscode.ExtensionContext) {
             })
         );
 
+        // Recognise tunnels an earlier session started; runs in the background
+        startReconcile(manager, logger);
+
         // Check for cloudflared installation if enabled in settings
         const config = vscode.workspace.getConfiguration('tunnelfy');
         const checkCloudflared = config.get<boolean>('checkCloudflared', true);
@@ -124,13 +132,6 @@ export async function activate(context: vscode.ExtensionContext) {
         // Show the status bar item
         cloudflaredStatusBarItem.show();
 
-        // Register cleanup on extension deactivation
-        context.subscriptions.push({
-            dispose: async () => {
-                await tunnelManager.cleanup();
-            }
-        });
-
         logger.info(LogComponent.EXTENSION, 'Tunnelfy extension activated successfully', { preserveFocus: true });
     } catch (error) {
         logger.error(LogComponent.EXTENSION, 'Failed to activate Tunnelfy extension', error);
@@ -138,8 +139,74 @@ export async function activate(context: vscode.ExtensionContext) {
     }
 }
 
-export function deactivate() {
+/**
+ * Starts reconciling persisted tunnel records without awaiting it: activation must not
+ * wait on process probing. Failures are logged, never thrown.
+ */
+export function startReconcile(manager: Pick<TunnelManager, 'reconcileOwned'>, logger: Logger): void {
+    manager.reconcileOwned().catch((error: unknown) => {
+        logger.warn(
+            LogComponent.EXTENSION,
+            `Reconciling owned tunnels failed: ${error instanceof Error ? error.message : String(error)}`
+        );
+    });
+}
+
+/**
+ * Stops every owned tunnel, resolving once they have all been asked to stop and either
+ * exited or the bounded wait elapsed. Never rejects and never waits much past the bound.
+ */
+export async function stopOwnedTunnels(
+    manager: Pick<TunnelManager, 'stopAllOwned'> | undefined,
+    timeoutMs: number = DEACTIVATE_STOP_TIMEOUT_MS,
+    logger: Pick<Logger, 'warn'> = Logger.getInstance()
+): Promise<void> {
+    if (!manager) {
+        return;
+    }
+    let timer: NodeJS.Timeout | undefined;
+    const bound = new Promise<'backstop'>((resolve) => {
+        timer = setTimeout(() => resolve('backstop'), timeoutMs + 250);
+    });
+    try {
+        const winner = await Promise.race([
+            manager.stopAllOwned(timeoutMs).then(
+                (results) => {
+                    const unconfirmed = results.filter((result) => result.outcome === 'failed');
+                    if (unconfirmed.length > 0) {
+                        logger.warn(
+                            LogComponent.EXTENSION,
+                            `${unconfirmed.length} owned tunnel(s) not confirmed stopped on deactivate: ` +
+                                unconfirmed.map((result) => `${result.tunnelId} (${result.reason})`).join(', ')
+                        );
+                    }
+                },
+                (error: unknown) => {
+                    logger.warn(
+                        LogComponent.EXTENSION,
+                        `Stopping owned tunnels on deactivate failed: ${error instanceof Error ? error.message : String(error)}`
+                    );
+                }
+            ),
+            bound,
+        ]);
+        if (winner === 'backstop') {
+            logger.warn(
+                LogComponent.EXTENSION,
+                `Stopping owned tunnels on deactivate did not settle within ${timeoutMs + 250} ms; ` +
+                    'continuing shutdown, and any tunnel not confirmed stopped stays recorded for the next reconcile'
+            );
+        }
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+export function deactivate(): Promise<void> {
     if (cloudflaredStatusBarItem) {
         cloudflaredStatusBarItem.dispose();
     }
+    const manager = tunnelManager;
+    tunnelManager = undefined;
+    return stopOwnedTunnels(manager);
 }

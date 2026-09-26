@@ -38,6 +38,7 @@ suite("TreeView Components Test Suite", () => {
   }> = [];
 
   const quickTunnels: Array<{
+    tunnelId: string;
     port: number;
     url: string;
     tunnelUrl: string;
@@ -158,7 +159,8 @@ suite("TreeView Components Test Suite", () => {
     // Override createQuickTunnel to simulate rate limiting and track quick tunnels
     const originalCreateQuickTunnel =
       tunnelManager.createQuickTunnel.bind(tunnelManager);
-    tunnelManager.createQuickTunnel = async (port: number, name?: string) => {
+    tunnelManager.createQuickTunnel = async (portOrUrl: number | string, name?: string) => {
+      const port = Number(portOrUrl);
       const now = Date.now();
 
       // Reset count if outside rate limit window
@@ -180,6 +182,7 @@ suite("TreeView Components Test Suite", () => {
 
       // Create and track quick tunnel
       const quickTunnel = {
+        tunnelId: `quick-${port}-${now}-${quickTunnels.length}`,
         port,
         url: `http://localhost:${port}`,
         tunnelUrl: `https://test-${port}.trycloudflare.com`,
@@ -193,30 +196,22 @@ suite("TreeView Components Test Suite", () => {
       return quickTunnel;
     };
 
-    // Override stopQuickTunnel to handle cleanup
-    const originalStopQuickTunnel =
-      tunnelManager.stopQuickTunnel.bind(tunnelManager);
-    tunnelManager.stopQuickTunnel = async (port: number) => {
-      const index = quickTunnels.findIndex((t) => t.port === port);
+    // Override stopQuickTunnel: quick tunnels are addressed by id, never by port
+    tunnelManager.stopQuickTunnel = async (tunnelId: string) => {
+      const index = quickTunnels.findIndex((t) => t.tunnelId === tunnelId);
       if (index !== -1) {
         quickTunnels.splice(index, 1);
       }
 
       // Update getQuickTunnels
       updateQuickTunnels();
+      return { tunnelId, outcome: index !== -1 ? "stopped" : "not-owned" };
     };
 
-    // Override cleanup to handle quick tunnels
-    const originalCleanup = tunnelManager.cleanup.bind(tunnelManager);
-    tunnelManager.cleanup = async () => {
-      quickTunnels.length = 0;
-      updateQuickTunnels();
-      await originalCleanup();
-    };
-
-    // Wait for providers to initialize and ensure clean state
-    await tunnelManager.cleanup();
-    await wait(500);
+    // Ensure clean state
+    quickTunnels.length = 0;
+    updateQuickTunnels();
+    await tunnelManager.stopAllOwned();
 
     // Set up event emitter for tunnel events
     mockEventEmitter = new vscode.EventEmitter();
@@ -331,8 +326,8 @@ suite("TreeView Components Test Suite", () => {
     this.timeout(20000); // Increase timeout further
 
     // Reset any existing tunnels
-    await tunnelManager.cleanup();
-    await wait(1000);
+    quickTunnels.length = 0;
+    await tunnelManager.stopAllOwned();
 
     // Clear the tunnels array
     tunnels.length = 0;
@@ -450,8 +445,28 @@ suite("TreeView Components Test Suite", () => {
    * - Graceful error handling
    */
 
+  test("QuickTunnelTreeView addresses two quick tunnels on one port by id (5.2)", async function () {
+    this.timeout(5000);
+    quickTunnels.length = 0;
+    quickTunnels.push(
+      { tunnelId: "quick-8080-1", port: 8080, url: "http://localhost:8080", tunnelUrl: "https://a.trycloudflare.com" },
+      { tunnelId: "quick-8080-2", port: 8080, url: "http://localhost:8080", tunnelUrl: "https://b.trycloudflare.com" },
+    );
+    const items = await quickTunnelTreeProvider.getChildren();
+    assert.deepStrictEqual(items.map((i) => [i.tunnelId, i.port]), [["quick-8080-1", 8080], ["quick-8080-2", 8080]]);
+
+    const result = await quickTunnelTreeProvider.removeQuickTunnel(items[0].tunnelId);
+    assert.deepStrictEqual(result, { tunnelId: "quick-8080-1", outcome: "stopped" });
+    const remaining = await quickTunnelTreeProvider.getChildren();
+    assert.deepStrictEqual(remaining.map((i) => i.tunnelId), ["quick-8080-2"]);
+    assert.strictEqual(remaining[0].label, "Port 8080", "label changed");
+    assert.strictEqual(remaining[0].description, "b.trycloudflare.com (Port 8080)", "description changed");
+    quickTunnels.length = 0;
+  });
+
   suiteTeardown(async () => {
     // Cleanup any remaining tunnels
-    await tunnelManager.cleanup();
+    quickTunnels.length = 0;
+    await tunnelManager.stopAllOwned();
   });
 });

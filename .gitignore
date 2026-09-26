@@ -145,3 +145,9 @@ images/readme/overview/zTunnelfy_Cloudflare_Overview.gif
 .gitignore
 .claude/run_claude.sh
 CLAUDE.md
+
+# Local agent tooling (orchestrator, Claude Code, Codex); never part of the repo
+.claude
+.codex
+.orchestrator
+AGENTS.md

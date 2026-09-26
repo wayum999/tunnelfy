@@ -1,8 +1,0 @@
-# Allowlist: ship nothing but what package.json "files" names.
-# Keep this file and "files" in step; vsce honours this file when both exist.
-**
-!dist/extension.js
-!images/icon.png
-!README.md
-!CHANGELOG.md
-!LICENSE

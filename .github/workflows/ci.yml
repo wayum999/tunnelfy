@@ -48,3 +48,15 @@ jobs:
 
       - name: Test
         run: xvfb-run -a npm test
+
+      # Packages from the package.json "files" allowlist alone and fails if
+      # anything outside the runtime set reaches the VSIX. Nothing is published.
+      - name: Package and check VSIX contents
+        run: |
+          npx --yes @vscode/vsce@4.0.0 package --no-dependencies --out tunnelfy-ci.vsix
+          unzip -l tunnelfy-ci.vsix | tee vsix-contents.txt
+          if grep -E '(\.claude/|\.orchestrator/|\.codex/|AGENTS\.md|extension/src/|\.map$|\.env)' vsix-contents.txt; then
+            echo "::error::VSIX contains files outside the package.json files allowlist"
+            exit 1
+          fi
+          echo "VSIX check passed: $(unzip -Z1 tunnelfy-ci.vsix | wc -l) entries, $(stat -c %s tunnelfy-ci.vsix) bytes"

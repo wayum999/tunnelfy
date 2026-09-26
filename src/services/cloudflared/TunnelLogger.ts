@@ -21,16 +21,22 @@ import * as crypto from "crypto";
  */
 export class TunnelLogger {
   private readonly logDir: string;
-  private readonly maxLogSize = 10 * 1024 * 1024; // 10MB
+  private readonly maxLogSize: number;
   private readonly maxLogFiles = 5;
   private readonly lockMap: Map<string, boolean> = new Map();
   private readonly activeStreams: Map<string, fs.WriteStream> = new Map();
+  /** Child output held back while a tunnel's log is being rotated */
+  private readonly rotationBuffers: Map<string, string[]> = new Map();
+  /** Bytes of child output appended since the last size check, per tunnel */
+  private readonly bytesSinceCheck: Map<string, number> = new Map();
 
   constructor(
     private baseLogger: Logger,
     private workspaceDir: string,
+    options: { maxLogSize?: number } = {},
   ) {
     this.logDir = path.join(this.workspaceDir, "logs", "tunnels");
+    this.maxLogSize = options.maxLogSize ?? 10 * 1024 * 1024; // 10MB
     this.ensureLogDirectory();
   }
 
@@ -60,9 +66,70 @@ export class TunnelLogger {
     }
 
     const stream = fs.createWriteStream(logFile, { flags: "a" });
+    // An unhandled stream error would take down the extension host
+    stream.on("error", (error: NodeJS.ErrnoException) => {
+      this.baseLogger.error(
+        LogComponent.TUNNEL,
+        `Log stream error for tunnel ${tunnelId}: ${error.code ?? error.message}`,
+      );
+    });
     this.activeStreams.set(tunnelId, stream);
 
     return stream;
+  }
+
+  /**
+   * Appends child process output to the tunnel's current log file. Child output must go
+   * through here, never through a pipe into a stream: rotation replaces the stream, and
+   * a pipe would keep writing to the ended one. Never throws; while a rotation is in
+   * progress the chunk is buffered and written to the new file.
+   * @param tunnelId The ID of the tunnel
+   * @param chunk Output from the child
+   */
+  appendOutput(tunnelId: string, chunk: string): void {
+    try {
+      const buffer = this.rotationBuffers.get(tunnelId);
+      if (buffer) {
+        buffer.push(chunk);
+        return;
+      }
+      let stream = this.activeStreams.get(tunnelId);
+      if (!stream || stream.destroyed || stream.writableEnded) {
+        stream = this.createLogStream(tunnelId);
+      }
+      stream.write(chunk);
+
+      const pending = (this.bytesSinceCheck.get(tunnelId) ?? 0) + Buffer.byteLength(chunk);
+      if (pending >= Math.min(this.maxLogSize, 64 * 1024)) {
+        this.bytesSinceCheck.set(tunnelId, 0);
+        void this.checkAndRotateLogs(tunnelId);
+      } else {
+        this.bytesSinceCheck.set(tunnelId, pending);
+      }
+    } catch (error) {
+      // Drop the chunk rather than throw into the child's data handler
+      this.baseLogger.error(
+        LogComponent.TUNNEL,
+        `Error appending output for tunnel ${tunnelId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  /**
+   * Ends and forgets the tunnel's log stream.
+   * @param tunnelId The ID of the tunnel
+   */
+  async closeStream(tunnelId: string): Promise<void> {
+    const stream = this.activeStreams.get(tunnelId);
+    this.activeStreams.delete(tunnelId);
+    this.bytesSinceCheck.delete(tunnelId);
+    if (!stream || stream.destroyed || stream.writableEnded) {
+      return;
+    }
+    await new Promise<void>((resolve) => {
+      stream.end(() => resolve());
+      stream.once("error", () => resolve());
+    });
   }
 
   /**
@@ -173,6 +240,8 @@ export class TunnelLogger {
   private async rotateLogs(tunnelId: string): Promise<void> {
     const baseLogFile = path.join(this.logDir, `${tunnelId}.log`);
 
+    // Hold child output until the new stream is ready, so nothing writes to the ended one
+    this.rotationBuffers.set(tunnelId, []);
     try {
       // Close the active stream if it exists and wait for it to fully close
       const activeStream = this.activeStreams.get(tunnelId);
@@ -229,14 +298,27 @@ export class TunnelLogger {
         `Error during log rotation: ${error}`,
       );
       // Attempt to ensure a valid log file exists even after error
-      if (!fs.existsSync(baseLogFile)) {
-        const timestamp = new Date().toISOString();
-        const recoveryContent = `[${timestamp}] Log file recovered after rotation error\n`;
-        await fsPromises.writeFile(baseLogFile, recoveryContent);
-        const newStream = this.createLogStream(tunnelId);
-        await new Promise<void>((resolve) => {
-          newStream.once("open", resolve);
-        });
+      try {
+        if (!fs.existsSync(baseLogFile)) {
+          const timestamp = new Date().toISOString();
+          const recoveryContent = `[${timestamp}] Log file recovered after rotation error\n`;
+          await fsPromises.writeFile(baseLogFile, recoveryContent);
+          const newStream = this.createLogStream(tunnelId);
+          await new Promise<void>((resolve) => {
+            newStream.once("open", resolve);
+          });
+        }
+      } catch (recoveryError) {
+        this.baseLogger.error(
+          LogComponent.TUNNEL,
+          `Error recovering log after rotation: ${recoveryError}`,
+        );
+      }
+    } finally {
+      const held = this.rotationBuffers.get(tunnelId) ?? [];
+      this.rotationBuffers.delete(tunnelId);
+      for (const chunk of held) {
+        this.appendOutput(tunnelId, chunk);
       }
     }
   }
@@ -285,10 +367,12 @@ export class TunnelLogger {
    * Should be called when shutting down the logger
    */
   async dispose(): Promise<void> {
-    for (const [tunnelId, stream] of this.activeStreams) {
+    for (const stream of this.activeStreams.values()) {
       stream.end();
     }
     this.activeStreams.clear();
+    this.rotationBuffers.clear();
+    this.bytesSinceCheck.clear();
     this.lockMap.clear();
   }
 }

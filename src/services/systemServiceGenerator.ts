@@ -1,9 +1,14 @@
 import * as vscode from "vscode";
 import * as fs from "fs";
-import * as path from "path";
 import { TunnelManager } from "./cloudflared";
 import { CloudflareApiService } from "./cloudflareApi";
 import { Logger, LogComponent } from "../utils/logger";
+import {
+  offerGitignoreEntry,
+  resolveInsideWorkspace,
+  tunnelNameError,
+  writeServiceFiles,
+} from "./serviceFiles";
 
 /**
  * Custom error class for service file generation errors
@@ -39,6 +44,13 @@ export class SystemServiceGenerator {
   ) {}
 
   /**
+   * The workspace folder generated files are written into (overridable in tests).
+   */
+  protected getWorkspaceFolder(): vscode.WorkspaceFolder | undefined {
+    return vscode.workspace.workspaceFolders?.[0];
+  }
+
+  /**
    * Generates a system service file for a specific tunnel
    * @param tunnelId The ID of the tunnel to generate the service file for
    * @param tunnelName The name of the tunnel
@@ -52,6 +64,11 @@ export class SystemServiceGenerator {
     port: number,
   ): Promise<ServiceFileGenerationResult> {
     try {
+      const nameError = tunnelNameError(tunnelName);
+      if (nameError) {
+        throw new ServiceFileGenerationError(`${nameError}: "${tunnelName}"`);
+      }
+
       // Show confirmation dialog
       const generateButton: vscode.MessageItem = { title: "Generate" };
       const cancelButton: vscode.MessageItem = { title: "Cancel" };
@@ -82,7 +99,7 @@ export class SystemServiceGenerator {
       const envContent = `TUNNEL_TOKEN=${token}\n`;
 
       // Get the workspace folder
-      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+      const workspaceFolder = this.getWorkspaceFolder();
 
       if (workspaceFolder && workspaceFolder.uri.scheme === "file") {
         // Validate workspace folder exists and is writable
@@ -100,13 +117,11 @@ export class SystemServiceGenerator {
         }
 
         // If we have a workspace, create both files there
+        const workspaceRoot = workspaceFolder.uri.fsPath;
         const serviceFileName = `cloudflared-${tunnelName}.service`;
         const envFileName = `cloudflared-${tunnelName}.env`;
-        const servicePath = path.join(
-          workspaceFolder.uri.fsPath,
-          serviceFileName,
-        );
-        const envPath = path.join(workspaceFolder.uri.fsPath, envFileName);
+        const servicePath = resolveInsideWorkspace(workspaceRoot, serviceFileName);
+        const envPath = resolveInsideWorkspace(workspaceRoot, envFileName);
 
         // Check if files already exist
         if (fs.existsSync(servicePath) || fs.existsSync(envPath)) {
@@ -128,8 +143,12 @@ export class SystemServiceGenerator {
 
         // Use try-catch for file operations
         try {
-          fs.writeFileSync(servicePath, serviceContent);
-          fs.writeFileSync(envPath, envContent);
+          writeServiceFiles(workspaceRoot, {
+            serviceFileName,
+            serviceContent,
+            envFileName,
+            envContent,
+          });
         } catch (error) {
           this.logger.error(
             LogComponent.EXTENSION,
@@ -141,17 +160,11 @@ export class SystemServiceGenerator {
           );
         }
 
-        // Open both files in the editor
-        const serviceUri = vscode.Uri.file(servicePath);
-        const envUri = vscode.Uri.file(envPath);
-
+        // Open only the service file; the env file holds the token
         await vscode.window.showTextDocument(
-          await vscode.workspace.openTextDocument(serviceUri),
+          await vscode.workspace.openTextDocument(vscode.Uri.file(servicePath)),
         );
-        await vscode.window.showTextDocument(
-          await vscode.workspace.openTextDocument(envUri),
-          { viewColumn: vscode.ViewColumn.Beside },
-        );
+        await offerGitignoreEntry(workspaceRoot, envPath);
 
         return {
           type: "workspace",

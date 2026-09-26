@@ -6,6 +6,14 @@ import {
   clearWorkspace,
 } from "./testUtils";
 import { ProfileManager } from "../../services/profileManager";
+import {
+  deactivate,
+  startReconcile,
+  stopOwnedTunnels,
+  DEACTIVATE_STOP_TIMEOUT_MS,
+} from "../../extension";
+import { Logger } from "../../utils/logger";
+import { createRecordingLogger } from "./fakeProcess";
 
 // Helper function to wait between operations
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -317,6 +325,58 @@ suite("Tunnelfy Extension Test Suite", () => {
 
     // Clean up
     await profileManager.deleteProfile(testProfileName);
+  });
+
+  test("deactivate returns a Promise (7.1)", async () => {
+    const result = deactivate();
+    assert.ok(result instanceof Promise, "deactivate must return a Promise VS Code can await");
+    await result;
+  });
+
+  test("stopOwnedTunnels asks for every owned tunnel to stop within the deactivation bound (7.1, 7.2)", async () => {
+    const calls: number[] = [];
+    await stopOwnedTunnels({
+      stopAllOwned: async (timeoutMs?: number) => {
+        calls.push(timeoutMs ?? -1);
+        return [];
+      },
+    });
+    assert.deepStrictEqual(calls, [DEACTIVATE_STOP_TIMEOUT_MS]);
+    assert.ok(DEACTIVATE_STOP_TIMEOUT_MS <= 3000, "deactivation bound above 3 s");
+  });
+
+  test("stopOwnedTunnels resolves at the bound even if the stop never settles", async () => {
+    const started = Date.now();
+    await stopOwnedTunnels({ stopAllOwned: () => new Promise(() => {}) }, 100);
+    const elapsed = Date.now() - started;
+    assert.ok(elapsed < 1000, `deactivate waited ${elapsed} ms`);
+    // A rejecting stop is swallowed, not thrown at VS Code
+    await stopOwnedTunnels({ stopAllOwned: () => Promise.reject(new Error("boom")) }, 100);
+    await stopOwnedTunnels(undefined);
+  });
+
+  test("stopOwnedTunnels logs a warning when the deactivation backstop fires, and only then", async () => {
+    const { logger, lines } = createRecordingLogger();
+    await stopOwnedTunnels({ stopAllOwned: () => new Promise(() => {}) }, 50, logger as Logger);
+    const backstop = lines.filter((l) => l.level === "warn" && l.message.includes("did not settle within 300 ms"));
+    assert.strictEqual(backstop.length, 1, `lines: ${JSON.stringify(lines)}`);
+
+    lines.length = 0;
+    await stopOwnedTunnels({ stopAllOwned: async () => [] }, 50, logger as Logger);
+    assert.deepStrictEqual(lines, [], "warned although every stop settled");
+  });
+
+  test("activation starts reconcile without awaiting it, and logs its failure (2.1)", async () => {
+    const { logger, lines } = createRecordingLogger();
+    let resolveReconcile!: () => void;
+    const pending = new Promise<void>((resolve) => { resolveReconcile = resolve; });
+    const returned = startReconcile({ reconcileOwned: () => pending }, logger as Logger);
+    assert.strictEqual(returned, undefined, "startReconcile must not hand back something to await");
+    resolveReconcile();
+
+    startReconcile({ reconcileOwned: () => Promise.reject(new Error("probe failed")) }, logger as Logger);
+    await wait(10);
+    assert.ok(lines.some((l) => l.level === "warn" && l.message.includes("probe failed")));
   });
 
   suiteTeardown(() => {

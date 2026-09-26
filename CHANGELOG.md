@@ -2,6 +2,17 @@
 
 All notable changes to the "tunnelfy" extension will be documented in this file.
 
+## [0.2.0]
+
+- SECURITY: Tunnel tokens are no longer stored on disk or passed to `cloudflared` on the command line.
+- SECURITY: Generated service and environment files are created with mode 0600 (owner read/write only).
+- SECURITY: Tunnel configuration is no longer written to the log.
+- UPDATED: Tunnels the extension starts are tracked per window and are stopped when that window closes or reloads. Closes #12.
+- UPDATED: Stop is offered only for tunnels this window started.
+- FIXED: Docker Compose and system service generation now use the correct tunnel id.
+- UPDATED: Continuous integration added.
+- UPDATED: The packaged extension is a production build that contains only its runtime files.
+
 ## [0.0.91]
 - FIXED: Cloudflared check on Linux not working
 

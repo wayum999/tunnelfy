@@ -6,6 +6,31 @@ import {
 import { Messages } from "../utils/messages";
 import { Logger, LogComponent } from "../utils/logger";
 import { checkAndPromptCloudflared } from '../utils/cloudflaredUtils';
+import { StopResult } from "../services/cloudflared";
+
+/**
+ * Tells the user what a quick-tunnel stop actually did; the "stopped" message
+ * appears only for a stopped outcome.
+ */
+export async function reportQuickTunnelStop(
+  result: StopResult,
+  name: string | undefined,
+  port: number,
+): Promise<void> {
+  switch (result.outcome) {
+    case "stopped":
+      await Messages.showInfo(Messages.QUICK_TUNNEL_STOPPED(name, port));
+      return;
+    case "not-owned":
+      await Messages.showWarning(Messages.QUICK_TUNNEL_NOT_OWNED(port));
+      return;
+    case "failed":
+      await Messages.showError(
+        Messages.TUNNEL_STOP_FAILED(name ?? `quick tunnel on port ${port}`, result.reason),
+      );
+      return;
+  }
+}
 
 export function registerQuickTunnelCommands(
   context: vscode.ExtensionContext,
@@ -158,7 +183,7 @@ export function registerQuickTunnelCommands(
       async (item?: QuickTunnelTreeItem) => {
         try {
           // If called from tree view, use the selected item
-          if (item?.port) {
+          if (item?.tunnelId) {
             // Show confirmation dialog
             const confirm = await Messages.showModal(
               `Are you sure you want to stop the quick tunnel${item.name ? ` "${item.name}"` : ""} on port ${item.port}?`,
@@ -166,10 +191,8 @@ export function registerQuickTunnelCommands(
             );
 
             if (confirm === "Stop") {
-              await quickTunnelProvider.removeQuickTunnel(item.port);
-              await Messages.showInfo(
-                Messages.QUICK_TUNNEL_STOPPED(item.name, item.port),
-              );
+              const result = await quickTunnelProvider.removeQuickTunnel(item.tunnelId);
+              await reportQuickTunnelStop(result, item.name, item.port);
             }
             return;
           }
@@ -188,6 +211,7 @@ export function registerQuickTunnelCommands(
               detail: tunnel.tunnelUrl || "URL not available",
               port: tunnel.port,
               name: tunnel.name,
+              tunnelId: tunnel.tunnelId,
             })),
             {
               placeHolder: "Select a quick tunnel to stop",
@@ -203,10 +227,8 @@ export function registerQuickTunnelCommands(
             );
 
             if (confirm === "Stop") {
-              await quickTunnelProvider.removeQuickTunnel(selected.port);
-              await Messages.showInfo(
-                Messages.QUICK_TUNNEL_STOPPED(selected.name, selected.port),
-              );
+              const result = await quickTunnelProvider.removeQuickTunnel(selected.tunnelId);
+              await reportQuickTunnelStop(result, selected.name, selected.port);
             }
           }
         } catch (error) {

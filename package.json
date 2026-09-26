@@ -1,8 +1,8 @@
 {
   "name": "tunnelfy",
   "displayName": "Tunnelfy",
-  "description": "Manage Cloudflare tunnels from this VS Code extension. Streamline your development workflow by controlling your perisistent and quick tunnels without leaving the IDE.",
-  "version": "0.1.92",
+  "description": "Manage Cloudflare tunnels from this VS Code extension. Streamline your development workflow by controlling your persistent and quick tunnels without leaving the IDE.",
+  "version": "0.2.0",
   "publisher": "Willbot",
   "icon": "images/icon.png",
   "galleryBanner": {
@@ -22,7 +22,26 @@
   "categories": [
     "Other"
   ],
+  "keywords": [
+    "cloudflare",
+    "cloudflared",
+    "tunnel",
+    "cloudflare tunnel",
+    "quick tunnel",
+    "trycloudflare",
+    "zero trust",
+    "localhost",
+    "port forwarding",
+    "docker"
+  ],
   "main": "./dist/extension.js",
+  "files": [
+    "dist/extension.js",
+    "images/icon.png",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
   "contributes": {
     "viewsContainers": {
       "activitybar": [
@@ -95,6 +114,16 @@
       ]
     },
     "menus": {
+      "commandPalette": [
+        {
+          "command": "tunnelfy.changeApiKey",
+          "when": "false"
+        },
+        {
+          "command": "tunnelfy.copyQuickTunnelUrl",
+          "when": "false"
+        }
+      ],
       "view/title": [
         {
           "command": "tunnelfy.createProfile",
@@ -150,22 +179,22 @@
         },
         {
           "command": "tunnelfy.startTunnel",
-          "when": "view == tunnelfy-tunnels && (viewItem == tunnel-stopped || viewItem == tunnel-stopped-remote)",
+          "when": "view == tunnelfy-tunnels && viewItem =~ /^tunnel-stopped(-remote)?$/",
           "group": "inline@6"
         },
         {
           "command": "tunnelfy.stopTunnel",
-          "when": "view == tunnelfy-tunnels && (viewItem == tunnel-running || viewItem == tunnel-running-remote)",
+          "when": "view == tunnelfy-tunnels && viewItem =~ /^tunnel-(running|stopped)(-remote)?-owned$/",
           "group": "inline@5"
         },
         {
           "command": "tunnelfy.copyToken",
-          "when": "view == tunnelfy-tunnels && (viewItem == tunnel-stopped || viewItem == tunnel-running || viewItem == tunnel-stopped-remote || viewItem == tunnel-running-remote)",
+          "when": "view == tunnelfy-tunnels && viewItem =~ /^tunnel-(running|stopped)(-remote)?(-owned)?$/",
           "group": "inline@4"
         },
         {
           "command": "tunnelfy.deleteTunnel",
-          "when": "view == tunnelfy-tunnels && (viewItem == tunnel-stopped || viewItem == tunnel-stopped-remote)",
+          "when": "view == tunnelfy-tunnels && viewItem =~ /^tunnel-stopped(-remote)?(-owned)?$/",
           "group": "inline@1"
         },
         {
@@ -294,18 +323,31 @@
         "description": "Generate service configuration files for this tunnel"
       },
       {
-        "command": "tunnelfy.generateService",
+        "command": "tunnelfy.generateDockerCompose",
+        "title": "Generate Docker Compose Service",
+        "category": "Tunnelfy",
+        "icon": "$(file-code)",
+        "description": "Generate a Docker Compose service for this tunnel"
+      },
+      {
+        "command": "tunnelfy.generateSystemService",
         "title": "Generate System Service",
         "category": "Tunnelfy",
         "icon": "$(file-symlink-file)",
         "description": "Generate a system service file for this tunnel"
+      },
+      {
+        "command": "tunnelfy.showCloudflaredInstallInstructions",
+        "title": "Show cloudflared Install Instructions",
+        "category": "Tunnelfy",
+        "description": "Check for cloudflared and show installation instructions"
       }
     ]
   },
   "scripts": {
     "vscode:prepublish": "npm run package-extension",
     "compile": "node esbuild.js",
-    "package-extension": "node esbuild.js --minify",
+    "package-extension": "node esbuild.js --production",
     "watch": "node esbuild.js --watch",
     "cleanup-vscode-test": "rimraf .vscode-test",
     "clean-test-all": "node scripts/cleanup-test-dirs.js",
@@ -322,7 +364,7 @@
     "passing-tests": "npm run pretest && node scripts/runPassingTests.js",
     "test-explorer": "npm run clean-tests && npm run compile && npm run compile-tests && vscode-test",
     "test-coverage": "nyc npm run test",
-    "lint": "eslint src --ext ts",
+    "lint": "eslint src",
     "package": "vsce package",
     "publish": "vsce publish"
   },

@@ -124,7 +124,12 @@ export async function activate(context: vscode.ExtensionContext) {
         // cloudflared is not probed here: the actions that run it check for it
         // when they need it, so activation never spawns it or fails for its absence
         cloudflaredStatusBarItem.text = `$(cloud)`;
-        cloudflaredStatusBarItem.tooltip = 'Tunnelfy: cloudflared is checked when a tunnel starts';
+        const cloudflaredCheckEnabled = vscode.workspace
+            .getConfiguration('tunnelfy')
+            .get<boolean>('checkCloudflared', true);
+        cloudflaredStatusBarItem.tooltip = cloudflaredCheckEnabled
+            ? 'Tunnelfy: cloudflared is checked when a tunnel starts'
+            : 'Tunnelfy: cloudflared check disabled in settings';
         cloudflaredStatusBarItem.show();
 
         logger.info(LogComponent.EXTENSION, 'Tunnelfy extension activated successfully', { preserveFocus: true });

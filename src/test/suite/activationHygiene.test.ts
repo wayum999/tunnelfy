@@ -13,6 +13,7 @@ import { TunnelManager } from "../../services/cloudflared";
 import { ProfileManager } from "../../services/profileManager";
 import { Logger } from "../../utils/logger";
 import { Messages } from "../../utils/messages";
+import { checkAndPromptCloudflared } from "../../utils/cloudflaredUtils";
 import { TunnelProcessRegistry } from "../../services/cloudflared/TunnelProcessRegistry";
 import { CloudflareApiService } from "../../services/cloudflareApi";
 
@@ -114,6 +115,39 @@ function mockExtensionContext(storageDir: string): vscode.ExtensionContext {
       onDidChange: new vscode.EventEmitter<vscode.SecretStorageChangeEvent>().event,
     },
   } as unknown as vscode.ExtensionContext;
+}
+
+/** Makes `tunnelfy.checkCloudflared` read as the given value; every other setting reads as usual */
+function stubCheckCloudflaredSetting(sandbox: sinon.SinonSandbox, enabled: boolean): void {
+  const original = vscode.workspace.getConfiguration.bind(vscode.workspace);
+  sandbox.stub(vscode.workspace, "getConfiguration").callsFake(((section?: string, scope?: vscode.ConfigurationScope) => {
+    const config = original(section, scope);
+    const qualified = (key: string) => (section ? `${section}.${key}` : key);
+    return {
+      get: (key: string, defaultValue?: unknown) =>
+        qualified(key) === "tunnelfy.checkCloudflared" ? enabled : config.get(key, defaultValue),
+      has: (key: string) => config.has(key),
+      inspect: (key: string) => config.inspect(key),
+      update: (...args: Parameters<vscode.WorkspaceConfiguration["update"]>) => config.update(...args),
+    } as unknown as vscode.WorkspaceConfiguration;
+  }) as never);
+}
+
+/** Walks up from the compiled test to the extension's own package.json */
+function readExtensionManifest(): { activationEvents?: string[] } {
+  let dir = __dirname;
+  for (;;) {
+    const candidate = path.join(dir, "package.json");
+    if (fs.existsSync(candidate)) {
+      const manifest = JSON.parse(fs.readFileSync(candidate, "utf8"));
+      if (manifest.name === "tunnelfy") {
+        return manifest;
+      }
+    }
+    const parent = path.dirname(dir);
+    assert.notStrictEqual(parent, dir, "the extension's package.json was not found above the test");
+    dir = parent;
+  }
 }
 
 suite("Activation hygiene (TUNNEL-85, TUNNEL-86)", () => {
@@ -262,6 +296,31 @@ suite("Activation hygiene (TUNNEL-85, TUNNEL-86)", () => {
     });
   });
 
+  suite("cloudflared check setting (86.2)", () => {
+    test("with checkCloudflared off, an action's check passes without running anything", async () => {
+      stubCheckCloudflaredSetting(sandbox, false);
+      const calls = stubChildProcess(sandbox);
+      const showErrorMessage = sandbox.stub(vscode.window, "showErrorMessage").resolves(undefined);
+
+      const result = await checkAndPromptCloudflared(Logger.getInstance());
+
+      assert.strictEqual(result, true, "a disabled check must not block the action");
+      assert.deepStrictEqual(calls, [], "a disabled check still ran a process");
+      assert.ok(showErrorMessage.notCalled, "a disabled check still showed an error");
+    });
+  });
+
+  suite("activation events (86.1)", () => {
+    test("the extension activates on its three views and not at startup", () => {
+      const activationEvents = readExtensionManifest().activationEvents ?? [];
+      for (const viewId of VIEW_IDS) {
+        assert.ok(activationEvents.includes(`onView:${viewId}`), `onView:${viewId} missing from activationEvents`);
+      }
+      assert.ok(!activationEvents.includes("onStartupFinished"), "onStartupFinished is back in activationEvents");
+      assert.ok(!activationEvents.includes("*"), "the extension activates on everything");
+    });
+  });
+
   suite("activate (85.1, 85.2, 86.2)", () => {
     let storageDir: string;
     let context: vscode.ExtensionContext;
@@ -270,6 +329,7 @@ suite("Activation hygiene (TUNNEL-85, TUNNEL-86)", () => {
     let commandHandlers: Map<string, (...args: unknown[]) => unknown>;
     let clock: sinon.SinonFakeTimers;
     let showErrorMessage: sinon.SinonStub;
+    let statusBarItem: { tooltip?: string };
 
     // One directory for the whole run and never removed mid-run: activation points the
     // shared logger's file stream into it, and later suites keep logging there
@@ -292,6 +352,10 @@ suite("Activation hygiene (TUNNEL-85, TUNNEL-86)", () => {
         return trackedDisposable();
       }) as never);
       clock = sandbox.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+      sandbox.stub(vscode.window, "createStatusBarItem").callsFake((() => {
+        statusBarItem = { show: () => undefined, hide: () => undefined, dispose: () => undefined } as { tooltip?: string };
+        return statusBarItem;
+      }) as never);
 
       await activate(context);
     });
@@ -332,6 +396,40 @@ suite("Activation hygiene (TUNNEL-85, TUNNEL-86)", () => {
       assert.strictEqual(clock.countTimers(), 0, "an interval is still pending after the extension was disposed");
       const undisposed = treeViews.filter(({ view }) => !view.disposed).map(({ id }) => id);
       assert.deepStrictEqual(undisposed, [], "tree views left undisposed");
+    });
+
+    /** Tears down the activation setup made and activates again in a fresh context */
+    const reactivate = async () => {
+      disposeSubscriptions();
+      await deactivate();
+      context = mockExtensionContext(storageDir);
+      await activate(context);
+    };
+
+    test("the status bar tooltip says the check runs when a tunnel starts", () => {
+      assert.strictEqual(statusBarItem.tooltip, "Tunnelfy: cloudflared is checked when a tunnel starts");
+    });
+
+    test("with checkCloudflared off, the status bar tooltip says the check is disabled", async () => {
+      stubCheckCloudflaredSetting(sandbox, false);
+
+      await reactivate();
+
+      assert.strictEqual(statusBarItem.tooltip, "Tunnelfy: cloudflared check disabled in settings");
+    });
+
+    test("the install instructions command checks for cloudflared even with checkCloudflared off", async () => {
+      stubCheckCloudflaredSetting(sandbox, false);
+      const handler = commandHandlers.get("tunnelfy.showCloudflaredInstallInstructions");
+      assert.ok(handler, "tunnelfy.showCloudflaredInstallInstructions was not registered");
+
+      await handler();
+
+      assert.ok(childProcessCalls.some((call) => /cloudflared/.test(call)), "the explicit command skipped the check");
+      assert.ok(
+        showErrorMessage.getCalls().some((call) => call.args[0] === Messages.CLOUDFLARED_NOT_FOUND.message),
+        "missing-binary message not shown",
+      );
     });
 
     test("deactivate disposes the tunnel manager once its tunnels are stopped", async () => {

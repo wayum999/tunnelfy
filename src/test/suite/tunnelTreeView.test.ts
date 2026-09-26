@@ -5,6 +5,7 @@ import {
   TunnelTreeItem,
   TunnelGroupItem,
   TunnelTreeDataProvider,
+  TunnelListErrorItem,
 } from "../../views/tunnelTreeView";
 import { TunnelManager } from "../../services/cloudflared";
 import { ProfileManager } from "../../services/profileManager";
@@ -147,6 +148,32 @@ suite("TunnelTreeView Test Suite", () => {
         "Item should indicate no profile is set up",
       );
     });
+  });
+
+  test("an API failure shows an error item and logs it, not an empty list (TUNNEL-84)", async () => {
+    (mockTunnelManager.listTunnels as sinon.SinonStub).rejects(
+      new Error("Cloudflare API request timed out after 15s: GET /accounts/x/tunnels"),
+    );
+    const logError = sinon.spy(Logger.getInstance(), "error");
+
+    const rootItems = await tunnelTreeDataProvider.getChildren();
+    for (const group of rootItems) {
+      const children = await tunnelTreeDataProvider.getChildren(group);
+      assert.strictEqual(children.length, 1, "expected one error item, not []");
+      const item = children[0];
+      assert.ok(item instanceof TunnelListErrorItem, "not an error item");
+      assert.strictEqual(item.contextValue, "tunnel-list-error");
+      assert.strictEqual(
+        item.label,
+        "Could not load tunnels from Cloudflare: Cloudflare API request timed out after 15s: GET /accounts/x/tunnels",
+      );
+      assert.strictEqual((item.iconPath as vscode.ThemeIcon).id, "error");
+    }
+    assert.ok(
+      logError.getCalls().some((call) => String(call.args[1]).includes("Failed to get tunnels")),
+      "failure was not logged",
+    );
+    assert.strictEqual(tunnelTreeDataProvider.findTunnelById("list-error"), undefined);
   });
 
   test("getChildren should return tunnel items for active profile", async () => {

@@ -258,8 +258,8 @@ export class TunnelManager {
             }));
         } catch (error) {
             this.logger.error(LogComponent.TUNNEL, `Failed to list tunnels: ${error}`);
-            // Return empty array instead of throwing
-            return [];
+            // Rethrow so callers show the failure instead of an empty list that looks real
+            throw error;
         }
     }
 

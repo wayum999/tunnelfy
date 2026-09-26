@@ -119,4 +119,12 @@ export interface CloudflareApiResponse<T> {
   success: boolean;
   errors?: Array<{ message: string }>;
   result: T;
+  /** Paging details, present on list endpoints */
+  result_info?: {
+    page?: number;
+    per_page?: number;
+    count?: number;
+    total_count?: number;
+    total_pages?: number;
+  };
 }

@@ -1,6 +1,12 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
-import { BaseCloudflareService } from "../../services/cloudflareApi/baseService";
+import {
+  BaseCloudflareService,
+  CLOUDFLARE_PAGE_SIZE,
+  CloudflareRequestTimeoutError,
+} from "../../services/cloudflareApi/baseService";
+import { TunnelService } from "../../services/cloudflareApi/tunnelService";
+import { DnsService } from "../../services/cloudflareApi/dnsService";
 import { ProfileManager } from "../../services/profileManager";
 import { TestExtensionContext } from "./testUtils";
 
@@ -21,6 +27,42 @@ class TestBaseCloudflareService extends BaseCloudflareService {
   ): Promise<T> {
     return this.makeRequest(endpoint, method, body);
   }
+
+  public async testMakePaginatedRequest<T>(
+    endpoint: string,
+    params?: Record<string, string>,
+  ): Promise<T[]> {
+    return this.makePaginatedRequest<T>(endpoint, params);
+  }
+
+  public setRequestTimeoutMs(timeoutMs: number): void {
+    this.requestTimeoutMs = timeoutMs;
+  }
+}
+
+/** Answers a list call with the page the request URL asks for */
+function pagedFetch(
+  pages: unknown[][],
+  seenUrls: string[],
+): typeof fetch {
+  return (async (input: string | URL | Request) => {
+    const url = new URL(String(input));
+    seenUrls.push(url.toString());
+    const page = Number(url.searchParams.get("page") ?? "1");
+    return new Response(
+      JSON.stringify({
+        success: true,
+        result: pages[page - 1] ?? [],
+        result_info: {
+          page,
+          per_page: CLOUDFLARE_PAGE_SIZE,
+          total_pages: pages.length,
+          total_count: pages.flat().length,
+        },
+      }),
+      { headers: { "content-type": "application/json" } },
+    );
+  }) as typeof fetch;
 }
 
 suite("BaseCloudflareService Test Suite", () => {
@@ -244,6 +286,98 @@ suite("BaseCloudflareService Test Suite", () => {
 
     // Restore original method
     profileManager.getProfileAccountId = originalGetProfileAccountId;
+  });
+
+  suite("TUNNEL-84 paging, filtering and timeouts", () => {
+    let originalFetch: typeof fetch;
+
+    setup(() => {
+      originalFetch = global.fetch;
+    });
+
+    teardown(() => {
+      global.fetch = originalFetch;
+    });
+
+    test("a multi-page list returns the items of every page", async () => {
+      const seenUrls: string[] = [];
+      global.fetch = pagedFetch(
+        [[{ id: "a" }, { id: "b" }], [{ id: "c" }], [{ id: "d" }]],
+        seenUrls,
+      );
+
+      const items = await service.testMakePaginatedRequest<{ id: string }>(
+        "/zones",
+      );
+
+      assert.deepStrictEqual(
+        items.map((item) => item.id),
+        ["a", "b", "c", "d"],
+      );
+      assert.strictEqual(seenUrls.length, 3, "should request exactly 3 pages");
+      assert.strictEqual(
+        new URL(seenUrls[2]).searchParams.get("per_page"),
+        String(CLOUDFLARE_PAGE_SIZE),
+      );
+    });
+
+    test("tunnel, zone and DNS record lists read past the first page", async () => {
+      const seenUrls: string[] = [];
+      const tunnel = (id: string) => ({ id, name: id, remote_config: false });
+      global.fetch = pagedFetch([[tunnel("t1")], [tunnel("t2")]], seenUrls);
+
+      const tunnels = await new TunnelService(
+        context,
+        profileManager,
+      ).listTunnels();
+      const dns = new DnsService(context, profileManager);
+      const zones = await dns.listZones();
+      const records = await dns.listDnsRecords("zone-id");
+
+      assert.deepStrictEqual(tunnels.map((t) => t.id), ["t1", "t2"]);
+      assert.deepStrictEqual(zones.map((z) => z.id), ["t1", "t2"]);
+      assert.deepStrictEqual(records.map((r) => r.id), ["t1", "t2"]);
+    });
+
+    test("the tunnel list asks the API for is_deleted=false", async () => {
+      const seenUrls: string[] = [];
+      global.fetch = pagedFetch([[]], seenUrls);
+
+      await new TunnelService(context, profileManager).listTunnels();
+
+      assert.strictEqual(seenUrls.length, 1);
+      const url = new URL(seenUrls[0]);
+      assert.ok(url.pathname.endsWith(`/accounts/${validAccountId}/tunnels`));
+      assert.strictEqual(url.searchParams.get("is_deleted"), "false");
+    });
+
+    test("a request that exceeds the timeout rejects with a named error", async () => {
+      service.setRequestTimeoutMs(20);
+      let sawSignal = false;
+      // Never answers; only an abort signal can end it
+      global.fetch = ((_input: string | URL | Request, init?: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          const signal = init?.signal;
+          if (!signal) {
+            return;
+          }
+          sawSignal = true;
+          signal.addEventListener("abort", () => reject(signal.reason));
+        })) as typeof fetch;
+
+      await assert.rejects(
+        service.testMakeRequest("/zones/abc/dns_records?name=x"),
+        (error: unknown) => {
+          assert.ok(error instanceof CloudflareRequestTimeoutError);
+          assert.strictEqual(error.name, "CloudflareRequestTimeoutError");
+          assert.strictEqual(error.operation, "GET /zones/abc/dns_records");
+          assert.match(error.message, /timed out after 0\.02s: GET \/zones\/abc\/dns_records$/);
+          assert.ok(!error.message.includes(validApiKey), "API key in error");
+          return true;
+        },
+      );
+      assert.ok(sawSignal, "fetch was not given an abort signal");
+    });
   });
 
   test("should make POST request with body", async () => {

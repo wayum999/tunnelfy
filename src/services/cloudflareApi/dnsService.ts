@@ -14,7 +14,7 @@ export class DnsService extends BaseCloudflareService {
    */
   async listZones(): Promise<Zone[]> {
     try {
-      const zones = await this.makeRequest<any[]>("/zones");
+      const zones = await this.makePaginatedRequest<any>("/zones");
       return zones.map((zone) => ({
         id: zone.id,
         name: zone.name,
@@ -33,7 +33,7 @@ export class DnsService extends BaseCloudflareService {
    */
   async listDnsRecords(zoneId: string): Promise<DnsRecord[]> {
     try {
-      const records = await this.makeRequest<any[]>(
+      const records = await this.makePaginatedRequest<any>(
         `/zones/${zoneId}/dns_records`,
       );
       return records.map((record) => ({

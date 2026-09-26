@@ -113,6 +113,29 @@ Enhancement suggestions are tracked as GitHub issues. When creating an enhanceme
 * Verify logging behavior
 * Ensure full test coverage for security-related features
 
+## Releasing
+
+Releases are published from GitHub Actions by `.github/workflows/publish.yml`, so no publish token lives on a developer machine.
+
+1. Bump `version` in `package.json` on `development`, then merge `development` → `main`.
+2. Tag the merge commit on `main` with the bare version, e.g. `0.2.2` (no `v` prefix), and push the tag.
+3. Publish a GitHub release for that tag. The workflow checks that the tag is `X.Y.Z`, equals `package.json` `version`, and is reachable from `main`. It then builds one VSIX, checks its contents, publishes that file to the VS Marketplace and Open VSX, and attaches it to the release.
+
+A re-run is safe: a store that already has the version is skipped. To re-run by hand, use **Actions → Publish → Run workflow** with the tag.
+
+**One-time setup** (repository admin): store the tokens as repository secrets. Each command prompts for the value, so it never lands in shell history.
+
+```bash
+gh secret set VSCE_PAT
+gh secret set OVSX_PAT
+```
+
+**Manual fallback** (only if the workflow cannot run): publish from a worktree of the tag, typing the token for that one command and clearing it afterwards.
+
+```bash
+git worktree add ../tunnelfy-release X.Y.Z && cd ../tunnelfy-release && npm ci && read -rsp "VSCE_PAT: " VSCE_PAT && export VSCE_PAT && npx --yes @vscode/vsce@4.0.0 publish; unset VSCE_PAT
+```
+
 ## Additional Notes
 
 ### Security Vulnerabilities

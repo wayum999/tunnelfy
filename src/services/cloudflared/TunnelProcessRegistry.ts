@@ -31,6 +31,13 @@ export interface OwnedTunnelRecord {
   kind: TunnelKind;
   /** Local origin, e.g. http://localhost:8080 */
   target: string;
+  /**
+   * Pid of the extension host (VS Code window) that owns the tunnel. Absent on records
+   * written before ownership was per window.
+   */
+  ownerPid?: number;
+  /** OS start time of that extension host, epoch ms; absent when it could not be probed */
+  ownerStartedAt?: number;
 }
 
 /** A child this session spawned: the registry holds its ChildProcess */
@@ -116,6 +123,15 @@ export interface TunnelProcessRegistryOptions {
   startTimeToleranceMs?: number;
   pollIntervalMs?: number;
   probeTimeoutMs?: number;
+  /** Pid of this extension host; defaults to process.pid */
+  ownerPid?: number;
+}
+
+/** The extension host this registry runs in, identified the same way as a tunnel's child */
+interface HostIdentity {
+  pid: number;
+  /** Undefined when the probe could not report this host's start time */
+  startedAt?: number;
 }
 
 /** A spawned entry also carries a promise that resolves when its child exits */
@@ -123,6 +139,12 @@ type SpawnedEntry = SpawnedTunnel & { exited: Promise<void> };
 type OwnedEntry = SpawnedEntry | AdoptedTunnel;
 
 type Verification = "verified" | "dead" | "mismatch" | "unknown";
+
+/**
+ * Who owns a persisted record: this host, another host that is still running, nobody
+ * (the owner is gone, or the record predates owners), or undecidable.
+ */
+type Ownership = "self" | "other-alive" | "orphaned" | "unknown";
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, Math.max(0, ms)));
 
@@ -139,13 +161,33 @@ function isOwnedTunnelRecord(value: unknown): value is OwnedTunnelRecord {
     Number.isFinite(r.startedAt) &&
     r.startedAt > 0 &&
     (r.kind === "named" || r.kind === "quick") &&
-    typeof r.target === "string"
+    typeof r.target === "string" &&
+    (r.ownerPid === undefined || isValidPid(r.ownerPid)) &&
+    (r.ownerStartedAt === undefined ||
+      (typeof r.ownerStartedAt === "number" && Number.isFinite(r.ownerStartedAt) && r.ownerStartedAt > 0))
   );
 }
 
-/** Copies only the five record fields, so nothing else can ride along into globalState. */
+/** Copies only the record fields, so nothing else can ride along into globalState. */
 function toRecord(r: OwnedTunnelRecord): OwnedTunnelRecord {
-  return { tunnelId: r.tunnelId, pid: r.pid, startedAt: r.startedAt, kind: r.kind, target: r.target };
+  const record: OwnedTunnelRecord = {
+    tunnelId: r.tunnelId,
+    pid: r.pid,
+    startedAt: r.startedAt,
+    kind: r.kind,
+    target: r.target,
+  };
+  if (r.ownerPid !== undefined) {
+    record.ownerPid = r.ownerPid;
+  }
+  if (r.ownerStartedAt !== undefined) {
+    record.ownerStartedAt = r.ownerStartedAt;
+  }
+  return record;
+}
+
+function withOwner(r: OwnedTunnelRecord, host: HostIdentity): OwnedTunnelRecord {
+  return toRecord({ ...r, ownerPid: host.pid, ownerStartedAt: host.startedAt });
 }
 
 function errorCode(error: unknown): string {
@@ -156,11 +198,13 @@ function errorCode(error: unknown): string {
 /**
  * TunnelProcessRegistry - the single owner of every cloudflared child the extension spawns.
  *
- * It spawns the child, records { tunnelId, pid, startedAt, kind, target } in memory and in
- * globalState once the child has really started, removes the record when the child exits,
- * reconciles persisted records against live processes on activate, and stops a tunnel only
- * by its recorded pid after checking that the pid still belongs to that child. It never
- * looks up or signals a process by name, command line or port.
+ * It spawns the child, records { tunnelId, pid, startedAt, kind, target } plus the owning
+ * extension host in memory and in globalState once the child has really started, removes
+ * the record when the child exits, reconciles persisted records against live processes on
+ * activate, and stops a tunnel only by its recorded pid after checking that the pid still
+ * belongs to that child. globalState is shared by every VS Code window, so a record whose
+ * owning window is still running is never adopted, signalled or stopped by another window.
+ * It never looks up or signals a process by name, command line or port.
  */
 export class TunnelProcessRegistry implements vscode.Disposable {
   private readonly owned = new Map<string, OwnedEntry>();
@@ -182,6 +226,8 @@ export class TunnelProcessRegistry implements vscode.Disposable {
   private readonly startTimeToleranceMs: number;
   private readonly pollIntervalMs: number;
   private readonly probeTimeoutMs: number;
+  private readonly ownerPid: number;
+  private host?: Promise<HostIdentity>;
 
   constructor(options: TunnelProcessRegistryOptions) {
     this.memento = options.memento;
@@ -195,6 +241,34 @@ export class TunnelProcessRegistry implements vscode.Disposable {
     this.startTimeToleranceMs = options.startTimeToleranceMs ?? DEFAULT_START_TIME_TOLERANCE_MS;
     this.pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
     this.probeTimeoutMs = options.probeTimeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS;
+    this.ownerPid = options.ownerPid ?? process.pid;
+  }
+
+  /**
+   * This extension host's identity, probed once and then reused. Never rejects: a host
+   * whose start time cannot be read is recorded by pid alone, which other windows treat
+   * as undecidable while that pid is alive.
+   */
+  private hostIdentity(): Promise<HostIdentity> {
+    if (!this.host) {
+      const pid = this.ownerPid;
+      this.host = this.probeFn(pid, { timeoutMs: this.probeTimeoutMs, logger: this.logger })
+        .catch((error: unknown) => {
+          this.logger.warn(LogComponent.TUNNEL, `Probing this window's host (pid ${pid}) failed: ${errorCode(error)}`);
+          return { state: "unknown" as const };
+        })
+        .then((result): HostIdentity => {
+          if (result.state === "alive") {
+            return { pid, startedAt: result.startTimeMs };
+          }
+          this.logger.warn(
+            LogComponent.TUNNEL,
+            `Could not read this window's host start time (pid ${pid}, ${result.state}); recording ownership by pid only`,
+          );
+          return { pid };
+        });
+    }
+    return this.host;
   }
 
   /**
@@ -229,6 +303,7 @@ export class TunnelProcessRegistry implements vscode.Disposable {
     }
     this.starting.add(tunnelId);
     try {
+      const host = await this.hostIdentity();
       let child: cp.ChildProcess;
       try {
         child = this.spawnFn(req.command, req.args, {
@@ -271,13 +346,10 @@ export class TunnelProcessRegistry implements vscode.Disposable {
         throw this.startFailed(tunnelId, new Error("cloudflared started without a pid"));
       }
 
-      const record: OwnedTunnelRecord = {
-        tunnelId,
-        pid,
-        startedAt: this.now(),
-        kind: req.kind,
-        target: req.target,
-      };
+      const record: OwnedTunnelRecord = withOwner(
+        { tunnelId, pid, startedAt: this.now(), kind: req.kind, target: req.target },
+        host,
+      );
       const entry: SpawnedEntry = { record, child, adopted: false, exited };
       this.owned.set(tunnelId, entry);
 
@@ -306,8 +378,9 @@ export class TunnelProcessRegistry implements vscode.Disposable {
       }
 
       if (this.owned.get(tunnelId) === entry) {
+        // A record another window owns for the same tunnel id is left in place
         void this.persist((records) => [
-          ...records.filter((r) => r.tunnelId !== tunnelId),
+          ...records.filter((r) => r.tunnelId !== tunnelId || this.ownedByAnotherHost(r, host)),
           toRecord(record),
         ]);
         this.logger.info(LogComponent.TUNNEL, `Tunnel ${tunnelId} started (pid ${pid})`);
@@ -388,8 +461,9 @@ export class TunnelProcessRegistry implements vscode.Disposable {
   }
 
   /**
-   * Stops every owned tunnel concurrently under one shared deadline. Records whose exit
-   * was not confirmed stay persisted for the next reconcile.
+   * Stops every tunnel this window owns concurrently under one shared deadline. Records
+   * another window owns are never in `owned`, so they are never stopped here. Records whose
+   * exit was not confirmed stay persisted for the next reconcile.
    */
   async stopAll(timeoutMs: number): Promise<StopResult[]> {
     const ids = Array.from(this.owned.keys());
@@ -529,8 +603,12 @@ export class TunnelProcessRegistry implements vscode.Disposable {
         : Math.max(1, Math.min(this.probeTimeoutMs, deadline - this.now()));
     let result;
     try {
-      result = await this.probeFn(record.pid, { timeoutMs });
-    } catch {
+      result = await this.probeFn(record.pid, { timeoutMs, logger: this.logger });
+    } catch (error) {
+      this.logger.warn(
+        LogComponent.TUNNEL,
+        `Probing pid ${record.pid} for tunnel ${record.tunnelId} failed: ${errorCode(error)}`,
+      );
       return "unknown";
     }
     if (result.state === "dead") {
@@ -548,22 +626,98 @@ export class TunnelProcessRegistry implements vscode.Disposable {
     return "verified";
   }
 
+  /** True when the record names an owner host other than `host`. */
+  private ownedByAnotherHost(record: OwnedTunnelRecord, host: HostIdentity): boolean {
+    return record.ownerPid !== undefined && this.ownershipOf(record, host) !== "self";
+  }
+
+  private ownershipOf(record: OwnedTunnelRecord, host: HostIdentity): Ownership | undefined {
+    if (record.ownerPid === undefined) {
+      // Written before records carried an owner
+      return "orphaned";
+    }
+    if (
+      record.ownerPid === host.pid &&
+      record.ownerStartedAt !== undefined &&
+      host.startedAt !== undefined &&
+      Math.abs(record.ownerStartedAt - host.startedAt) <= this.startTimeToleranceMs
+    ) {
+      return "self";
+    }
+    return undefined;
+  }
+
   /**
-   * Checks every persisted record against the live process table. Verified records are
-   * adopted (owned, running, stoppable); dead, reused or unverifiable pids are dropped
-   * without ever being signalled. Never throws.
+   * Decides whether the window that wrote a record is still running, by probing its
+   * extension-host pid against its recorded start time. Undecidable means hands off.
+   */
+  private async ownerOf(record: OwnedTunnelRecord, host: HostIdentity): Promise<Ownership> {
+    const known = this.ownershipOf(record, host);
+    if (known) {
+      return known;
+    }
+    const ownerPid = record.ownerPid as number;
+    let result;
+    try {
+      result = await this.probeFn(ownerPid, { timeoutMs: this.probeTimeoutMs, logger: this.logger });
+    } catch (error) {
+      this.logger.warn(
+        LogComponent.TUNNEL,
+        `Probing owner window (pid ${ownerPid}) of tunnel ${record.tunnelId} failed: ${errorCode(error)}`,
+      );
+      return "unknown";
+    }
+    if (result.state === "dead") {
+      return "orphaned";
+    }
+    if (result.state !== "alive" || record.ownerStartedAt === undefined) {
+      return "unknown";
+    }
+    // A live pid with a different start time is a later process that reused the owner's pid
+    return Math.abs(result.startTimeMs - record.ownerStartedAt) <= this.startTimeToleranceMs
+      ? "other-alive"
+      : "orphaned";
+  }
+
+  /**
+   * Checks every persisted record against the live process table. A record whose owner
+   * window is still running, or whose owner cannot be determined, is left in place and
+   * never touched. Of the rest, verified records are adopted (owned, running, stoppable)
+   * and rewritten to this window; dead, reused or unverifiable pids are dropped without
+   * ever being signalled. Never throws.
    */
   async reconcile(): Promise<void> {
     try {
+      const host = await this.hostIdentity();
       const records = (await this.load()).filter((r) => !this.owned.has(r.tunnelId));
       const checked = await Promise.all(
-        records.map(async (record) => ({ record, identity: await this.verify(record) })),
+        records.map(async (record) => {
+          const owner = await this.ownerOf(record, host);
+          if (owner === "other-alive" || owner === "unknown") {
+            return { record, owner, identity: undefined };
+          }
+          return { record, owner, identity: await this.verify(record) };
+        }),
       );
       const dropped: OwnedTunnelRecord[] = [];
       const adopted: AdoptedTunnel[] = [];
-      for (const { record, identity } of checked) {
+      for (const { record, owner, identity } of checked) {
+        if (identity === undefined) {
+          if (owner === "unknown") {
+            this.logger.warn(
+              LogComponent.TUNNEL,
+              `Could not tell whether window pid ${record.ownerPid} still owns tunnel ${record.tunnelId}; not claiming it`,
+            );
+          } else {
+            this.logger.info(
+              LogComponent.TUNNEL,
+              `Tunnel ${record.tunnelId} (pid ${record.pid}) belongs to another open window (pid ${record.ownerPid}); leaving it`,
+            );
+          }
+          continue;
+        }
         if (identity === "verified" && !this.owned.has(record.tunnelId)) {
-          const entry: AdoptedTunnel = { record, adopted: true };
+          const entry: AdoptedTunnel = { record: withOwner(record, host), adopted: true };
           this.owned.set(record.tunnelId, entry);
           adopted.push(entry);
         } else {
@@ -575,9 +729,12 @@ export class TunnelProcessRegistry implements vscode.Disposable {
           }
         }
       }
-      if (dropped.length > 0) {
+      if (dropped.length > 0 || adopted.length > 0) {
+        const same = (a: OwnedTunnelRecord, b: OwnedTunnelRecord) => a.tunnelId === b.tunnelId && a.pid === b.pid;
         await this.persist((current) =>
-          current.filter((r) => !dropped.some((d) => d.tunnelId === r.tunnelId && d.pid === r.pid)),
+          current
+            .filter((r) => !dropped.some((d) => same(d, r)))
+            .map((r) => adopted.find((a) => same(a.record, r))?.record ?? r),
         );
       }
       for (const entry of adopted) {

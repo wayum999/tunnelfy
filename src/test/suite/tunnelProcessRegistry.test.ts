@@ -22,6 +22,11 @@ import {
 } from "./fakeProcess";
 
 const SECRET = "secret-tunnel-token-value";
+/** Simulated extension-host pids and start times, one per VS Code window */
+const HOST_PID = 4242;
+const HOST_START = new Date(2026, 8, 24, 8, 0, 0).getTime();
+const HOST_B_PID = 4343;
+const HOST_B_START = new Date(2026, 8, 24, 8, 30, 0).getTime();
 
 suite("TunnelProcessRegistry Test Suite", () => {
   let memento: TestMemento;
@@ -43,7 +48,9 @@ suite("TunnelProcessRegistry Test Suite", () => {
     return answer ?? { state: "dead" };
   };
 
-  function makeRegistry(overrides: { platform?: NodeJS.Platform; probe?: typeof probe } = {}) {
+  function makeRegistry(
+    overrides: { platform?: NodeJS.Platform; probe?: typeof probe; ownerPid?: number } = {},
+  ) {
     const { logger, lines: logged } = createRecordingLogger();
     lines = logged;
     const reg = new TunnelProcessRegistry({
@@ -54,6 +61,7 @@ suite("TunnelProcessRegistry Test Suite", () => {
       probe: overrides.probe ?? probe,
       platform: overrides.platform ?? "linux",
       pollIntervalMs: 5,
+      ownerPid: overrides.ownerPid ?? HOST_PID,
     });
     reg.onDidChange((event) => events.push(event));
     return reg;
@@ -89,6 +97,7 @@ suite("TunnelProcessRegistry Test Suite", () => {
     kill = createFakeKill(() => spawn.children);
     events = [];
     probeAnswers = new Map();
+    probeAnswers.set(HOST_PID, { state: "alive", executable: "code", startTimeMs: HOST_START });
     probeCalls = [];
     clock = Date.now();
     registry = makeRegistry();
@@ -97,7 +106,7 @@ suite("TunnelProcessRegistry Test Suite", () => {
   teardown(() => registry.dispose());
 
   suite("start and record (1.1-1.5, 6.1, 8.1, 9.1, 9.2)", () => {
-    test("records and persists the five fields on spawn, never the env or token", async () => {
+    test("records and persists the tunnel and its owning window on spawn, never the env or token", async () => {
       const owned = await registry.start(request("t1"));
       await registry.flush();
 
@@ -114,6 +123,8 @@ suite("TunnelProcessRegistry Test Suite", () => {
         startedAt: owned.record.startedAt,
         kind: "named",
         target: "http://localhost:8080",
+        ownerPid: HOST_PID,
+        ownerStartedAt: HOST_START,
       });
       assert.deepStrictEqual(persisted(), [owned.record]);
       assert.ok(!JSON.stringify(persisted()).includes(SECRET), "token persisted");
@@ -421,6 +432,50 @@ suite("TunnelProcessRegistry Test Suite", () => {
       assert.deepStrictEqual(kill.calls.map((c) => [c.pid, c.signal]), [[500, "SIGTERM"], [500, "SIGKILL"]]);
     });
 
+    test("an adopted record whose post-SIGTERM re-check is a mismatch is never force-killed", async () => {
+      await seed({ pid: 500 });
+      const alive: ProbeResult = { state: "alive", executable: "cloudflared", startTimeMs: START };
+      const reused: ProbeResult = { state: "alive", executable: "bash", startTimeMs: START + 99_000 };
+      kill.ignore.add("SIGTERM");
+      probeAnswers.set(500, [alive, alive, reused]); // reconcile, stop re-verify, post-SIGTERM poll
+      await registry.reconcile();
+      const result = await registry.stop("old-0", 200);
+      await registry.flush();
+      assert.deepStrictEqual(result, { tunnelId: "old-0", outcome: "stopped" });
+      assert.deepStrictEqual(kill.calls, [{ pid: 500, signal: "SIGTERM" }], "SIGKILL sent to a reused pid");
+      assert.strictEqual(registry.isOwned("old-0"), false);
+    });
+
+    test("an adopted record whose post-SIGTERM re-check is inconclusive is never force-killed", async () => {
+      await seed({ pid: 500 });
+      const alive: ProbeResult = { state: "alive", executable: "cloudflared", startTimeMs: START };
+      kill.ignore.add("SIGTERM");
+      probeAnswers.set(500, [alive, alive, { state: "unknown" }]); // then unknown on every poll
+      await registry.reconcile();
+      const result = await registry.stop("old-0", 200);
+      assert.deepStrictEqual(result, { tunnelId: "old-0", outcome: "failed", reason: "identity-unverified" });
+      assert.deepStrictEqual(kill.calls, [{ pid: 500, signal: "SIGTERM" }], "SIGKILL sent to an unverified pid");
+      assert.strictEqual(registry.isOwned("old-0"), true);
+    });
+
+    test("a probe that throws is logged with the pid and the root error", async () => {
+      await seed({ pid: 500 });
+      registry.dispose();
+      registry = makeRegistry({
+        probe: async (pid) => {
+          if (pid === HOST_PID) {
+            return { state: "alive", executable: "code", startTimeMs: HOST_START };
+          }
+          throw new Error("probe exploded");
+        },
+      });
+      await registry.reconcile();
+      assert.ok(
+        lines.some((l) => l.level === "warn" && l.message.includes("pid 500") && l.message.includes("probe exploded")),
+        "root error not logged",
+      );
+    });
+
     test("reconcile never throws, even when the probe does", async () => {
       await seed({ pid: 500 });
       registry.dispose();
@@ -439,6 +494,134 @@ suite("TunnelProcessRegistry Test Suite", () => {
       assert.strictEqual(persisted().length, 1);
       assert.ok(!probeCalls.includes(childFor("t1").pid!), "own child probed");
       await wait(1);
+    });
+  });
+
+  suite("per-window ownership in a shared globalState (design amendment 2026-09-26)", () => {
+    const START = new Date(2026, 8, 24, 12, 0, 0).getTime();
+    let hostB: TunnelProcessRegistry;
+    let hostBLines: LoggedLine[];
+
+    /** Window A (HOST_PID) starts a tunnel; the probe reports its child as the live cloudflared. */
+    async function hostAStarts(tunnelId = "t1"): Promise<OwnedTunnelRecord> {
+      await registry.start(request(tunnelId));
+      await registry.flush();
+      const record = persisted().find((r) => r.tunnelId === tunnelId)!;
+      probeAnswers.set(record.pid, { state: "alive", executable: "cloudflared", startTimeMs: record.startedAt });
+      kill.ignore.add("SIGTERM");
+      kill.ignore.add("SIGKILL");
+      return record;
+    }
+
+    function makeHostB(): TunnelProcessRegistry {
+      const aLines = lines;
+      const reg = makeRegistry({ ownerPid: HOST_B_PID });
+      hostBLines = lines;
+      lines = aLines;
+      return reg;
+    }
+
+    setup(() => {
+      probeAnswers.set(HOST_B_PID, { state: "alive", executable: "code", startTimeMs: HOST_B_START });
+      hostB = makeHostB();
+    });
+
+    teardown(() => hostB.dispose());
+
+    test("window B does not adopt, list or stop window A's live tunnel", async () => {
+      const record = await hostAStarts();
+      await hostB.reconcile();
+      await hostB.flush();
+      assert.strictEqual(hostB.isOwned("t1"), false, "adopted another window's live tunnel");
+      assert.deepStrictEqual(hostB.list(), []);
+      assert.deepStrictEqual(await hostB.stop("t1"), { tunnelId: "t1", outcome: "not-owned" });
+      assert.deepStrictEqual(persisted(), [record], "another window's record was rewritten or dropped");
+      assert.ok(!probeCalls.includes(record.pid), "window B probed a tunnel it does not own");
+      assert.strictEqual(kill.calls.length, 0);
+    });
+
+    test("window B's stopAll sends no signal to window A's child", async () => {
+      const record = await hostAStarts();
+      await hostB.reconcile();
+      assert.deepStrictEqual(await hostB.stopAll(200), []);
+      assert.strictEqual(kill.calls.length, 0, "window B signalled window A's child");
+      assert.strictEqual(registry.isOwned("t1"), true);
+      assert.deepStrictEqual(persisted(), [record]);
+    });
+
+    test("window B adopts the tunnel once window A is gone, and records itself as owner", async () => {
+      const record = await hostAStarts();
+      await hostB.reconcile();
+      assert.strictEqual(hostB.isOwned("t1"), false);
+
+      probeAnswers.set(HOST_PID, { state: "dead" });
+      await hostB.reconcile();
+      await hostB.flush();
+      assert.strictEqual(hostB.isAdopted("t1"), true, "orphaned tunnel not adopted");
+      const rewritten = { ...record, ownerPid: HOST_B_PID, ownerStartedAt: HOST_B_START };
+      assert.deepStrictEqual(persisted(), [rewritten]);
+      assert.deepStrictEqual(hostB.list(), [rewritten]);
+      assert.strictEqual(kill.calls.length, 0);
+    });
+
+    test("a window whose pid was reused by a later process no longer owns its tunnel", async () => {
+      await hostAStarts();
+      probeAnswers.set(HOST_PID, { state: "alive", executable: "code", startTimeMs: HOST_START + 3_600_000 });
+      await hostB.reconcile();
+      assert.strictEqual(hostB.isAdopted("t1"), true);
+    });
+
+    test("a legacy record with no owner is still adopted", async () => {
+      await memento.update(OWNED_TUNNELS_KEY, [
+        { tunnelId: "legacy", pid: 600, startedAt: START, kind: "named", target: "http://localhost:8080" },
+      ]);
+      probeAnswers.set(600, { state: "alive", executable: "cloudflared", startTimeMs: START });
+      await hostB.reconcile();
+      await hostB.flush();
+      assert.strictEqual(hostB.isAdopted("legacy"), true, "legacy record not adopted");
+      assert.deepStrictEqual(persisted(), [
+        {
+          tunnelId: "legacy",
+          pid: 600,
+          startedAt: START,
+          kind: "named",
+          target: "http://localhost:8080",
+          ownerPid: HOST_B_PID,
+          ownerStartedAt: HOST_B_START,
+        },
+      ]);
+    });
+
+    test("an owner probe that is inconclusive leaves the record alone and unclaimed", async () => {
+      const record = await hostAStarts();
+      probeAnswers.set(HOST_PID, { state: "unknown" });
+      await hostB.reconcile();
+      await hostB.flush();
+      assert.strictEqual(hostB.isOwned("t1"), false, "claimed a tunnel whose owner is undecidable");
+      assert.deepStrictEqual(await hostB.stopAll(200), []);
+      assert.strictEqual(kill.calls.length, 0);
+      assert.deepStrictEqual(persisted(), [record], "record of an undecidable owner was dropped");
+      assert.ok(hostBLines.some((l) => l.level === "warn" && l.message.includes(`pid ${HOST_PID}`)));
+    });
+
+    test("an owner recorded by pid alone is undecidable while that pid is alive", async () => {
+      await memento.update(OWNED_TUNNELS_KEY, [
+        { tunnelId: "t9", pid: 700, startedAt: START, kind: "named", target: "x", ownerPid: HOST_PID },
+      ]);
+      probeAnswers.set(700, { state: "alive", executable: "cloudflared", startTimeMs: START });
+      await hostB.reconcile();
+      assert.strictEqual(hostB.isOwned("t9"), false);
+      assert.strictEqual(persisted().length, 1);
+    });
+
+    test("window B starting the same tunnel id keeps window A's record", async () => {
+      const record = await hostAStarts();
+      await hostB.start(request("t1"));
+      await hostB.flush();
+      const records = persisted();
+      assert.strictEqual(records.length, 2);
+      assert.deepStrictEqual(records[0], record);
+      assert.strictEqual(records[1].ownerPid, HOST_B_PID);
     });
   });
 });

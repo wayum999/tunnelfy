@@ -203,5 +203,6 @@ export function deactivate(): Promise<void> {
     }
     const manager = tunnelManager;
     tunnelManager = undefined;
-    return stopOwnedTunnels(manager);
+    // Disposed only once its tunnels are stopped: the stop path still reports through its listener
+    return stopOwnedTunnels(manager).finally(() => manager?.dispose());
 }

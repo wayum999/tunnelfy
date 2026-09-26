@@ -13,6 +13,8 @@ import { TunnelManager } from "../../services/cloudflared";
 import { ProfileManager } from "../../services/profileManager";
 import { Logger } from "../../utils/logger";
 import { Messages } from "../../utils/messages";
+import { TunnelProcessRegistry } from "../../services/cloudflared/TunnelProcessRegistry";
+import { CloudflareApiService } from "../../services/cloudflareApi";
 
 const VIEW_IDS = ["tunnelfy-profiles", "tunnelfy-tunnels", "tunnelfy-quick-tunnels"];
 
@@ -185,6 +187,43 @@ suite("Activation hygiene (TUNNEL-85, TUNNEL-86)", () => {
       provider.dispose();
     });
 
+    test("a group expanded after a render lists tunnels afresh", async () => {
+      const listTunnels = sinon.stub();
+      listTunnels.onFirstCall().resolves([{ id: "remote-1", name: "old", remote_config: true, connections: [] }]);
+      listTunnels.onSecondCall().resolves([{ id: "remote-1", name: "new", remote_config: true, connections: [] }]);
+      const { manager } = fakeTunnelManager({ listTunnels });
+      const profileManager = { getActiveProfile: async () => "profile" } as unknown as ProfileManager;
+      const provider = new TunnelTreeDataProvider(manager, profileManager);
+
+      const [remoteGroup] = await provider.getChildren();
+      await provider.getChildren(remoteGroup);
+      // Collapse All, then expand: VS Code asks the group again with no root render
+      const expanded = await provider.getChildren(remoteGroup);
+
+      assert.strictEqual(listTunnels.callCount, 2, "a later expand reused the list of an earlier render");
+      assert.deepStrictEqual(expanded.map((item) => item.label), ["new"]);
+      provider.dispose();
+    });
+
+    test("a failed list call is retried by the next expand, not kept as an error", async () => {
+      const listTunnels = sinon.stub();
+      listTunnels.onFirstCall().rejects(new Error("API down"));
+      listTunnels.onSecondCall().resolves([{ id: "remote-1", name: "remote", remote_config: true, connections: [] }]);
+      const { manager } = fakeTunnelManager({ listTunnels });
+      const profileManager = { getActiveProfile: async () => "profile" } as unknown as ProfileManager;
+      const provider = new TunnelTreeDataProvider(manager, profileManager);
+
+      const [remoteGroup] = await provider.getChildren();
+      const failed = await provider.getChildren(remoteGroup);
+      assert.ok(failed[0] instanceof TunnelListErrorItem, "expected the first call's error item");
+
+      const retried = await provider.getChildren(remoteGroup);
+
+      assert.strictEqual(listTunnels.callCount, 2, "the failed call was not retried");
+      assert.deepStrictEqual(retried.map((item) => item.label), ["remote"], "the error item stuck");
+      provider.dispose();
+    });
+
     test("one failed list call still reaches both groups as an error item", async () => {
       const listTunnels = sinon.stub().rejects(new Error("API down"));
       const { manager } = fakeTunnelManager({ listTunnels });
@@ -199,6 +238,27 @@ suite("Activation hygiene (TUNNEL-85, TUNNEL-86)", () => {
         assert.ok(items[0] instanceof TunnelListErrorItem, "list error did not reach the group");
       }
       provider.dispose();
+    });
+  });
+
+  suite("tunnel manager disposal (85.1)", () => {
+    test("disposing the tunnel manager drops its registry listener", () => {
+      const storageDir = fs.mkdtempSync(path.join(os.tmpdir(), "tunnelfy-manager-dispose-"));
+      const registrySubscription = trackedDisposable();
+      const registry = {
+        onDidChange: () => registrySubscription,
+      } as unknown as TunnelProcessRegistry;
+      const manager = new TunnelManager(
+        mockExtensionContext(storageDir),
+        Logger.getInstance(),
+        {} as CloudflareApiService,
+        {} as ProfileManager,
+        registry,
+      );
+
+      manager.dispose();
+
+      assert.ok(registrySubscription.disposed, "registry listener left subscribed");
     });
   });
 
@@ -272,6 +332,14 @@ suite("Activation hygiene (TUNNEL-85, TUNNEL-86)", () => {
       assert.strictEqual(clock.countTimers(), 0, "an interval is still pending after the extension was disposed");
       const undisposed = treeViews.filter(({ view }) => !view.disposed).map(({ id }) => id);
       assert.deepStrictEqual(undisposed, [], "tree views left undisposed");
+    });
+
+    test("deactivate disposes the tunnel manager once its tunnels are stopped", async () => {
+      const dispose = sandbox.spy(TunnelManager.prototype, "dispose");
+
+      await deactivate();
+
+      assert.ok(dispose.calledOnce, "deactivate left the tunnel manager undisposed");
     });
 
     for (const commandId of ["tunnelfy.startTunnel", "tunnelfy.createQuickTunnel"]) {

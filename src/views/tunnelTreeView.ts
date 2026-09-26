@@ -123,7 +123,7 @@ export class TunnelTreeDataProvider
   private treeView: vscode.TreeView<TunnelTreeItem | TunnelGroupItem>;
   private readonly tunnelEventSubscription: vscode.Disposable;
   private currentItems: TunnelTreeItem[] = [];
-  /** One listTunnels call per refresh, shared by both group nodes */
+  /** The in-flight listTunnels call, shared by the group nodes of one render */
   private pendingTunnels:
     | Promise<Array<CloudflareTunnel & { is_running_locally?: boolean }>>
     | undefined;
@@ -338,10 +338,20 @@ export class TunnelTreeDataProvider
   /**
    * Returns the tunnel list for the current render, calling the API only once
    * however many group nodes ask. A failure is shared too, so every group shows it.
+   * The shared call is dropped once it settles, so a group expanded later fetches
+   * afresh instead of reusing an old list or a stale error.
    */
   private loadTunnels(): Promise<Array<CloudflareTunnel & { is_running_locally?: boolean }>> {
     if (!this.pendingTunnels) {
-      this.pendingTunnels = this.tunnelManager.listTunnels();
+      const pending = this.tunnelManager.listTunnels();
+      this.pendingTunnels = pending;
+      const expire = () => {
+        // A refresh may already have started a newer call; leave that one alone
+        if (this.pendingTunnels === pending) {
+          this.pendingTunnels = undefined;
+        }
+      };
+      pending.then(expire, expire);
     }
     return this.pendingTunnels;
   }

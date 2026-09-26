@@ -117,6 +117,7 @@ export interface TunnelEvent {
 export class TunnelManager {
   private readonly _onTunnelEvent = new vscode.EventEmitter<TunnelEvent>();
   readonly onTunnelEvent = this._onTunnelEvent.event;
+  private readonly registrySubscription: vscode.Disposable;
   private readonly tunnelLogger: TunnelLogger;
   private readonly tunnelConfig: TunnelConfig;
   private readonly registry: TunnelProcessRegistry;
@@ -144,7 +145,15 @@ export class TunnelManager {
       registry ??
       new TunnelProcessRegistry({ memento: context.globalState, logger });
     this.quickTunnelUrlTimeoutMs = options.quickTunnelUrlTimeoutMs ?? 15000;
-    this.registry.onDidChange((event) => this.onRegistryEvent(event));
+    this.registrySubscription = this.registry.onDidChange((event) =>
+      this.onRegistryEvent(event),
+    );
+  }
+
+  /** Drops the registry listener and the tunnel event emitter; running tunnels are untouched */
+  dispose(): void {
+    this.registrySubscription.dispose();
+    this._onTunnelEvent.dispose();
   }
 
   private onRegistryEvent(event: RegistryEvent): void {

@@ -334,7 +334,16 @@ export class TunnelProcessRegistry implements vscode.Disposable {
     this.logger.info(LogComponent.TUNNEL, `Recorded this window's host start time on ${held.length} owned tunnel(s)`);
     void this.persist((records) =>
       records.map((r) => (needsStart(r) && held.some((h) => sameProcess(h, r)) ? withOwner(r, host) : r)),
-    );
+    ).then((written) => {
+      if (!written) {
+        // Fails safe: other windows stay hands off a pid-only record while this host lives
+        this.logger.warn(
+          LogComponent.TUNNEL,
+          `Could not save this window's host start time on tunnel(s) ${held.map((r) => r.tunnelId).join(", ")}; ` +
+            "they stay recorded by pid only",
+        );
+      }
+    });
   }
 
   private entries(): OwnedEntry[] {
@@ -544,36 +553,71 @@ export class TunnelProcessRegistry implements vscode.Disposable {
    * Stops an owned tunnel by its recorded pid: graceful termination, a bounded wait,
    * then a force-kill only while the process is still the verified child. Every process
    * this window tracks for the id is stopped concurrently; the result is stopped only when
-   * all of them stopped, else the first failure.
+   * all of them stopped, else the first failure. A concurrent stop of the same id shares
+   * this one's result.
    * @param timeoutMs total budget for the stop
    */
   stop(tunnelId: string, timeoutMs: number = DEFAULT_STOP_TIMEOUT_MS): Promise<StopResult> {
-    const entries = [...(this.owned.get(tunnelId) ?? [])];
-    if (entries.length === 0) {
+    if (!this.owned.has(tunnelId)) {
       return Promise.resolve({ tunnelId, outcome: "not-owned" });
     }
     const inFlight = this.stopping.get(tunnelId);
     if (inFlight) {
       return inFlight;
     }
-    const deadline = this.now() + Math.max(0, timeoutMs);
-    const stopping = Promise.all(
-      entries.map((entry) =>
-        (entry.adopted ? this.stopAdopted(entry, deadline) : this.stopSpawned(entry, deadline))
-          .catch((error): StopResult => ({ tunnelId, outcome: "failed", reason: `error: ${errorCode(error)}` }))
-          .then((result) => {
-            this.logger.info(
-              LogComponent.TUNNEL,
-              `Stop tunnel ${tunnelId} (pid ${entry.record.pid}): ${result.outcome}${result.reason ? ` (${result.reason})` : ""}`,
-            );
-            return result;
-          }),
-      ),
-    )
-      .then((results): StopResult => results.find((r) => r.outcome !== "stopped") ?? { tunnelId, outcome: "stopped" })
+    const stopping = this.stopEvery(tunnelId, this.now() + Math.max(0, timeoutMs))
       .finally(() => this.stopping.delete(tunnelId));
     this.stopping.set(tunnelId, stopping);
     return stopping;
+  }
+
+  /**
+   * Stops every tracked process of a tunnel id. Reconcile can adopt another process of the
+   * id while the stop is in flight; it is stopped too, or, once the deadline has passed,
+   * left unsignalled and reported as a timeout, so stopped is never claimed while a tracked
+   * process of the id runs on. A spawned process cannot join: start refuses an id that is
+   * tracked, so one that appears later is a new start after this stop released the id.
+   */
+  private async stopEvery(tunnelId: string, deadline: number): Promise<StopResult> {
+    const handled = new Set<OwnedEntry>();
+    const results: StopResult[] = [];
+    let batch = [...(this.owned.get(tunnelId) ?? [])];
+    while (batch.length > 0) {
+      batch.forEach((entry) => handled.add(entry));
+      if (results.length > 0 && this.now() >= deadline) {
+        for (const entry of batch) {
+          this.logger.warn(
+            LogComponent.TUNNEL,
+            `Stop tunnel ${tunnelId} (pid ${entry.record.pid}): adopted after the stop began and its time ran out; not signalled`,
+          );
+          results.push({ tunnelId, outcome: "failed", reason: "timeout" });
+        }
+        break;
+      }
+      results.push(...(await Promise.all(batch.map((entry) => this.stopOne(entry, deadline)))));
+      batch = (this.owned.get(tunnelId) ?? []).filter((entry) => entry.adopted && !handled.has(entry));
+    }
+    const stopped = results.filter((r) => r.outcome === "stopped").length;
+    if (results.length > 1 && stopped < results.length) {
+      const remaining = (this.owned.get(tunnelId) ?? []).map((entry) => entry.record.pid);
+      this.logger.warn(
+        LogComponent.TUNNEL,
+        `Stop tunnel ${tunnelId}: ${stopped} of ${results.length} processes stopped` +
+          (remaining.length > 0 ? `; still tracked: pid ${remaining.join(", pid ")}` : ""),
+      );
+    }
+    return results.find((r) => r.outcome !== "stopped") ?? { tunnelId, outcome: "stopped" };
+  }
+
+  private async stopOne(entry: OwnedEntry, deadline: number): Promise<StopResult> {
+    const { tunnelId, pid } = entry.record;
+    const result = await (entry.adopted ? this.stopAdopted(entry, deadline) : this.stopSpawned(entry, deadline))
+      .catch((error): StopResult => ({ tunnelId, outcome: "failed", reason: `error: ${errorCode(error)}` }));
+    this.logger.info(
+      LogComponent.TUNNEL,
+      `Stop tunnel ${tunnelId} (pid ${pid}): ${result.outcome}${result.reason ? ` (${result.reason})` : ""}`,
+    );
+    return result;
   }
 
   /**
@@ -864,11 +908,11 @@ export class TunnelProcessRegistry implements vscode.Disposable {
   }
 
   /**
-   * Drops `dropped` and takes each candidate with a compare-and-set on its owner: the
-   * persisted record is re-read, and rewritten to this host only if it still names the
-   * owner reconcile saw (the dead window, or none for a legacy record). A record another
-   * window has re-owned in the meantime, or one that is gone, is left alone. Nothing is
-   * claimed if the write fails.
+   * Drops `dropped` and takes each candidate, both with a compare-and-set on the owner: the
+   * persisted record is re-read, and dropped or rewritten to this host only if it still
+   * names the owner reconcile saw (the dead window, or none for a legacy record). A record
+   * another window has re-owned in the meantime, or one that is gone, is left alone.
+   * Nothing is claimed if the write fails.
    *
    * globalState has no transactions. The compare and the write run in one synchronous
    * step (no await between the read and memento.update), so two reconciles in this window,
@@ -887,14 +931,18 @@ export class TunnelProcessRegistry implements vscode.Disposable {
     let won: AdoptedTunnel[] = [];
     const written = await this.persist((current) => {
       won = [];
+      // A retry may have read the host start time since reconcile began
+      const owner = this.knownHost ?? host;
       return current
-        .filter((r) => !dropped.some((d) => sameProcess(d, r)))
+        // Drop only a record that still names the owner reconcile judged it under; one
+        // another window has claimed since then is that window's live tunnel
+        .filter((r) => !dropped.some((d) => sameProcess(d, r) && sameOwner(d, r)))
         .map((r) => {
           const seen = candidates.find((c) => sameProcess(c, r));
           if (!seen || !sameOwner(seen, r) || this.holdsProcess(r)) {
             return r;
           }
-          const entry: AdoptedTunnel = { record: withOwner(r, host), adopted: true };
+          const entry: AdoptedTunnel = { record: withOwner(r, owner), adopted: true };
           won.push(entry);
           return entry.record;
         });
@@ -902,6 +950,9 @@ export class TunnelProcessRegistry implements vscode.Disposable {
     if (!written) {
       if (candidates.length > 0) {
         this.logger.warn(LogComponent.TUNNEL, `Not adopting ${candidates.length} tunnel(s): their ownership could not be saved`);
+      }
+      if (dropped.length > 0) {
+        this.logger.warn(LogComponent.TUNNEL, `Not dropping ${dropped.length} stale tunnel record(s): they could not be saved`);
       }
       return [];
     }

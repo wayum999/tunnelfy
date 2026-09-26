@@ -733,6 +733,57 @@ suite("TunnelProcessRegistry Test Suite", () => {
       await registry.flush();
       assert.deepStrictEqual(registry.list().map((r) => r.pid).sort(), [own.pid, 500].sort());
       assert.strictEqual(persisted().length, 2);
+      assert.strictEqual(registry.isAdopted("t1"), true, "an id with an adopted process reads as adopted");
+    });
+
+    test("(1) a process of the id adopted while a stop is in flight is stopped too", async () => {
+      kill.ignore.add("SIGTERM"); // the spawned child holds the stop open until SIGKILL
+      await registry.start(request("t1"));
+      await registry.flush();
+      const own = persisted()[0];
+      await memento.update(OWNED_TUNNELS_KEY, [own, orphan("t1", 500)]);
+      probeAnswers.set(500, [
+        { state: "alive", executable: "cloudflared", startTimeMs: START }, // reconcile
+        { state: "alive", executable: "cloudflared", startTimeMs: START }, // stop: re-verify
+        { state: "dead" }, // stop: after SIGTERM
+      ]);
+
+      const stopping = registry.stop("t1", 400);
+      await registry.reconcile(); // adopts pid 500 mid-stop
+      assert.deepStrictEqual(registry.list().map((r) => r.pid).sort(), [own.pid, 500].sort(), "not adopted mid-stop");
+      const again = registry.stop("t1", 400);
+      const [result, shared] = await Promise.all([stopping, again]);
+      await registry.flush();
+
+      const stillRunning = registry.isOwned("t1");
+      assert.ok(
+        (result.outcome === "stopped" && !stillRunning) || (result.outcome === "failed" && stillRunning),
+        `stop reported ${result.outcome} while the id is ${stillRunning ? "still" : "no longer"} tracked`,
+      );
+      assert.deepStrictEqual(result, { tunnelId: "t1", outcome: "stopped" });
+      assert.deepStrictEqual(shared, result);
+      assert.ok(kill.calls.some((c) => c.pid === 500 && c.signal === "SIGTERM"), "the late process was not stopped");
+      assert.ok(!kill.calls.some((c) => c.pid === 500 && c.signal === "SIGKILL"));
+      assert.deepStrictEqual(persisted(), []);
+      assert.strictEqual(events.filter((e) => e.type === "stop").length, 1);
+    });
+
+    test("(1) a process adopted mid-stop after the deadline is reported, never signalled", async () => {
+      kill.ignore.add("SIGTERM");
+      kill.ignore.add("SIGKILL"); // the spawned child outlives the whole budget
+      await registry.start(request("t1"));
+      await registry.flush();
+      const own = persisted()[0];
+      await memento.update(OWNED_TUNNELS_KEY, [own, orphan("t1", 500)]);
+      probeAnswers.set(500, { state: "alive", executable: "cloudflared", startTimeMs: START });
+
+      const stopping = registry.stop("t1", 60);
+      await registry.reconcile();
+      const result = await stopping;
+      assert.strictEqual(result.outcome, "failed");
+      assert.strictEqual(registry.isOwned("t1"), true);
+      assert.ok(!kill.calls.some((c) => c.pid === 500), "signalled a process after the stop's time ran out");
+      assert.ok(lines.some((l) => l.level === "warn" && l.message.includes("pid 500") && l.message.includes("not signalled")));
     });
 
     test("(1) starting a tunnel id keeps an unchecked orphan record of the same id", async () => {
@@ -762,6 +813,47 @@ suite("TunnelProcessRegistry Test Suite", () => {
       assert.strictEqual(kill.calls.length, 0);
     });
 
+    test("(2) a record another window claims between this window's check and its drop survives", async () => {
+      await memento.update(OWNED_TUNNELS_KEY, [orphan("t1", 500)]);
+      probeAnswers.set(500, { state: "alive", executable: "cloudflared", startTimeMs: START });
+      // Window B's identity probe of pid 500 is held open, then comes back inconclusive
+      let probed!: () => void;
+      const probeStarted = new Promise<void>((resolve) => { probed = resolve; });
+      let answer!: (result: ProbeResult) => void;
+      const held = new Promise<ProbeResult>((resolve) => { answer = resolve; });
+      const saved = lines;
+      const b = makeRegistry({
+        ownerPid: HOST_B_PID,
+        probe: async (pid) => {
+          if (pid === 500) {
+            probed();
+            return held;
+          }
+          return probe(pid);
+        },
+      });
+      lines = saved;
+      extra.push(b);
+      const c = makeWindow(HOST_C_PID);
+
+      const bReconcile = b.reconcile();
+      await probeStarted; // B has read the record under the dead owner
+      await c.reg.reconcile(); // C verifies it and claims it
+      await c.reg.flush();
+      assert.strictEqual(c.reg.isAdopted("t1"), true);
+      answer({ state: "unknown" }); // B judges the record droppable
+      await bReconcile;
+      await b.flush();
+
+      assert.strictEqual(b.isOwned("t1"), false);
+      assert.deepStrictEqual(
+        persisted().map((r) => [r.pid, r.ownerPid]),
+        [[500, HOST_C_PID]],
+        "a record re-owned by another window was dropped, leaving its live process untracked",
+      );
+      assert.strictEqual(kill.calls.length, 0);
+    });
+
     test("(2) a failed ownership write claims nothing", async () => {
       await memento.update(OWNED_TUNNELS_KEY, [orphan("t1", 500)]);
       probeAnswers.set(500, { state: "alive", executable: "cloudflared", startTimeMs: START });
@@ -769,6 +861,14 @@ suite("TunnelProcessRegistry Test Suite", () => {
       await registry.reconcile();
       assert.strictEqual(registry.isOwned("t1"), false);
       assert.ok(lines.some((l) => l.level === "warn" && l.message.includes("could not be saved")));
+    });
+
+    test("(2) a failed write that only drops stale records says so", async () => {
+      await memento.update(OWNED_TUNNELS_KEY, [orphan("t1", 500)]);
+      probeAnswers.set(500, { state: "dead" });
+      memento.update = () => Promise.reject(new Error("storage full"));
+      await registry.reconcile();
+      assert.ok(lines.some((l) => l.level === "warn" && l.message.includes("Not dropping 1 stale tunnel record")));
     });
 
     test("(3) a failed host probe is retried, and a success afterwards lets adoption proceed", async () => {

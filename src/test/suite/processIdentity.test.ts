@@ -6,6 +6,8 @@ import {
   parsePsOutput,
   parseCimOutput,
 } from "../../services/cloudflared/processIdentity";
+import { Logger } from "../../utils/logger";
+import { createRecordingLogger } from "./fakeProcess";
 
 interface RecordedCall {
   file: string;
@@ -15,7 +17,7 @@ interface RecordedCall {
 
 /** A stub execFile that records its calls and answers with a canned result. */
 function fakeExecFile(
-  answer: { error?: Partial<cp.ExecFileException> | null; stdout?: string },
+  answer: { error?: Partial<cp.ExecFileException> | null; stdout?: string; stderr?: string },
   calls: RecordedCall[],
 ): ExecFileFn {
   return (file, args, options, callback) => {
@@ -23,7 +25,7 @@ function fakeExecFile(
     const error = answer.error
       ? Object.assign(new Error("probe failed"), answer.error)
       : null;
-    setImmediate(() => callback(error as cp.ExecFileException | null, answer.stdout ?? "", ""));
+    setImmediate(() => callback(error as cp.ExecFileException | null, answer.stdout ?? "", answer.stderr ?? ""));
   };
 }
 
@@ -165,6 +167,68 @@ suite("processIdentity Test Suite", () => {
       });
       assert.strictEqual(timedOut.state, "unknown");
       assertSafeCalls(calls);
+    });
+  });
+
+  suite("inconclusive probes are logged with their root cause", () => {
+    test("a failing ps logs the pid, the command and its error", async () => {
+      const { logger, lines } = createRecordingLogger();
+      const calls: RecordedCall[] = [];
+      const result = await probe(123, {
+        platform: "linux",
+        logger: logger as Logger,
+        execFile: fakeExecFile({ error: { code: 2 }, stderr: "ps: unknown option -- lstart\nusage: ps" }, calls),
+      });
+      assert.strictEqual(result.state, "unknown");
+      const warnings = lines.filter((l) => l.level === "warn").map((l) => l.message);
+      assert.strictEqual(warnings.length, 1, `warnings: ${JSON.stringify(warnings)}`);
+      assert.ok(warnings[0].includes("pid 123"), warnings[0]);
+      assert.ok(warnings[0].includes("(ps)"), warnings[0]);
+      assert.ok(warnings[0].includes("code 2"), warnings[0]);
+      assert.ok(warnings[0].includes("unknown option"), warnings[0]);
+      assert.ok(!warnings[0].includes("usage"), "more than the first stderr line was logged");
+    });
+
+    test("a missing ps binary and unparseable output are both logged", async () => {
+      const { logger, lines } = createRecordingLogger();
+      const calls: RecordedCall[] = [];
+      await probe(124, {
+        platform: "darwin",
+        logger: logger as Logger,
+        execFile: fakeExecFile({ error: { code: "ENOENT" as unknown as number, message: "spawn ps ENOENT" } }, calls),
+      });
+      await probe(125, { platform: "darwin", logger: logger as Logger, execFile: fakeExecFile({ stdout: "garbage" }, calls) });
+      const warnings = lines.filter((l) => l.level === "warn").map((l) => l.message);
+      assert.strictEqual(warnings.length, 2, `warnings: ${JSON.stringify(warnings)}`);
+      assert.ok(warnings[0].includes("pid 124") && warnings[0].includes("ENOENT"), warnings[0]);
+      assert.ok(warnings[1].includes("pid 125") && warnings[1].includes("unparseable"), warnings[1]);
+      assert.ok(!warnings[1].includes("garbage"), "probe output was logged");
+    });
+
+    test("a PowerShell timeout logs the pid and the command", async () => {
+      const { logger, lines } = createRecordingLogger();
+      const calls: RecordedCall[] = [];
+      const result = await probe(77, {
+        platform: "win32",
+        logger: logger as Logger,
+        execFile: fakeExecFile({ error: { killed: true, signal: "SIGTERM" } }, calls),
+      });
+      assert.strictEqual(result.state, "unknown");
+      const warning = lines.find((l) => l.level === "warn")?.message ?? "";
+      assert.ok(warning.includes("pid 77") && warning.includes("powershell.exe"), warning);
+      assert.ok(warning.includes("timed out"), warning);
+    });
+
+    test("a clean answer logs nothing", async () => {
+      const { logger, lines } = createRecordingLogger();
+      const calls: RecordedCall[] = [];
+      await probe(126, { platform: "linux", logger: logger as Logger, execFile: fakeExecFile({ error: { code: 1 } }, calls) });
+      await probe(127, {
+        platform: "linux",
+        logger: logger as Logger,
+        execFile: fakeExecFile({ stdout: "Thu Sep 24 21:18:53 2026 /usr/local/bin/cloudflared\n" }, calls),
+      });
+      assert.deepStrictEqual(lines, []);
     });
   });
 

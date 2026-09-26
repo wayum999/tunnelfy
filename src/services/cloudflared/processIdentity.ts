@@ -1,4 +1,5 @@
 import * as cp from "child_process";
+import { Logger, LogComponent } from "../../utils/logger";
 
 /**
  * What the operating system says about a pid.
@@ -28,6 +29,8 @@ export interface ProbeOptions {
   platform?: NodeJS.Platform;
   execFile?: ExecFileFn;
   timeoutMs?: number;
+  /** Receives why a probe was inconclusive; the probe itself never throws */
+  logger?: Pick<Logger, "warn">;
 }
 
 export type ProbeFn = (pid: number, opts?: ProbeOptions) => Promise<ProbeResult>;
@@ -127,16 +130,48 @@ function run(
   file: string,
   args: string[],
   options: cp.ExecFileOptions,
-): Promise<{ error: cp.ExecFileException | null; stdout: string }> {
+): Promise<{ error: cp.ExecFileException | null; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
     try {
-      execFile(file, args, options, (error, stdout) => {
-        resolve({ error, stdout: String(stdout ?? "") });
+      execFile(file, args, options, (error, stdout, stderr) => {
+        resolve({ error, stdout: String(stdout ?? ""), stderr: String(stderr ?? "") });
       });
     } catch (error) {
-      resolve({ error: error as cp.ExecFileException, stdout: "" });
+      resolve({ error: error as cp.ExecFileException, stdout: "", stderr: "" });
     }
   });
+}
+
+/**
+ * Describes a failed probe command by its exit status and the first line of its stderr.
+ * The probe command line holds only the pid, so nothing secret can reach the log.
+ */
+function describeFailure(error: cp.ExecFileException, stderr: string): string {
+  const parts: string[] = [];
+  if (error.code !== undefined && error.code !== null) {
+    parts.push(`code ${error.code}`);
+  }
+  if (error.signal) {
+    parts.push(`signal ${error.signal}`);
+  }
+  if (error.killed) {
+    parts.push("timed out");
+  }
+  const detail = stderr.trim().split("\n")[0] || error.message.split("\n")[0];
+  if (detail) {
+    parts.push(detail.slice(0, 200));
+  }
+  return parts.join(", ") || "unknown error";
+}
+
+function inconclusive(
+  logger: ProbeOptions["logger"],
+  pid: number,
+  command: string,
+  why: string,
+): ProbeResult {
+  logger?.warn(LogComponent.TUNNEL, `Process probe for pid ${pid} (${command}) was inconclusive: ${why}`);
+  return { state: "unknown" };
 }
 
 /**
@@ -151,24 +186,29 @@ export async function probe(pid: number, opts: ProbeOptions = {}): Promise<Probe
   const platform = opts.platform ?? process.platform;
   const execFile: ExecFileFn = opts.execFile ?? (cp.execFile as unknown as ExecFileFn);
   const timeout = opts.timeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS;
+  const { logger } = opts;
 
   if (platform === "win32") {
     const command =
       `Get-CimInstance Win32_Process -Filter "ProcessId=${pid}" | ` +
       "Select-Object Name,CreationDate | ConvertTo-Json -Compress";
-    const { error, stdout } = await run(
+    const { error, stdout, stderr } = await run(
       execFile,
       "powershell.exe",
       ["-NoProfile", "-NonInteractive", "-Command", command],
       { timeout, windowsHide: true, shell: false },
     );
     if (error) {
-      return { state: "unknown" };
+      return inconclusive(logger, pid, "powershell.exe", describeFailure(error, stderr));
     }
-    return parseCimOutput(stdout);
+    const result = parseCimOutput(stdout);
+    if (result.state === "unknown") {
+      return inconclusive(logger, pid, "powershell.exe", `unparseable output (${stdout.length} bytes)`);
+    }
+    return result;
   }
 
-  const { error, stdout } = await run(
+  const { error, stdout, stderr } = await run(
     execFile,
     "ps",
     ["-o", "lstart=", "-o", "comm=", "-p", String(pid)],
@@ -179,9 +219,15 @@ export async function probe(pid: number, opts: ProbeOptions = {}): Promise<Probe
     if (error.code === 1 && !error.killed && stdout.trim() === "") {
       return { state: "dead" };
     }
-    return { state: "unknown" };
+    return inconclusive(logger, pid, "ps", describeFailure(error, stderr));
   }
   const result = parsePsOutput(stdout);
   // ps succeeding with no output is not a clean "no such process" signal
-  return result.state === "dead" ? { state: "unknown" } : result;
+  if (result.state === "dead") {
+    return inconclusive(logger, pid, "ps", "exited 0 with no output");
+  }
+  if (result.state === "unknown") {
+    return inconclusive(logger, pid, "ps", `unparseable output (${stdout.length} bytes)`);
+  }
+  return result;
 }

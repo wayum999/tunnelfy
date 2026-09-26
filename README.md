@@ -503,6 +503,8 @@ If you encounter any issues or have suggestions, please:
 
 Cloudflare Tunnel CLI (`cloudflared`) allows you to securely control exposing local applications to the internet without opening firewall ports. It is an essential part of Tunnelfy functionality.
 
+Tunnelfy starts only when you open one of its views or run one of its commands, not when VS Code starts, and it checks for `cloudflared` only when an action needs it (you can turn the check off with the `tunnelfy.checkCloudflared` setting). Tunnels a window starts are stopped when that window closes or reloads. If VS Code crashes instead, any Tunnelfy tunnels it left running are picked up the next time the Tunnelfy view is opened or a Tunnelfy command runs.
+
 ### Linux Installation
 
 #### Debian/Ubuntu-based distributions

@@ -2,6 +2,13 @@
 
 All notable changes to the "tunnelfy" extension will be documented in this file.
 
+## [Unreleased]
+
+- UPDATED: Tunnelfy now starts when one of its views is opened or one of its commands runs, not when VS Code starts. Closes #11.
+- UPDATED: `cloudflared` is checked for only when an action needs it, and the `tunnelfy.checkCloudflared` setting turns the check off.
+- NOTE: If VS Code crashes, the Tunnelfy tunnels it left running are picked up the next time the Tunnelfy view is opened or a Tunnelfy command runs, no longer at startup.
+- FIXED: Views, timers and listeners are disposed when the extension shuts down, and a group expanded later lists tunnels afresh.
+
 ## [0.2.0]
 
 - SECURITY: Tunnel tokens are no longer stored on disk or passed to `cloudflared` on the command line.

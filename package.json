@@ -17,7 +17,9 @@
     "vscode": "^1.85.0"
   },
   "activationEvents": [
-    "onStartupFinished"
+    "onView:tunnelfy-profiles",
+    "onView:tunnelfy-tunnels",
+    "onView:tunnelfy-quick-tunnels"
   ],
   "categories": [
     "Other"
@@ -70,7 +72,7 @@
         "tunnelfy.checkCloudflared": {
           "type": "boolean",
           "default": true,
-          "description": "Check for cloudflared installation on startup. Disable this if you have cloudflared installed in a custom location."
+          "description": "Check for cloudflared installation before starting a tunnel. Disable this if you have cloudflared installed in a custom location."
         }
       }
     },

@@ -98,6 +98,7 @@ export class QuickTunnelTreeDataProvider
   private readonly logger = Logger.getInstance();
   private refreshInterval: NodeJS.Timeout | null = null;
   private treeView: vscode.TreeView<QuickTunnelTreeItem>;
+  private readonly tunnelEventSubscription: vscode.Disposable;
 
   constructor(public readonly tunnelManager: TunnelManager) {
     // Create the tree view
@@ -110,7 +111,7 @@ export class QuickTunnelTreeDataProvider
     this.setupAutoRefresh();
 
     // Subscribe to tunnel events
-    this.tunnelManager.onTunnelEvent((event: TunnelEvent) => {
+    this.tunnelEventSubscription = this.tunnelManager.onTunnelEvent((event: TunnelEvent) => {
       this.logger.debug(
         LogComponent.EXTENSION,
         `Quick tunnel event received: ${event.type} - ${event.tunnelId}`,
@@ -285,7 +286,10 @@ export class QuickTunnelTreeDataProvider
   dispose(): void {
     if (this.refreshInterval) {
       clearInterval(this.refreshInterval);
+      this.refreshInterval = null;
     }
+    this.tunnelEventSubscription.dispose();
     this.treeView.dispose();
+    this._onDidChangeTreeData.dispose();
   }
 }

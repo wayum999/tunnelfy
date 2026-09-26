@@ -29,6 +29,19 @@ export class CloudflareRequestTimeoutError extends Error {
 }
 
 /**
+ * Raised when a successful list response carries a result that is not an array.
+ * The message names the operation, never the request headers.
+ */
+export class CloudflareMalformedResponseError extends Error {
+  constructor(public readonly operation: string) {
+    super(
+      `Cloudflare API returned a list response whose result is not an array: ${operation}`,
+    );
+    this.name = "CloudflareMalformedResponseError";
+  }
+}
+
+/**
  * Base service class for Cloudflare API interactions
  * Handles core functionality like authentication and request handling
  */
@@ -150,7 +163,8 @@ export class BaseCloudflareService {
    * @param endpoint API endpoint to list, without paging parameters
    * @param params Extra query parameters sent with every page
    * @returns Items from all pages, in API order
-   * @throws Error if any page fails
+   * @throws Error if any page fails, or if paging does not end within CLOUDFLARE_MAX_PAGES
+   * @throws CloudflareMalformedResponseError if a page's result is not an array
    * @protected
    */
   protected async makePaginatedRequest<T>(
@@ -168,7 +182,14 @@ export class BaseCloudflareService {
       const data = await this.sendRequest<T[]>(
         `${endpoint}${separator}${query.toString()}`,
       );
-      const pageItems = Array.isArray(data.result) ? data.result : [];
+      if (!Array.isArray(data.result)) {
+        const malformedError = new CloudflareMalformedResponseError(
+          `GET ${endpoint.split("?")[0]}`,
+        );
+        this.logger.error(LogComponent.API, malformedError.message);
+        throw malformedError;
+      }
+      const pageItems = data.result;
       items.push(...pageItems);
 
       const totalPages = data.result_info?.total_pages;
@@ -187,6 +208,12 @@ export class BaseCloudflareService {
 
   /**
    * Sends one authenticated, time-bounded request and returns the whole response envelope
+   * @param endpoint API endpoint to call, query string included
+   * @param method HTTP method to use
+   * @param body Optional request body, sent as JSON
+   * @returns The parsed response envelope, including result_info
+   * @throws CloudflareRequestTimeoutError if the request exceeds the timeout
+   * @throws Error if the request fails or the response is not a successful JSON envelope
    * @private
    */
   private async sendRequest<T>(

@@ -2,7 +2,9 @@ import * as assert from "assert";
 import * as vscode from "vscode";
 import {
   BaseCloudflareService,
+  CLOUDFLARE_MAX_PAGES,
   CLOUDFLARE_PAGE_SIZE,
+  CloudflareMalformedResponseError,
   CloudflareRequestTimeoutError,
 } from "../../services/cloudflareApi/baseService";
 import { TunnelService } from "../../services/cloudflareApi/tunnelService";
@@ -62,6 +64,21 @@ function pagedFetch(
       }),
       { headers: { "content-type": "application/json" } },
     );
+  }) as typeof fetch;
+}
+
+/** Answers every list call with the same JSON envelope, counting the calls */
+function envelopeFetch(
+  envelopeForPage: (page: number) => unknown,
+  seenUrls: string[],
+): typeof fetch {
+  return (async (input: string | URL | Request) => {
+    const url = new URL(String(input));
+    seenUrls.push(url.toString());
+    const page = Number(url.searchParams.get("page") ?? "1");
+    return new Response(JSON.stringify(envelopeForPage(page)), {
+      headers: { "content-type": "application/json" },
+    });
   }) as typeof fetch;
 }
 
@@ -377,6 +394,68 @@ suite("BaseCloudflareService Test Suite", () => {
         },
       );
       assert.ok(sawSignal, "fetch was not given an abort signal");
+    });
+
+    test("a page whose result is not an array rejects with a named error, not an empty list", async () => {
+      const seenUrls: string[] = [];
+      global.fetch = envelopeFetch(
+        () => ({ success: true, result: { id: "not-a-list" } }),
+        seenUrls,
+      );
+
+      await assert.rejects(
+        new TunnelService(context, profileManager).listTunnels(),
+        (error: unknown) => {
+          assert.ok(error instanceof CloudflareMalformedResponseError);
+          assert.strictEqual(error.name, "CloudflareMalformedResponseError");
+          assert.strictEqual(
+            error.operation,
+            `GET /accounts/${validAccountId}/tunnels`,
+          );
+          assert.ok(!error.message.includes("?"), "query string in error");
+          assert.ok(!error.message.includes(validApiKey), "API key in error");
+          return true;
+        },
+      );
+      assert.strictEqual(seenUrls.length, 1);
+    });
+
+    test("without total_pages, a full page asks for the next and a short page ends the list", async () => {
+      const seenUrls: string[] = [];
+      const fullPage = Array.from({ length: CLOUDFLARE_PAGE_SIZE }, (_, index) => ({
+        id: `p1-${index}`,
+      }));
+      global.fetch = envelopeFetch(
+        (page) => ({
+          success: true,
+          result: page === 1 ? fullPage : page === 2 ? [{ id: "p2-0" }] : [],
+        }),
+        seenUrls,
+      );
+
+      const items = await service.testMakePaginatedRequest<{ id: string }>("/zones");
+
+      assert.strictEqual(items.length, CLOUDFLARE_PAGE_SIZE + 1);
+      assert.strictEqual(items[items.length - 1].id, "p2-0");
+      assert.strictEqual(seenUrls.length, 2, "should stop after the short page");
+    });
+
+    test("a listing that never reaches its last page stops at the page cap", async () => {
+      const seenUrls: string[] = [];
+      global.fetch = envelopeFetch(
+        (page) => ({
+          success: true,
+          result: [{ id: `item-${page}` }],
+          result_info: { page, total_pages: Number.MAX_SAFE_INTEGER },
+        }),
+        seenUrls,
+      );
+
+      await assert.rejects(
+        service.testMakePaginatedRequest("/zones"),
+        new RegExp(`did not end after ${CLOUDFLARE_MAX_PAGES} pages: /zones$`),
+      );
+      assert.strictEqual(seenUrls.length, CLOUDFLARE_MAX_PAGES);
     });
   });
 

@@ -85,6 +85,14 @@ suite("Tunnel commands", () => {
       assert.deepStrictEqual(items.map((i) => [i.tunnelId, i.label]), [["mine", "My Tunnel"]]);
     });
 
+    test("a tunnel id with several tracked processes is listed once", async () => {
+      const items = await ownedTunnelStopItems(
+        { listOwnedTunnels: () => [owned, { ...owned, pid: 102 }] } as any,
+        { listTunnels: async () => cloudflareTunnels } as any,
+      );
+      assert.deepStrictEqual(items.map((i) => i.tunnelId), ["mine"]);
+    });
+
     test("with nothing owned the list is empty and Cloudflare is not asked", async () => {
       let asked = false;
       const items = await ownedTunnelStopItems(

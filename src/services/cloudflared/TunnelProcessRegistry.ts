@@ -13,6 +13,11 @@ export const OWNED_TUNNELS_KEY = "tunnelfy.ownedTunnels";
 
 export const DEFAULT_STOP_TIMEOUT_MS = 3000;
 export const DEFAULT_START_TIME_TOLERANCE_MS = 5000;
+/**
+ * Attempts at reading this extension host's start time before settling for ownership by
+ * pid alone. A failed attempt is retried on the next start or reconcile, up to this many.
+ */
+export const MAX_HOST_PROBE_ATTEMPTS = 3;
 const DEFAULT_POLL_INTERVAL_MS = 200;
 /** Share of a stop's budget spent waiting for a graceful exit before force-killing */
 const GRACEFUL_SHARE = 0.6;
@@ -140,6 +145,16 @@ type OwnedEntry = SpawnedEntry | AdoptedTunnel;
 
 type Verification = "verified" | "dead" | "mismatch" | "unknown";
 
+/** True when both records name the same tunnel process */
+function sameProcess(a: OwnedTunnelRecord, b: OwnedTunnelRecord): boolean {
+  return a.tunnelId === b.tunnelId && a.pid === b.pid;
+}
+
+/** True when both records name the same owner window, or both name none */
+function sameOwner(a: OwnedTunnelRecord, b: OwnedTunnelRecord): boolean {
+  return a.ownerPid === b.ownerPid && a.ownerStartedAt === b.ownerStartedAt;
+}
+
 /**
  * Who owns a persisted record: this host, another host that is still running, nobody
  * (the owner is gone, or the record predates owners), or undecidable.
@@ -205,9 +220,14 @@ function errorCode(error: unknown): string {
  * belongs to that child. globalState is shared by every VS Code window, so a record whose
  * owning window is still running is never adopted, signalled or stopped by another window.
  * It never looks up or signals a process by name, command line or port.
+ *
+ * One tunnel id can have more than one live cloudflared child (two windows each started it,
+ * and both owners are later gone), so `owned` holds every tracked process of an id. Stop
+ * and stopAll act on all of them; a verified live process is never dropped untracked.
  */
 export class TunnelProcessRegistry implements vscode.Disposable {
-  private readonly owned = new Map<string, OwnedEntry>();
+  /** Every process this window tracks, by tunnel id; an id is present only while non-empty */
+  private readonly owned = new Map<string, OwnedEntry[]>();
   private readonly reservations = new Set<string>();
   private readonly starting = new Set<string>();
   private readonly stopping = new Map<string, Promise<StopResult>>();
@@ -227,7 +247,11 @@ export class TunnelProcessRegistry implements vscode.Disposable {
   private readonly pollIntervalMs: number;
   private readonly probeTimeoutMs: number;
   private readonly ownerPid: number;
-  private host?: Promise<HostIdentity>;
+  /** Settled host identity: the start time was read, or every attempt failed */
+  private knownHost?: HostIdentity;
+  /** The host probe in flight, shared by concurrent callers */
+  private hostProbe?: Promise<HostIdentity>;
+  private hostProbeAttempts = 0;
 
   constructor(options: TunnelProcessRegistryOptions) {
     this.memento = options.memento;
@@ -245,30 +269,104 @@ export class TunnelProcessRegistry implements vscode.Disposable {
   }
 
   /**
-   * This extension host's identity, probed once and then reused. Never rejects: a host
-   * whose start time cannot be read is recorded by pid alone, which other windows treat
-   * as undecidable while that pid is alive.
+   * This extension host's identity. Never rejects. The probe result is kept once it reads a
+   * start time; a failed probe is not cached but retried on the next call, at most
+   * MAX_HOST_PROBE_ATTEMPTS times in all. Until one succeeds the host is recorded by pid
+   * alone, which other windows treat as undecidable while that pid is alive, so every
+   * failed attempt still leaves them hands off. A later success backfills the start time
+   * into the records this window holds.
    */
   private hostIdentity(): Promise<HostIdentity> {
-    if (!this.host) {
+    if (this.knownHost) {
+      return Promise.resolve(this.knownHost);
+    }
+    if (!this.hostProbe) {
       const pid = this.ownerPid;
-      this.host = this.probeFn(pid, { timeoutMs: this.probeTimeoutMs, logger: this.logger })
+      const attempt = ++this.hostProbeAttempts;
+      this.hostProbe = this.probeFn(pid, { timeoutMs: this.probeTimeoutMs, logger: this.logger })
         .catch((error: unknown) => {
           this.logger.warn(LogComponent.TUNNEL, `Probing this window's host (pid ${pid}) failed: ${errorCode(error)}`);
           return { state: "unknown" as const };
         })
         .then((result): HostIdentity => {
+          this.hostProbe = undefined;
           if (result.state === "alive") {
-            return { pid, startedAt: result.startTimeMs };
+            const host = { pid, startedAt: result.startTimeMs };
+            this.knownHost = host;
+            if (attempt > 1) {
+              this.backfillHostStart(host);
+            }
+            return host;
           }
+          const final = attempt >= MAX_HOST_PROBE_ATTEMPTS;
           this.logger.warn(
             LogComponent.TUNNEL,
-            `Could not read this window's host start time (pid ${pid}, ${result.state}); recording ownership by pid only`,
+            `Could not read this window's host start time (pid ${pid}, ${result.state}, attempt ${attempt} of ${MAX_HOST_PROBE_ATTEMPTS}); ` +
+              (final ? "recording ownership by pid only from now on" : "recording ownership by pid only until a retry succeeds"),
           );
-          return { pid };
+          const host = { pid };
+          if (final) {
+            this.knownHost = host;
+          }
+          return host;
         });
     }
-    return this.host;
+    return this.hostProbe;
+  }
+
+  /**
+   * Adds this host's start time to the records it holds that were written by pid alone,
+   * in memory and in globalState, so other windows can decide them again. Only records
+   * this window holds are touched.
+   */
+  private backfillHostStart(host: HostIdentity): void {
+    const needsStart = (r: OwnedTunnelRecord) => r.ownerPid === host.pid && r.ownerStartedAt === undefined;
+    const held: OwnedTunnelRecord[] = [];
+    for (const entry of this.entries()) {
+      if (needsStart(entry.record)) {
+        entry.record = withOwner(entry.record, host);
+        held.push(entry.record);
+      }
+    }
+    if (held.length === 0) {
+      return;
+    }
+    this.logger.info(LogComponent.TUNNEL, `Recorded this window's host start time on ${held.length} owned tunnel(s)`);
+    void this.persist((records) =>
+      records.map((r) => (needsStart(r) && held.some((h) => sameProcess(h, r)) ? withOwner(r, host) : r)),
+    );
+  }
+
+  private entries(): OwnedEntry[] {
+    return Array.from(this.owned.values()).flat();
+  }
+
+  private holds(entry: OwnedEntry): boolean {
+    return this.owned.get(entry.record.tunnelId)?.includes(entry) ?? false;
+  }
+
+  private holdsProcess(record: OwnedTunnelRecord): boolean {
+    return this.owned.get(record.tunnelId)?.some((e) => sameProcess(e.record, record)) ?? false;
+  }
+
+  private track(entry: OwnedEntry): void {
+    const entries = this.owned.get(entry.record.tunnelId);
+    if (entries) {
+      entries.push(entry);
+    } else {
+      this.owned.set(entry.record.tunnelId, [entry]);
+    }
+  }
+
+  /** Removes one entry; the id leaves `owned` with its last entry. */
+  private untrack(entry: OwnedEntry): void {
+    const { tunnelId } = entry.record;
+    const remaining = (this.owned.get(tunnelId) ?? []).filter((e) => e !== entry);
+    if (remaining.length > 0) {
+      this.owned.set(tunnelId, remaining);
+    } else {
+      this.owned.delete(tunnelId);
+    }
   }
 
   /**
@@ -346,12 +444,13 @@ export class TunnelProcessRegistry implements vscode.Disposable {
         throw this.startFailed(tunnelId, new Error("cloudflared started without a pid"));
       }
 
+      // A retry may have read the host start time while this child was spawning
       const record: OwnedTunnelRecord = withOwner(
         { tunnelId, pid, startedAt: this.now(), kind: req.kind, target: req.target },
-        host,
+        this.knownHost ?? host,
       );
       const entry: SpawnedEntry = { record, child, adopted: false, exited };
-      this.owned.set(tunnelId, entry);
+      this.track(entry);
 
       child.on("error", (error) => {
         this.logger.error(LogComponent.TUNNEL, `Tunnel ${tunnelId} process error: ${error.message}`);
@@ -363,7 +462,7 @@ export class TunnelProcessRegistry implements vscode.Disposable {
           LogComponent.TUNNEL,
           `Tunnel ${tunnelId} (pid ${pid}) exited with code ${code}, signal ${signal}`,
         );
-        if (this.owned.get(tunnelId) === entry) {
+        if (this.holds(entry)) {
           this.release(entry, "Tunnel stopped");
         }
         try {
@@ -377,11 +476,13 @@ export class TunnelProcessRegistry implements vscode.Disposable {
         child.emit("exit", child.exitCode, child.signalCode);
       }
 
-      if (this.owned.get(tunnelId) === entry) {
-        // A record another window owns for the same tunnel id is left in place
+      if (this.holds(entry)) {
+        // Other records for this tunnel id stay: another window's, or an orphan whose
+        // process reconcile has not checked. entry.record is read at write time, so a
+        // backfilled host start time is not lost.
         void this.persist((records) => [
-          ...records.filter((r) => r.tunnelId !== tunnelId || this.ownedByAnotherHost(r, host)),
-          toRecord(record),
+          ...records.filter((r) => !sameProcess(r, entry.record)),
+          toRecord(entry.record),
         ]);
         this.logger.info(LogComponent.TUNNEL, `Tunnel ${tunnelId} started (pid ${pid})`);
         this._onDidChange.fire({
@@ -392,7 +493,7 @@ export class TunnelProcessRegistry implements vscode.Disposable {
           adopted: false,
         });
       }
-      return { record, child, adopted: false };
+      return { record: entry.record, child, adopted: false };
     } finally {
       this.starting.delete(tunnelId);
     }
@@ -405,14 +506,21 @@ export class TunnelProcessRegistry implements vscode.Disposable {
     return err;
   }
 
-  /** Removes an owned entry from memory and globalState and announces the stop. */
+  /**
+   * Removes an owned entry from memory and globalState. The stop is announced once the
+   * tunnel id has no tracked process left.
+   */
   private release(entry: OwnedEntry, message: string): void {
     const { tunnelId, pid } = entry.record;
-    if (this.owned.get(tunnelId) !== entry) {
+    if (!this.holds(entry)) {
       return;
     }
-    this.owned.delete(tunnelId);
-    void this.persist((records) => records.filter((r) => !(r.tunnelId === tunnelId && r.pid === pid)));
+    this.untrack(entry);
+    void this.persist((records) => records.filter((r) => !sameProcess(r, entry.record)));
+    if (this.owned.has(tunnelId)) {
+      this.logger.info(LogComponent.TUNNEL, `Tunnel ${tunnelId} (pid ${pid}) released; another process of it is still tracked`);
+      return;
+    }
     this._onDidChange.fire({ type: "stop", tunnelId, message, kind: entry.record.kind, adopted: entry.adopted });
   }
 
@@ -421,11 +529,12 @@ export class TunnelProcessRegistry implements vscode.Disposable {
   }
 
   isAdopted(tunnelId: string): boolean {
-    return this.owned.get(tunnelId)?.adopted ?? false;
+    return this.owned.get(tunnelId)?.some((entry) => entry.adopted) ?? false;
   }
 
+  /** One record per tracked process, so a tunnel id can appear more than once. */
   list(kind?: TunnelKind): OwnedTunnelRecord[] {
-    return Array.from(this.owned.values())
+    return this.entries()
       .map((entry) => entry.record)
       .filter((record) => !kind || record.kind === kind)
       .map(toRecord);
@@ -433,12 +542,14 @@ export class TunnelProcessRegistry implements vscode.Disposable {
 
   /**
    * Stops an owned tunnel by its recorded pid: graceful termination, a bounded wait,
-   * then a force-kill only while the process is still the verified child.
+   * then a force-kill only while the process is still the verified child. Every process
+   * this window tracks for the id is stopped concurrently; the result is stopped only when
+   * all of them stopped, else the first failure.
    * @param timeoutMs total budget for the stop
    */
   stop(tunnelId: string, timeoutMs: number = DEFAULT_STOP_TIMEOUT_MS): Promise<StopResult> {
-    const entry = this.owned.get(tunnelId);
-    if (!entry) {
+    const entries = [...(this.owned.get(tunnelId) ?? [])];
+    if (entries.length === 0) {
       return Promise.resolve({ tunnelId, outcome: "not-owned" });
     }
     const inFlight = this.stopping.get(tunnelId);
@@ -446,15 +557,20 @@ export class TunnelProcessRegistry implements vscode.Disposable {
       return inFlight;
     }
     const deadline = this.now() + Math.max(0, timeoutMs);
-    const stopping = (entry.adopted ? this.stopAdopted(entry, deadline) : this.stopSpawned(entry, deadline))
-      .catch((error): StopResult => ({ tunnelId, outcome: "failed", reason: `error: ${errorCode(error)}` }))
-      .then((result) => {
-        this.logger.info(
-          LogComponent.TUNNEL,
-          `Stop tunnel ${tunnelId} (pid ${entry.record.pid}): ${result.outcome}${result.reason ? ` (${result.reason})` : ""}`,
-        );
-        return result;
-      })
+    const stopping = Promise.all(
+      entries.map((entry) =>
+        (entry.adopted ? this.stopAdopted(entry, deadline) : this.stopSpawned(entry, deadline))
+          .catch((error): StopResult => ({ tunnelId, outcome: "failed", reason: `error: ${errorCode(error)}` }))
+          .then((result) => {
+            this.logger.info(
+              LogComponent.TUNNEL,
+              `Stop tunnel ${tunnelId} (pid ${entry.record.pid}): ${result.outcome}${result.reason ? ` (${result.reason})` : ""}`,
+            );
+            return result;
+          }),
+      ),
+    )
+      .then((results): StopResult => results.find((r) => r.outcome !== "stopped") ?? { tunnelId, outcome: "stopped" })
       .finally(() => this.stopping.delete(tunnelId));
     this.stopping.set(tunnelId, stopping);
     return stopping;
@@ -626,11 +742,6 @@ export class TunnelProcessRegistry implements vscode.Disposable {
     return "verified";
   }
 
-  /** True when the record names an owner host other than `host`. */
-  private ownedByAnotherHost(record: OwnedTunnelRecord, host: HostIdentity): boolean {
-    return record.ownerPid !== undefined && this.ownershipOf(record, host) !== "self";
-  }
-
   private ownershipOf(record: OwnedTunnelRecord, host: HostIdentity): Ownership | undefined {
     if (record.ownerPid === undefined) {
       // Written before records carried an owner
@@ -683,13 +794,14 @@ export class TunnelProcessRegistry implements vscode.Disposable {
    * Checks every persisted record against the live process table. A record whose owner
    * window is still running, or whose owner cannot be determined, is left in place and
    * never touched. Of the rest, verified records are adopted (owned, running, stoppable)
-   * and rewritten to this window; dead, reused or unverifiable pids are dropped without
-   * ever being signalled. Never throws.
+   * and rewritten to this window, even when this window already tracks another process of
+   * the same tunnel id; dead, reused or unverifiable pids are dropped without ever being
+   * signalled. Adoption is exclusive: see claimOrphans. Never throws.
    */
   async reconcile(): Promise<void> {
     try {
       const host = await this.hostIdentity();
-      const records = (await this.load()).filter((r) => !this.owned.has(r.tunnelId));
+      const records = (await this.load()).filter((r) => !this.holdsProcess(r));
       const checked = await Promise.all(
         records.map(async (record) => {
           const owner = await this.ownerOf(record, host);
@@ -700,7 +812,7 @@ export class TunnelProcessRegistry implements vscode.Disposable {
         }),
       );
       const dropped: OwnedTunnelRecord[] = [];
-      const adopted: AdoptedTunnel[] = [];
+      const candidates: OwnedTunnelRecord[] = [];
       for (const { record, owner, identity } of checked) {
         if (identity === undefined) {
           if (owner === "unknown") {
@@ -716,10 +828,10 @@ export class TunnelProcessRegistry implements vscode.Disposable {
           }
           continue;
         }
-        if (identity === "verified" && !this.owned.has(record.tunnelId)) {
-          const entry: AdoptedTunnel = { record: withOwner(record, host), adopted: true };
-          this.owned.set(record.tunnelId, entry);
-          adopted.push(entry);
+        if (identity === "verified") {
+          if (!candidates.some((c) => sameProcess(c, record))) {
+            candidates.push(record);
+          }
         } else {
           dropped.push(record);
           if (identity === "unknown") {
@@ -729,14 +841,10 @@ export class TunnelProcessRegistry implements vscode.Disposable {
           }
         }
       }
-      if (dropped.length > 0 || adopted.length > 0) {
-        const same = (a: OwnedTunnelRecord, b: OwnedTunnelRecord) => a.tunnelId === b.tunnelId && a.pid === b.pid;
-        await this.persist((current) =>
-          current
-            .filter((r) => !dropped.some((d) => same(d, r)))
-            .map((r) => adopted.find((a) => same(a.record, r))?.record ?? r),
-        );
+      if (dropped.length === 0 && candidates.length === 0) {
+        return;
       }
+      const adopted = await this.claimOrphans(candidates, dropped, host);
       for (const entry of adopted) {
         this.logger.info(
           LogComponent.TUNNEL,
@@ -753,6 +861,62 @@ export class TunnelProcessRegistry implements vscode.Disposable {
     } catch (error) {
       this.logger.warn(LogComponent.TUNNEL, `Reconciling owned tunnels failed: ${errorCode(error)}`);
     }
+  }
+
+  /**
+   * Drops `dropped` and takes each candidate with a compare-and-set on its owner: the
+   * persisted record is re-read, and rewritten to this host only if it still names the
+   * owner reconcile saw (the dead window, or none for a legacy record). A record another
+   * window has re-owned in the meantime, or one that is gone, is left alone. Nothing is
+   * claimed if the write fails.
+   *
+   * globalState has no transactions. The compare and the write run in one synchronous
+   * step (no await between the read and memento.update), so two reconciles in this window,
+   * or two windows whose writes have already reached each other, cannot both win. The
+   * remaining window of risk: VS Code replicates globalState between windows
+   * asynchronously, so two windows reconciling within that replication delay can each read
+   * the dead owner and both claim the record. Each still identity-verifies before any
+   * signal, so the worst case is two windows listing, and able to stop, the same verified
+   * tunnel.
+   */
+  private async claimOrphans(
+    candidates: OwnedTunnelRecord[],
+    dropped: OwnedTunnelRecord[],
+    host: HostIdentity,
+  ): Promise<AdoptedTunnel[]> {
+    let won: AdoptedTunnel[] = [];
+    const written = await this.persist((current) => {
+      won = [];
+      return current
+        .filter((r) => !dropped.some((d) => sameProcess(d, r)))
+        .map((r) => {
+          const seen = candidates.find((c) => sameProcess(c, r));
+          if (!seen || !sameOwner(seen, r) || this.holdsProcess(r)) {
+            return r;
+          }
+          const entry: AdoptedTunnel = { record: withOwner(r, host), adopted: true };
+          won.push(entry);
+          return entry.record;
+        });
+    });
+    if (!written) {
+      if (candidates.length > 0) {
+        this.logger.warn(LogComponent.TUNNEL, `Not adopting ${candidates.length} tunnel(s): their ownership could not be saved`);
+      }
+      return [];
+    }
+    for (const candidate of candidates) {
+      if (!won.some((entry) => sameProcess(entry.record, candidate))) {
+        this.logger.info(
+          LogComponent.TUNNEL,
+          `Tunnel ${candidate.tunnelId} (pid ${candidate.pid}) was claimed by another window first; leaving it`,
+        );
+      }
+    }
+    for (const entry of won) {
+      this.track(entry);
+    }
+    return won;
   }
 
   /**
@@ -782,18 +946,22 @@ export class TunnelProcessRegistry implements vscode.Disposable {
 
   /**
    * Serialised read-modify-write of the persisted records, so records written by
-   * another window sharing globalState are not overwritten wholesale.
+   * another window sharing globalState are not overwritten wholesale. The read and the
+   * write start in one synchronous step. Resolves true once written, false if it failed.
    */
-  private persist(mutate: (records: OwnedTunnelRecord[]) => OwnedTunnelRecord[]): Promise<void> {
-    this.persistChain = this.persistChain
+  private persist(mutate: (records: OwnedTunnelRecord[]) => OwnedTunnelRecord[]): Promise<boolean> {
+    const write = this.persistChain
       .then(async () => {
         const next = mutate(this.readPersisted().valid).map(toRecord);
         await this.memento.update(OWNED_TUNNELS_KEY, next);
+        return true;
       })
       .catch((error) => {
         this.logger.warn(LogComponent.TUNNEL, `Failed to persist owned tunnels: ${errorCode(error)}`);
+        return false;
       });
-    return this.persistChain;
+    this.persistChain = write.then(() => undefined);
+    return write;
   }
 
   /** Resolves once every queued globalState write has completed. */

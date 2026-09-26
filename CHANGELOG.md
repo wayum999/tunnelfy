@@ -2,8 +2,12 @@
 
 All notable changes to the "tunnelfy" extension will be documented in this file.
 
-## [Unreleased]
+## [0.2.1] - 2026-09-26
 
+- UPDATED: Cloudflare lists (tunnels, zones, DNS records) now load every page, not just the first.
+- UPDATED: Deleted tunnels are filtered out by Cloudflare itself.
+- UPDATED: Cloudflare API requests time out after 15 seconds.
+- FIXED: A failed or malformed list now shows an error in the tree instead of an empty list.
 - UPDATED: Tunnelfy now starts when one of its views is opened or one of its commands runs, not when VS Code starts. Closes #11.
 - UPDATED: `cloudflared` is checked for only when an action needs it, and the `tunnelfy.checkCloudflared` setting turns the check off.
 - NOTE: If VS Code crashes, the Tunnelfy tunnels it left running are picked up the next time the Tunnelfy view is opened or a Tunnelfy command runs, no longer at startup.

@@ -102,10 +102,10 @@ _DEV/cloudflare-tunnel-vscode-EXAMPLE
 !./versions
 
 
-# Compiled JavaScript files
-*.js
-!tunnelfy/esbuild.js
-*.js.map
+# Compiled output from tsc (esbuild writes to dist/, tests to out/, both ignored above)
+src/**/*.js
+src/**/*.js.map
+src/**/*.d.ts
 run_merge_branch_main.sh
 install_vscode.sh
 

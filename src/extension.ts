@@ -39,7 +39,7 @@ export const DEACTIVATE_STOP_TIMEOUT_MS = 3000;
 /**
  * Extension Activation Event
  * This is the entry point of the extension, called when:
- * 1. VS Code starts up (due to 'onStartupFinished' in package.json)
+ * 1. One of the extension's views is opened ('onView:' in package.json)
  * 2. User activates a command from this extension
  * 
  * The function:
@@ -84,7 +84,6 @@ export async function activate(context: vscode.ExtensionContext) {
             quickTunnelProvider
         );
 
-
         // Register all command handlers
         const tunnelCommandDisposables = registerTunnelCommands(
             context,
@@ -115,27 +114,17 @@ export async function activate(context: vscode.ExtensionContext) {
         // Register the cloudflared installation instructions command
         context.subscriptions.push(
             vscode.commands.registerCommand('tunnelfy.showCloudflaredInstallInstructions', async () => {
-                await checkAndPromptCloudflared(logger);
+                await checkAndPromptCloudflared(logger, { force: true });
             })
         );
 
         // Recognise tunnels an earlier session started; runs in the background
         startReconcile(manager, logger);
 
-        // Check for cloudflared installation if enabled in settings
-        const config = vscode.workspace.getConfiguration('tunnelfy');
-        const checkCloudflared = config.get<boolean>('checkCloudflared', true);
-        
-        if (checkCloudflared) {
-            await checkAndPromptCloudflared(logger);
-        } else {
-            logger.debug(LogComponent.EXTENSION, 'Cloudflared check disabled by configuration');
-            // Update status bar to indicate check is disabled
-            cloudflaredStatusBarItem.text = `$(cloud)`;
-            cloudflaredStatusBarItem.tooltip = 'Cloudflared check disabled in settings';
-        }
-
-        // Show the status bar item
+        // cloudflared is not probed here: the actions that run it check for it
+        // when they need it, so activation never spawns it or fails for its absence
+        cloudflaredStatusBarItem.text = `$(cloud)`;
+        cloudflaredStatusBarItem.tooltip = 'Tunnelfy: cloudflared is checked when a tunnel starts';
         cloudflaredStatusBarItem.show();
 
         logger.info(LogComponent.EXTENSION, 'Tunnelfy extension activated successfully', { preserveFocus: true });

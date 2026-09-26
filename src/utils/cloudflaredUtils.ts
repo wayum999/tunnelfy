@@ -11,10 +11,25 @@ export function setCloudflaredStatusBarItem(statusBarItem: vscode.StatusBarItem)
 }
 
 /**
- * Checks if cloudflared is installed and prompts for installation if not
- * @returns true if cloudflared is installed, false otherwise
+ * Checks if cloudflared is installed and prompts for installation if not.
+ * Called by the actions that run cloudflared, never at activation. When the
+ * `tunnelfy.checkCloudflared` setting is off the check is skipped (the action's own
+ * spawn reports a missing binary) unless `force` is set, as for the explicit
+ * "show install instructions" command.
+ * @returns true if cloudflared is installed or the check is disabled, false otherwise
  */
-export async function checkAndPromptCloudflared(logger: Logger): Promise<boolean> {
+export async function checkAndPromptCloudflared(
+    logger: Logger,
+    options: { force?: boolean } = {}
+): Promise<boolean> {
+    const checkEnabled = vscode.workspace
+        .getConfiguration('tunnelfy')
+        .get<boolean>('checkCloudflared', true);
+    if (!checkEnabled && !options.force) {
+        logger.debug(LogComponent.EXTENSION, 'Cloudflared check disabled by configuration');
+        return true;
+    }
+
     const execAsync = promisify(cp.exec);
     
     // On Linux, check common installation paths if the direct command fails

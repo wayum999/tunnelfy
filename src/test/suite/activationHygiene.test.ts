@@ -12,6 +12,7 @@ import { QuickTunnelTreeDataProvider } from "../../views/quickTunnelTreeView";
 import { TunnelManager } from "../../services/cloudflared";
 import { ProfileManager } from "../../services/profileManager";
 import { Logger } from "../../utils/logger";
+import { Messages } from "../../utils/messages";
 
 const VIEW_IDS = ["tunnelfy-profiles", "tunnelfy-tunnels", "tunnelfy-quick-tunnels"];
 
@@ -113,7 +114,7 @@ function mockExtensionContext(storageDir: string): vscode.ExtensionContext {
   } as unknown as vscode.ExtensionContext;
 }
 
-suite("Activation hygiene (TUNNEL-85)", () => {
+suite("Activation hygiene (TUNNEL-85, TUNNEL-86)", () => {
   let sandbox: sinon.SinonSandbox;
   let treeViews: Array<{ id: string; view: TrackedDisposable }>;
 
@@ -201,7 +202,7 @@ suite("Activation hygiene (TUNNEL-85)", () => {
     });
   });
 
-  suite("activate (85.1, 85.2)", () => {
+  suite("activate (85.1, 85.2, 86.2)", () => {
     let storageDir: string;
     let context: vscode.ExtensionContext;
     let childProcessCalls: string[];
@@ -255,6 +256,14 @@ suite("Activation hygiene (TUNNEL-85)", () => {
       assert.deepStrictEqual(registrations, [...VIEW_IDS].sort());
     });
 
+    test("activation neither spawns nor probes cloudflared", async () => {
+      // Let any background work activation started reach child_process
+      await new Promise((resolve) => setImmediate(resolve));
+      const cloudflaredCalls = childProcessCalls.filter((call) => /cloudflared/i.test(call));
+      assert.deepStrictEqual(cloudflaredCalls, [], "activation ran cloudflared");
+      assert.ok(showErrorMessage.notCalled, "activation showed an error");
+    });
+
     test("disposing the extension's subscriptions clears every timer and listener", () => {
       assert.ok(clock.countTimers() > 0, "expected activation to set the auto-refresh interval");
 
@@ -264,5 +273,23 @@ suite("Activation hygiene (TUNNEL-85)", () => {
       const undisposed = treeViews.filter(({ view }) => !view.disposed).map(({ id }) => id);
       assert.deepStrictEqual(undisposed, [], "tree views left undisposed");
     });
+
+    for (const commandId of ["tunnelfy.startTunnel", "tunnelfy.createQuickTunnel"]) {
+      test(`${commandId} with no cloudflared shows the missing-binary message`, async () => {
+        const showQuickPick = sandbox.stub(vscode.window, "showQuickPick").resolves(undefined);
+        const showInputBox = sandbox.stub(vscode.window, "showInputBox").resolves(undefined);
+        const handler = commandHandlers.get(commandId);
+        assert.ok(handler, `${commandId} was not registered`);
+
+        await handler();
+
+        assert.ok(
+          showErrorMessage.getCalls().some((call) => call.args[0] === Messages.CLOUDFLARED_NOT_FOUND.message),
+          "missing-binary message not shown",
+        );
+        assert.ok(childProcessCalls.some((call) => /cloudflared/.test(call)), "the action did not check for cloudflared");
+        assert.ok(showQuickPick.notCalled && showInputBox.notCalled, "the action went on without cloudflared");
+      });
+    }
   });
 });

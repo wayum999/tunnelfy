@@ -355,6 +355,17 @@ suite("Tunnelfy Extension Test Suite", () => {
     await stopOwnedTunnels(undefined);
   });
 
+  test("stopOwnedTunnels logs a warning when the deactivation backstop fires, and only then", async () => {
+    const { logger, lines } = createRecordingLogger();
+    await stopOwnedTunnels({ stopAllOwned: () => new Promise(() => {}) }, 50, logger as Logger);
+    const backstop = lines.filter((l) => l.level === "warn" && l.message.includes("did not settle within 300 ms"));
+    assert.strictEqual(backstop.length, 1, `lines: ${JSON.stringify(lines)}`);
+
+    lines.length = 0;
+    await stopOwnedTunnels({ stopAllOwned: async () => [] }, 50, logger as Logger);
+    assert.deepStrictEqual(lines, [], "warned although every stop settled");
+  });
+
   test("activation starts reconcile without awaiting it, and logs its failure (2.1)", async () => {
     const { logger, lines } = createRecordingLogger();
     let resolveReconcile!: () => void;

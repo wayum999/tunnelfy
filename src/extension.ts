@@ -165,11 +165,11 @@ export async function stopOwnedTunnels(
         return;
     }
     let timer: NodeJS.Timeout | undefined;
-    const bound = new Promise<void>((resolve) => {
-        timer = setTimeout(resolve, timeoutMs + 250);
+    const bound = new Promise<'backstop'>((resolve) => {
+        timer = setTimeout(() => resolve('backstop'), timeoutMs + 250);
     });
     try {
-        await Promise.race([
+        const winner = await Promise.race([
             manager.stopAllOwned(timeoutMs).then(
                 (results) => {
                     const unconfirmed = results.filter((result) => result.outcome === 'failed');
@@ -190,6 +190,13 @@ export async function stopOwnedTunnels(
             ),
             bound,
         ]);
+        if (winner === 'backstop') {
+            logger.warn(
+                LogComponent.EXTENSION,
+                `Stopping owned tunnels on deactivate did not settle within ${timeoutMs + 250} ms; ` +
+                    'continuing shutdown, and any tunnel not confirmed stopped stays recorded for the next reconcile'
+            );
+        }
     } finally {
         clearTimeout(timer);
     }

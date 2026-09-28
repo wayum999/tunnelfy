@@ -81,7 +81,9 @@ export async function ownedTunnelStopItems(
       `Could not load tunnel names for the stop list: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
-  return owned.map((record) => {
+  // One tunnel id can have several tracked processes; stopping it stops all of them
+  const unique = owned.filter((record, index) => owned.findIndex((r) => r.tunnelId === record.tunnelId) === index);
+  return unique.map((record) => {
     const name = names.get(record.tunnelId) ?? record.tunnelId;
     return {
       label: name,

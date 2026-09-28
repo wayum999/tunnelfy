@@ -2,6 +2,12 @@
 
 All notable changes to the "tunnelfy" extension will be documented in this file.
 
+## [0.2.2] - 2026-09-28
+
+- FIXED: A tunnel left running by a crashed window is no longer dropped untracked, and only one window takes it over.
+- FIXED: Stop now also stops a process picked up while stopping, or reports truthfully that it is still running.
+- FIXED: A failed window-identity check is retried instead of being remembered for the whole session.
+
 ## [0.2.1] - 2026-09-26
 
 - UPDATED: Cloudflare lists (tunnels, zones, DNS records) now load every page, not just the first.

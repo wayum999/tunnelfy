@@ -6,9 +6,11 @@ import { Logger, LogComponent } from "../utils/logger";
 
 /**
  * Tunnel names flow into file names, YAML keys and systemd unit names, so only
- * a conservative character set is accepted.
+ * a conservative character set is accepted. A period is allowed after the first
+ * character (e.g. app.example.com); the leading letter or digit rules out `.`,
+ * `..` and hidden files.
  */
-export const TUNNEL_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/;
+export const TUNNEL_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/;
 
 /** File mode for generated files holding the tunnel token (owner read/write only). */
 export const ENV_FILE_MODE = 0o600;
@@ -22,7 +24,7 @@ export function tunnelNameError(name: string): string | null {
   if (TUNNEL_NAME_PATTERN.test(name)) {
     return null;
   }
-  return "Tunnel name must start with a letter or digit and contain only letters, digits, '-' and '_' (max 63 characters)";
+  return "Tunnel name must start with a letter or digit and contain only letters, digits, '.', '-' and '_' (max 63 characters)";
 }
 
 /**

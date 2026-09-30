@@ -62,6 +62,41 @@ suite("Service file safety", () => {
     }
   });
 
+  test("tunnel names containing a period are accepted after the first character", () => {
+    for (const good of ["app.example.com", "my.tunnel-1", "a_b.c", "a..b", "v1.2", `a.${"b".repeat(61)}`]) {
+      assert.strictEqual(tunnelNameError(good), null, `rejected ${good}`);
+      assert.doesNotThrow(() => assertValidTunnelName(good));
+    }
+    for (const bad of [
+      "",
+      ".hidden",
+      ".",
+      "..",
+      "-x",
+      "a/b",
+      "a b",
+      "a;b",
+      "a.b/../c",
+      `a.${"b".repeat(62)}`,
+      "a".repeat(64),
+    ]) {
+      assert.notStrictEqual(tunnelNameError(bad), null, `accepted ${JSON.stringify(bad)}`);
+      assert.throws(() => assertValidTunnelName(bad));
+    }
+    assert.match(tunnelNameError("") ?? "", /'\.'/, "message does not list '.' as allowed");
+  });
+
+  test("resolveInsideWorkspace keeps dotted names inside the workspace", () => {
+    for (const fileName of ["cloudflared-a..b.env", "docker-compose.a..b.yml", "cloudflare.app.example.com.env"]) {
+      const resolved = resolveInsideWorkspace(workspaceRoot, fileName);
+      assert.strictEqual(resolved, path.join(workspaceRoot, fileName));
+      assert.strictEqual(path.dirname(resolved), workspaceRoot);
+    }
+    for (const escape of ["../a..b.env", "..", "a..b/../../x.env"]) {
+      assert.throws(() => resolveInsideWorkspace(workspaceRoot, escape), /outside the workspace/);
+    }
+  });
+
   test("resolveInsideWorkspace refuses paths that escape the workspace", () => {
     assert.strictEqual(
       resolveInsideWorkspace(workspaceRoot, "cloudflare.ok.env"),
@@ -190,7 +225,7 @@ suite("Service file generators", () => {
 
     assert.strictEqual(composePath, path.join(workspaceRoot, "docker-compose.web-app.yml"));
     const compose = fs.readFileSync(composePath, "utf8");
-    assert.ok(compose.includes("  web-app:\n"));
+    assert.ok(compose.includes('  "web-app":\n'));
     assert.ok(compose.includes("--url http://host.docker.internal:8080 run"));
     assert.ok(!compose.includes(FAKE_TOKEN), "token leaked into compose file");
     assertEnvFile(path.join(workspaceRoot, "cloudflare.web-app.env"), "cloudflare.web-app.env");
@@ -227,6 +262,62 @@ suite("Service file generators", () => {
       );
       assert.deepStrictEqual(opened, [result.servicePath]);
     });
+  }
+
+  for (const dotted of ["app.example.com", "a..b"]) {
+    test(`DockerComposeGenerator and SystemServiceGenerator write files for the dotted name ${dotted} inside the workspace`, async () => {
+      const composePath = await pointAt(
+        new DockerComposeGenerator(tunnelManager, apiService),
+      ).generateComposeFile("tunnel-id", dotted, 8080);
+      assert.strictEqual(composePath, path.join(workspaceRoot, `docker-compose.${dotted}.yml`));
+      const compose = fs.readFileSync(composePath, "utf8");
+      assert.ok(compose.includes(`services:\n  "${dotted}":\n`), "compose service key is not quoted");
+      assertEnvFile(path.join(workspaceRoot, `cloudflare.${dotted}.env`), `cloudflare.${dotted}.env`);
+
+      const unitResult = await pointAt(
+        new SystemServiceGenerator(tunnelManager, apiService),
+      ).generateServiceFile("tunnel-id", dotted, 3000);
+      assert.strictEqual(unitResult.servicePath, path.join(workspaceRoot, `cloudflared-${dotted}.service`));
+      const unit = fs.readFileSync(unitResult.servicePath!, "utf8");
+      // A dotted unit name needs the explicit suffix, e.g. "x.timer" would name a timer unit
+      assert.ok(unit.includes(`systemctl start cloudflared-${dotted}.service\n`), "systemctl line lacks .service");
+      assert.ok(unit.includes(`EnvironmentFile=/etc/cloudflared/cloudflared-${dotted}.env`));
+      assertEnvFile(unitResult.envPath!, `cloudflared-${dotted}.env`);
+
+      assert.deepStrictEqual(fs.readdirSync(workspaceRoot).sort(), [
+        `cloudflare.${dotted}.env`,
+        `cloudflared-${dotted}.env`,
+        `cloudflared-${dotted}.service`,
+        `docker-compose.${dotted}.yml`,
+      ]);
+      assert.deepStrictEqual(
+        fs.readdirSync(path.dirname(workspaceRoot)).filter((f) => f.includes(dotted)),
+        [],
+        "a file was written outside the workspace",
+      );
+    });
+
+    for (const serviceType of ["docker", "system"] as const) {
+      test(`ServiceGenerator (${serviceType}) writes files for the dotted name ${dotted} inside the workspace`, async () => {
+        const result = await pointAt(
+          new ServiceGenerator(tunnelManager, apiService),
+        ).generateServiceFile("tunnel-id", dotted, 8080, serviceType);
+
+        const service = fs.readFileSync(result.servicePath!, "utf8");
+        const expected =
+          serviceType === "docker"
+            ? { service: `docker-compose.${dotted}.yml`, env: `cloudflare.${dotted}.env` }
+            : { service: `cloudflared-${dotted}.service`, env: `cloudflared-${dotted}.env` };
+        assert.strictEqual(result.servicePath, path.join(workspaceRoot, expected.service));
+        if (serviceType === "docker") {
+          assert.ok(service.includes(`services:\n  "${dotted}":\n`), "compose service key is not quoted");
+        } else {
+          assert.ok(service.includes(`systemctl start cloudflared-${dotted}.service\n`), "systemctl line lacks .service");
+        }
+        assertEnvFile(result.envPath!, expected.env);
+        assert.deepStrictEqual(fs.readdirSync(workspaceRoot).sort(), [expected.env, expected.service].sort());
+      });
+    }
   }
 
   test("every generator rejects an unsafe tunnel name before writing anything", async () => {

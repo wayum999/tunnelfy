@@ -194,7 +194,7 @@ export class DockerComposeGenerator {
 #
 
 services:
-  ${tunnelName}:
+  "${tunnelName}":
     image: cloudflare/cloudflared:latest
     command: tunnel --no-autoupdate --url http://host.docker.internal:${port} run
     env_file:

@@ -2,6 +2,10 @@
 
 All notable changes to the "tunnelfy" extension will be documented in this file.
 
+## [Unreleased]
+
+- FIXED: Tunnel names containing a period (e.g. app.example.com) are accepted again.
+
 ## [0.2.2] - 2026-09-28
 
 - FIXED: A tunnel left running by a crashed window is no longer dropped untracked, and only one window takes it over.

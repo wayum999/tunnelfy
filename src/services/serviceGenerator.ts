@@ -281,7 +281,7 @@ export class ServiceGenerator {
 #
 
 services:
-  ${tunnelName}:
+  "${tunnelName}":
     image: cloudflare/cloudflared:latest
     command: tunnel --no-autoupdate --url http://host.docker.internal:${port} run
     env_file:
@@ -307,14 +307,14 @@ services:
 # 2. Copy the environment file to /etc/cloudflared/cloudflared-${tunnelName}.env
 # 3. Start the service:
 #    sudo systemctl daemon-reload
-#    sudo systemctl enable cloudflared-${tunnelName}
-#    sudo systemctl start cloudflared-${tunnelName}
+#    sudo systemctl enable cloudflared-${tunnelName}.service
+#    sudo systemctl start cloudflared-${tunnelName}.service
 #
 # To stop the service:
-#    sudo systemctl stop cloudflared-${tunnelName}
+#    sudo systemctl stop cloudflared-${tunnelName}.service
 #
 # To view logs:
-#    sudo journalctl -u cloudflared-${tunnelName}
+#    sudo journalctl -u cloudflared-${tunnelName}.service
 #
 # Default Configuration:
 # --------------------
